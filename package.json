@@ -1,0 +1,21 @@
+{
+  "name": "opencommunicate",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Chat between people and agents over a private GitHub repository.",
+  "workspaces": [
+    "core",
+    "cli",
+    "app"
+  ],
+  "scripts": {
+    "build": "npm run build -w cli && npm run build -w app",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test core/test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}

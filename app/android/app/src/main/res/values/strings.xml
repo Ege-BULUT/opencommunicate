@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">OpenCommunicate</string>
+    <string name="title_activity_main">OpenCommunicate</string>
+    <string name="package_name">com.egebulut.opencommunicate</string>
+    <string name="custom_url_scheme">com.egebulut.opencommunicate</string>
+</resources>

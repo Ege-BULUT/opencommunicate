@@ -1,0 +1,19 @@
+{
+  "appId": "com.egebulut.opencommunicate",
+  "appName": "OpenCommunicate",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "LocalNotifications": {
+      "iconColor": "#3ddc97"
+    },
+    "SystemBars": {
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}
