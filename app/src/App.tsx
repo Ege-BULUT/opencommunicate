@@ -1,11 +1,63 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Bus, PALETTES, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, pictureOf, quietFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type Picture, type Quiet } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
+import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
 import { accountProblem, canSignIn, checkAccount, clearSession, desktopApp, finishSignIn, githubLogin, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
+
+/* Back: an open dialog, picture or (on a phone) chat adds a browser history entry, so the phone's back
+   gesture, the browser's Back and a mouse's back button close it instead of doing nothing or leaving. */
+function useBack(open: boolean, close: () => void) {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const id = Math.random().toString(36).slice(2);
+    history.pushState({ ocBack: id }, "");
+    let popped = false;
+    const onPop = () => { if (history.state?.ocBack !== id) { popped = true; closeRef.current(); } };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      if (!popped && history.state?.ocBack === id) history.back(); // closed on screen: drop our entry
+    };
+  }, [open]);
+}
+// Android: the WebView doesn't count pushState entries in canGoBack, so go by our own entry; with nothing
+// left to close, back puts the app in the background, as other chat apps do
+// (a reloaded page would otherwise leave the old page's listener behind, and each press would count twice)
+if (native()) {
+  const listener = NativeApp.addListener("backButton", () => { if (history.state?.ocBack) history.back(); else NativeApp.minimizeApp(); });
+  window.addEventListener("pagehide", () => { listener.then((l) => l.remove()); });
+}
+
+function useNarrow() {
+  const q = useMemo(() => matchMedia("(max-width: 760px)"), []);
+  const [narrow, setNarrow] = useState(q.matches);
+  useEffect(() => { const on = () => setNarrow(q.matches); q.addEventListener("change", on); return () => q.removeEventListener("change", on); }, [q]);
+  return narrow;
+}
+
+/** A dialog: a close button in its header, Escape and back close it, and its body scrolls on small screens. */
+function Sheet({ title, className = "", onClose, children }: { title: string; className?: string; onClose: () => void; children: ReactNode }) {
+  useBack(true, onClose);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="dialog" onClick={onClose}>
+      <div className={`card sheet ${className}`} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><h2>{title}</h2><button className="icon close" aria-label="Kapat" title="Kapat" onClick={onClose}>×</button></div>
+        {children}
+      </div>
+    </div>
+  );
+}
 const BusContext = createContext<Bus | null>(null);
 const KIND: Record<string, string> = { agent: "ajan", phone: "telefon", desktop: "masaüstü", person: "kişi" };
 const READ_KEY = "oc.read";
@@ -249,6 +301,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const title = active === "all" ? "#all" : isDm(active) ? `@${handle(devices.find((d) => d.id === dmPeer(active, me.id)) ?? { nick: "?", id: dmPeer(active, me.id) })}` : `#${groups.find((g) => g.channel === active)?.name ?? active}`;
 
   const open = (ch: string) => { setActive(ch); setMobileView("chat"); };
+  const narrow = useNarrow();
+  useBack(narrow && mobileView === "chat", () => setMobileView("list"));
   const peer = isDm(active) ? devices.find((d) => d.id === dmPeer(active, me.id)) : undefined;
   const headAvatar = peer ? <Avatar name={peer.nick} seed={peer.id} shape={peer.kind === "agent" ? "agent" : "person"} online={online(peer.id)} size={36} picture={pictureOf(peer)} />
     : <Avatar name={activeGroup?.name ?? "all"} seed={activeGroup?.channel ?? "all"} shape="group" size={36} />;
@@ -492,12 +546,7 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
         ? <img className="attach-img" src={url} alt={file.name} onClick={() => setZoom(true)} />
         : <video className="attach-video" src={url} controls playsInline preload="metadata" />}
       <div className="media-bar"><span className="muted small">{file.name} · {size(file.size)}</span><button className="mini" disabled={busy} onClick={save}>Cihaza kaydet</button></div>
-      {zoom && (
-        <div className="lightbox" onClick={() => setZoom(false)}>
-          <img src={url} alt={file.name} />
-          <div className="actions"><button className="ghost" onClick={(e) => { e.stopPropagation(); save(); }}>Cihaza kaydet</button><button className="ghost" onClick={() => setZoom(false)}>Kapat</button></div>
-        </div>
-      )}
+      {zoom && <Lightbox url={url} name={file.name} onSave={save} onClose={() => setZoom(false)} />}
     </div>
   );
   return (
@@ -506,6 +555,16 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
       <span className="media-dl">{busy ? "İndiriliyor…" : `${kind === "video" ? "▶" : "⬇"} ${size(file.size)}`}</span>
       {error && <span className="media-error">{error}</span>}
     </button>
+  );
+}
+
+function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; onSave: () => void; onClose: () => void }) {
+  useBack(true, onClose);
+  return (
+        <div className="lightbox" onClick={onClose}>
+          <img src={url} alt={name} />
+          <div className="actions"><button className="ghost" onClick={(e) => { e.stopPropagation(); onSave(); }}>Cihaza kaydet</button><button className="ghost" onClick={onClose}>Kapat</button></div>
+        </div>
   );
 }
 
@@ -561,9 +620,7 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, onQuiet, onC
   });
   const until = quiet?.until ? new Date(quiet.until).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
   return (
-    <div className="dialog" onClick={onClose}>
-      <div className="card channel-card" onClick={(e) => e.stopPropagation()}>
-        <h2>{title}</h2>
+    <Sheet title={title} className="channel-card" onClose={onClose}>
         {group && <p className="muted small">{group.members.length} üye · {admin ? "Bu grubun yöneticisisiniz." : "Üyeleri yalnız yöneticiler değiştirebilir."}</p>}
 
         <h3>Bildirimler</h3>
@@ -627,8 +684,7 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, onQuiet, onC
         </>}
         {error && <p className="error">{error}</p>}
         <div className="actions"><button className="ghost" onClick={onClose}>Kapat</button></div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -637,9 +693,7 @@ function GroupDialog({ others, onClose, onCreate }: { others: Device[]; onClose:
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   return (
-    <div className="dialog" onClick={onClose}>
-      <div className="card" onClick={(e) => e.stopPropagation()}>
-        <h2>Yeni grup</h2>
+    <Sheet title="Yeni grup" onClose={onClose}>
         <label>Grup adı<input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} autoFocus /></label>
         <div className="pick">
           {others.map((d) => (
@@ -651,8 +705,7 @@ function GroupDialog({ others, onClose, onCreate }: { others: Device[]; onClose:
           <button className="ghost" onClick={onClose}>Vazgeç</button>
           <button className="primary" disabled={!name.trim() || !picked.size || busy} onClick={async () => { setBusy(true); try { await onCreate(name.trim(), [...picked]); } finally { setBusy(false); } }}>Oluştur</button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -712,9 +765,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
     } finally { setBusy(false); }
   };
   return (
-    <div className="dialog" onClick={onClose}>
-      <div className="card" onClick={(e) => e.stopPropagation()}>
-        <h2>Ayarlar</h2>
+    <Sheet title="Ayarlar" onClose={onClose}>
         <div className="profile">
           {photo ? <span className="avatar person pic" style={{ width: 72, height: 72 }}><img src={photo.url} alt="" /></span>
             : <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={72} picture={shown} />}
@@ -775,7 +826,6 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         <div className="actions">
           <button className="ghost" onClick={onClose}>Kapat</button>
         </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }

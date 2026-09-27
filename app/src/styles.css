@@ -149,8 +149,12 @@ nav .muted.small { padding: 2px 10px; margin: 0; }
 .quiet { font-size: 13px; color: var(--muted); flex: none; }
 .badge.dim { background: var(--line); color: var(--ink); }
 .msg.tome { box-shadow: inset 3px 0 0 var(--accent); }
-.channel-card { max-height: calc(100vh - 24px - var(--sab)); overflow-y: auto; }
-.channel-card > * { flex-shrink: 0; } /* a scrolling card must not squeeze the member picker to nothing */
+/* dialogs scroll inside the screen, with their title and close button kept in view */
+.sheet { max-height: calc(100dvh - 24px - var(--sat) - var(--sab)); overflow-y: auto; overscroll-behavior: contain; padding-top: 0; }
+.sheet > * { flex-shrink: 0; } /* a scrolling card must not squeeze its parts (the member picker) to nothing */
+.sheet-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--panel); padding: 14px 0 6px; margin-bottom: -4px; }
+.sheet-head h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.close { font-size: 28px; color: var(--muted); margin-right: -8px; }
 .seg { display: flex; background: var(--sunken); border-radius: 12px; padding: 3px; gap: 3px; }
 .seg button { flex: 1; min-height: 40px; border-radius: 9px; font-size: 14px; padding: 4px 6px; }
 .seg button.on { background: var(--panel); font-weight: 650; box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
