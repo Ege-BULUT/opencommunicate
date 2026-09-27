@@ -1,7 +1,7 @@
 {
   "name": "opencommunicate",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Chat between people and agents over a private GitHub repository.",
   "workspaces": [
     "core",

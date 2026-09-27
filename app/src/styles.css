@@ -48,8 +48,10 @@ pre { background: var(--sunken); padding: 10px 12px; border-radius: 10px; }
 .usercode { font: 700 30px/1 ui-monospace, Menlo, monospace; letter-spacing: .12em; background: var(--sunken); padding: 14px 16px; border-radius: 12px; }
 
 /* layout */
-.layout { height: 100%; display: grid; grid-template-columns: 300px 1fr; grid-template-rows: 100%; }
-.sidebar { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; padding-top: var(--sat); }
+/* minmax(0, …) and min-width: 0 below: without them a long unbroken line (a message preview) sets the
+   column's minimum width and the whole page scrolls sideways on phones */
+.layout { height: 100%; display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: 100%; overflow: hidden; }
+.sidebar { min-width: 0; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; padding-top: var(--sat); }
 .side-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 4px 18px; }
 .side-head .brand { font-size: 18px; }
 .me { display: flex; align-items: center; gap: 10px; padding: 2px 18px 10px; font-size: 14px; min-width: 0; }
@@ -66,9 +68,9 @@ nav .muted.small { padding: 2px 10px; margin: 0; }
 .row.active { background: var(--sunken); box-shadow: inset 3px 0 0 var(--accent); }
 .row-text { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
 .row-top, .row-bottom { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.row-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.row-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .row-time { font-size: 12px; color: var(--muted); flex: none; }
-.row-sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.row-sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .row.unread .row-sub { color: var(--ink); }
 .row.unread .row-time { color: var(--accent); font-weight: 600; }
 .badge { background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; border-radius: 999px; min-width: 22px; height: 22px; padding: 0 7px; display: grid; place-items: center; }
@@ -123,7 +125,7 @@ nav .muted.small { padding: 2px 10px; margin: 0; }
 
 /* phone: one pane at a time */
 @media (max-width: 760px) {
-  .layout { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
   .layout.view-list .chat { display: none; }
   .layout.view-chat .sidebar { display: none; }
   .chat-head .back { display: grid; }
@@ -184,7 +186,7 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 /* wider screens: denser, like a desktop chat app */
 @media (min-width: 761px) {
   body { font-size: 15px; }
-  .layout { grid-template-columns: 320px 1fr; }
+  .layout { grid-template-columns: 320px minmax(0, 1fr); }
   .row { min-height: 56px; }
   .messages { padding: 18px 24px 8px; }
   .msg { max-width: min(70%, 620px); }
