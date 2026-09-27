@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Bus, Watcher, addressedTo, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, quietFor, wantsNotice, type Device, type Group, type GroupChange, type Message, type Quiet } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { askNotifications, imageUrl, notify, openLink, saveFile } from "./platform.ts";
@@ -230,10 +230,28 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     await watcher.refresh();
   };
   const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && (!read[ch] || m.id > read[ch])).length;
-  const online = (id: string) => presence[id] && Date.now() - Date.parse(presence[id]) < 10 * 60_000;
+  const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id]) < 10 * 60_000;
+  const [filter, setFilter] = useState("");
+  const last = (ch: string) => messages[ch]?.at(-1);
+  const recent = (a: string, b: string) => (last(b)?.id ?? "").localeCompare(last(a)?.id ?? "");
+  const shown = (label: string) => label.toLocaleLowerCase("tr-TR").includes(filter.trim().toLocaleLowerCase("tr-TR"));
+  const preview = (ch: string) => {
+    const m = last(ch);
+    if (!m) return "";
+    const body = m.system ? systemText(m, devices) : m.text || (m.files?.length ? `📎 ${m.files[0].name}` : "");
+    if (m.system) return body;
+    if (m.from === me.id) return `Siz: ${body}`;
+    return isDm(ch) ? body : `${m.fromNick}: ${body}`;
+  };
+  const seen = (id: string) => (online(id) ? "çevrimiçi" : presence[id] ? `son görülme ${when(presence[id])}` : "");
   const title = active === "all" ? "#all" : isDm(active) ? `@${handle(devices.find((d) => d.id === dmPeer(active, me.id)) ?? { nick: "?", id: dmPeer(active, me.id) })}` : `#${groups.find((g) => g.channel === active)?.name ?? active}`;
 
   const open = (ch: string) => { setActive(ch); setMobileView("chat"); };
+  const peer = isDm(active) ? devices.find((d) => d.id === dmPeer(active, me.id)) : undefined;
+  const headAvatar = peer ? <Avatar name={peer.nick} seed={peer.id} shape={peer.kind === "agent" ? "agent" : "person"} online={online(peer.id)} size={36} />
+    : <Avatar name={activeGroup?.name ?? "all"} seed={activeGroup?.channel ?? "all"} shape="group" size={36} />;
+  const headSub = peer ? [KIND[peer.kind] ?? peer.kind, seen(peer.id)].filter(Boolean).join(" · ")
+    : activeGroup ? `${activeGroup.members.length} üye` : `herkes · ${devices.length} kişi`;
   const loud = Object.keys(messages).filter((ch) => quietFor(me, ch)?.mode !== "off").reduce((n, ch) => n + unread(ch), 0);
   useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
 
@@ -258,19 +276,27 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
       <aside className="sidebar">
         <header className="side-head">
           <span className="brand">OpenCommunicate</span>
-          <button className="icon" title="Ayarlar" onClick={() => setDialog("settings")}>⚙︎</button>
+          <button className="icon" title="Ayarlar" aria-label="Ayarlar" onClick={() => setDialog("settings")}><Gear /></button>
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
-        <div className="me">{handle(me)} <span className="muted">· {session.repo.split("/")[1]}</span></div>
+        <div className="me">
+          <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} />
+          <span className="me-text"><b>{handle(me)}</b><span className="muted">{session.repo.split("/")[1]}</span></span>
+        </div>
+        <div className="filter"><input type="search" value={filter} placeholder="Sohbet ya da kişi ara" aria-label="Ara" onChange={(e) => setFilter(e.target.value)} /></div>
         <nav>
-          <ChannelRow label="#all" sub="Herkes" quiet={quiet("all")} count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />
-          <div className="section">Gruplar <button className="mini" onClick={() => setDialog("group")}>+ Yeni</button></div>
+          {shown("#all herkes") && <ChannelRow avatar={<Avatar name="all" seed="all" shape="group" />} label="#all" preview={preview("all") || "Herkes"} time={last("all")?.ts} quiet={quiet("all")} count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />}
+          <div className="section">Gruplar <button className="mini" onClick={() => setDialog("group")}>+ Yeni grup</button></div>
           {myGroups.length === 0 && <p className="muted small">Henüz grup yok.</p>}
-          {myGroups.map((g) => <ChannelRow key={g.channel} label={`#${g.name}`} sub={`${g.members.length} üye${groupAdmins(g).includes(me.id) ? " · yönetici" : ""}`} quiet={quiet(g.channel)} count={unread(g.channel)} activeCh={active === g.channel} onClick={() => open(g.channel)} />)}
-          <div className="section">Kişiler</div>
-          {others.map((d) => {
+          {myGroups.filter((g) => shown(g.name)).sort((a, b) => recent(a.channel, b.channel) || a.name.localeCompare(b.name, "tr")).map((g) => (
+            <ChannelRow key={g.channel} avatar={<Avatar name={g.name} seed={g.channel} shape="group" />} label={`#${g.name}`} preview={preview(g.channel) || `${g.members.length} üye`}
+              time={last(g.channel)?.ts} quiet={quiet(g.channel)} count={unread(g.channel)} activeCh={active === g.channel} onClick={() => open(g.channel)} />
+          ))}
+          <div className="section">Kişiler ve ajanlar</div>
+          {others.filter((d) => shown(handle(d))).sort((a, b) => recent(dmChannel(me.id, a.id), dmChannel(me.id, b.id)) || a.nick.localeCompare(b.nick, "tr")).map((d) => {
             const ch = dmChannel(me.id, d.id);
-            return <ChannelRow key={d.id} label={handle(d)} sub={KIND[d.kind] ?? d.kind} dot={online(d.id) ? "on" : "off"} quiet={quiet(ch)} count={unread(ch)} activeCh={active === ch} onClick={() => open(ch)} />;
+            return <ChannelRow key={d.id} avatar={<Avatar name={d.nick} seed={d.id} shape={d.kind === "agent" ? "agent" : "person"} online={online(d.id)} />} label={handle(d)}
+              preview={preview(ch) || [KIND[d.kind] ?? d.kind, seen(d.id)].filter(Boolean).join(" · ")} time={last(ch)?.ts} quiet={quiet(ch)} count={unread(ch)} activeCh={active === ch} onClick={() => open(ch)} />;
           })}
         </nav>
       </aside>
@@ -279,13 +305,17 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         <header className="chat-head">
           <button className="icon back" onClick={() => setMobileView("list")} aria-label="Geri">‹</button>
           <button className="title" onClick={() => setDialog("channel")} title="Sohbet ayrıntıları">
-            <b>{title}</b>
-            <span className="muted small">{activeGroup ? `${activeGroup.members.length} üye · ayrıntılar` : "bildirim ayarı"}{quiet(active) ? (quiet(active)!.mode === "off" ? " · 🔕" : " · @") : ""}</span>
+            {headAvatar}
+            <span className="title-text">
+              <b>{title}</b>
+              <span className="muted small">{headSub}{quiet(active) ? (quiet(active)!.mode === "off" ? " · sessiz" : " · sadece @mention") : ""}</span>
+            </span>
           </button>
           {status && <span className="status">{status}</span>}
+          <button className="icon info" title="Ayrıntılar" aria-label="Sohbet ayrıntıları" onClick={() => setDialog("channel")}><Info /></button>
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
-        <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} loading={status === "Yükleniyor…"} />
+        <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === "Yükleniyor…"} />
         <Composer onSend={send} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />
       </main>
 
@@ -310,13 +340,39 @@ function AccountAlert({ text, onFix }: { text: string; onFix: () => void }) {
   );
 }
 
-function ChannelRow({ label, sub, count, activeCh, dot, quiet, onClick }: { label: string; sub?: string; count: number; activeCh: boolean; dot?: "on" | "off"; quiet?: Quiet | null; onClick: () => void }) {
+const hue = (s: string) => { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+const initials = (name: string) => (name.match(/[\p{L}\p{N}]/gu) ?? ["?"]).slice(0, 2).join("").toLocaleUpperCase("tr-TR");
+
+/** People are round, agents square, groups tinted; the colour comes from the id, so it stays put. */
+function Avatar({ name, seed, shape, online, size = 40 }: { name: string; seed: string; shape: "person" | "agent" | "group"; online?: boolean; size?: number }) {
   return (
-    <button className={`row ${activeCh ? "active" : ""}`} onClick={onClick}>
-      {dot && <i className={`dot ${dot}`} />}
-      <span className="row-text"><span className="row-label">{label}</span>{sub && <span className="row-sub">{sub}</span>}</span>
-      {quiet && <span className="quiet" title={quiet.mode === "off" ? "Sessiz" : "Sadece @mention"}>{quiet.mode === "off" ? "🔕" : "@"}</span>}
-      {count > 0 && <span className={`badge ${quiet ? "dim" : ""}`}>{count}</span>}
+    <span className={`avatar ${shape}`} style={{ "--h": hue(seed), width: size, height: size, fontSize: Math.round(size * 0.38) } as CSSProperties} aria-hidden="true">
+      {seed === "all" ? "#" : initials(name)}
+      {online !== undefined && <i className={`presence ${online ? "on" : ""}`} />}
+    </span>
+  );
+}
+
+const Gear = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>;
+const Info = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>;
+const Clip = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.5 12.5 21a6 6 0 0 1-8.5-8.5L13 3.5a4 4 0 0 1 5.7 5.7L9.7 18.2a2 2 0 0 1-2.8-2.8L15 7.3" /></svg>;
+const Plane = () => <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6v6.4l12 2-12 2z" /></svg>;
+
+/** Today: the time; earlier: the day. */
+const when = (iso: string) => new Date(iso).toDateString() === new Date().toDateString() ? time(iso) : new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+
+function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, onClick }: { avatar: ReactNode; label: string; preview?: string; time?: string; count: number; activeCh: boolean; quiet?: Quiet | null; onClick: () => void }) {
+  return (
+    <button className={`row ${activeCh ? "active" : ""} ${count ? "unread" : ""}`} onClick={onClick}>
+      {avatar}
+      <span className="row-text">
+        <span className="row-top"><span className="row-label">{label}</span>{ts && <span className="row-time">{when(ts)}</span>}</span>
+        <span className="row-bottom">
+          <span className="row-sub">{preview}</span>
+          {quiet && <span className="quiet" title={quiet.mode === "off" ? "Sessiz" : "Sadece @mention"}>{quiet.mode === "off" ? "sessiz" : "@"}</span>}
+          {count > 0 && <span className={`badge ${quiet ? "dim" : ""}`}>{count}</span>}
+        </span>
+      </span>
     </button>
   );
 }
@@ -344,27 +400,33 @@ function systemText(m: Message, devices: Device[]): string {
   }
 }
 
-function MessageList({ list, me, bus, devices, loading }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; loading: boolean }) {
+function MessageList({ list, me, bus, devices, authors, loading }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
   if (!list.length) return <div className="messages empty muted">{loading ? "Mesajlar yükleniyor…" : "Henüz mesaj yok. İlk mesajı siz yazın."}</div>;
   let lastDay = "";
   return (
     <div className="messages">
-      {list.map((m) => {
+      {list.map((m, i) => {
         const d = day(m.ts);
         const sep = d !== lastDay ? (lastDay = d) : null;
-        if (m.system) return <div key={m.id}>{sep && <div className="day">{sep}</div>}<div className="system">{systemText(m, devices)}</div></div>;
+        if (m.system) return <div key={m.id} className="item">{sep && <div className="day"><span>{sep}</span></div>}<div className="system">{systemText(m, devices)}</div></div>;
         const mine = m.from === me.id;
         const toMe = !mine && !isDm(m.channel) && addressedTo(m, me);
+        const prev = list[i - 1];
+        const run = !sep && !!prev && !prev.system && prev.from === m.from && Date.parse(m.ts) - Date.parse(prev.ts) < 5 * 60_000;
+        const sender = devices.find((x) => x.id === m.from);
         return (
-          <div key={m.id}>
-            {sep && <div className="day">{sep}</div>}
+          <div key={m.id} className={`item ${run ? "run" : ""}`}>
+            {sep && <div className="day"><span>{sep}</span></div>}
+            <div className={`line ${mine ? "mine" : ""}`}>
+              {authors && !mine && (run ? <span className="avatar-gap" /> : <Avatar name={m.fromNick} seed={m.from} shape={sender?.kind === "agent" ? "agent" : "person"} size={32} />)}
             <div className={`msg ${mine ? "mine" : ""} ${toMe ? "tome" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}>
-              {!mine && <div className="who">{m.fromNick}<span className="muted">#{m.from}</span></div>}
+              {authors && !mine && !run && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">ajan</span>}</div>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
               <div className="meta">{m.failed ? "gönderilemedi" : m.pending ? "gönderiliyor…" : time(m.ts)}</div>
+            </div>
             </div>
           </div>
         );
@@ -414,11 +476,11 @@ function Composer({ onSend, people }: { onSend: (text: string, files: File[]) =>
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
-        <button className="icon" title="Dosya ekle" onClick={() => input.current?.click()}>＋</button>
+        <button className="icon attach-btn" title="Dosya ekle" aria-label="Dosya ekle" onClick={() => input.current?.click()}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-        <textarea rows={1} value={text} placeholder="Mesaj yazın" onChange={(e) => setText(e.target.value)}
+        <textarea rows={1} value={text} placeholder={people.length > 1 ? "Mesaj yazın · @ ile birini anın" : "Mesaj yazın"} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
-        <button className="primary send" onClick={submit} disabled={!text.trim() && !files.length}>Gönder</button>
+        <button className="primary send" aria-label="Gönder" onClick={submit} disabled={!text.trim() && !files.length}><Plane /><span className="send-label">Gönder</span></button>
       </div>
     </div>
   );
