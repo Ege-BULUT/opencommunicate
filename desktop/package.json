@@ -1,0 +1,19 @@
+{
+  "name": "@opencommunicate/desktop",
+  "productName": "OpenCommunicate",
+  "private": true,
+  "version": "0.2.0",
+  "description": "OpenCommunicate for macOS and Windows",
+  "author": "Ege BULUT",
+  "main": "main.cjs",
+  "scripts": {
+    "stage": "rm -rf app && cp -R ../app/dist app",
+    "start": "npm run stage && electron .",
+    "mac": "npm run stage && electron-builder --mac && for f in dist/*.dmg; do hdiutil convert \"$f\" -format ULMO -o \"$f.lzma.dmg\" -quiet && mv \"$f.lzma.dmg\" \"$f\"; done && rm -f dist/*.dmg.blockmap",
+    "win": "npm run stage && electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "^26.15.3"
+  }
+}

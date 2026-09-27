@@ -122,3 +122,26 @@ nav .muted.small { padding: 2px 10px; margin: 0; }
 @media (min-width: 761px) { .chat .alert { display: none; } }
 .actions.start { justify-content: flex-start; align-items: flex-start; }
 .actions.start .code { flex-basis: 100%; }
+
+/* chat details: header title, members, notification setting */
+.chat-head .title { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; text-align: left; padding: 2px 6px; margin-left: -6px; border-radius: 10px; }
+.chat-head .title:hover { background: var(--sunken); }
+.chat-head .title .small { font-size: 12px; line-height: 1.2; }
+.quiet { font-size: 13px; color: var(--muted); flex: none; }
+.badge.dim { background: var(--line); color: var(--ink); }
+.msg.tome { box-shadow: inset 3px 0 0 var(--accent); }
+.channel-card { max-height: calc(100vh - 24px - var(--sab)); overflow-y: auto; }
+.channel-card > * { flex-shrink: 0; } /* a scrolling card must not squeeze the member picker to nothing */
+.seg { display: flex; background: var(--sunken); border-radius: 12px; padding: 3px; gap: 3px; }
+.seg button { flex: 1; min-height: 40px; border-radius: 9px; font-size: 14px; padding: 4px 6px; }
+.seg button.on { background: var(--panel); font-weight: 650; box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+label.inline { flex-direction: row !important; align-items: center; gap: 10px !important; }
+select { font: inherit; color: var(--ink); background: var(--sunken); border: 1px solid transparent; border-radius: 10px; padding: 8px 10px; }
+.members { display: flex; flex-direction: column; gap: 2px; }
+.member { display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.member:last-child { border-bottom: 0; }
+.mini.danger { color: var(--danger); }
+.danger-fill { background: var(--danger); color: #fff; }
+.pick-person { cursor: pointer; padding: 6px 10px; }
+.chat-head .title { flex: 0 1 auto; overflow: hidden; }
+.chat-head .title b { display: block; max-width: 100%; }

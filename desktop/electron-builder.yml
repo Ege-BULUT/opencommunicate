@@ -1,0 +1,39 @@
+# Installers: `npm run mac -w desktop` / `npm run win -w desktop` after `npm run build -w app`. Unsigned (no paid certificates).
+appId: com.egebulut.opencommunicate.desktop
+productName: OpenCommunicate
+electronVersion: 44.4.5
+copyright: © 2026 Ege BULUT
+directories:
+  output: dist
+  buildResources: build
+files:
+  - main.cjs
+  - preload.cjs
+  - package.json
+  - app/**
+asar: true
+compression: maximum
+npmRebuild: false
+publish: null
+# `npm run mac` recompresses each DMG with lzma (ULMO, macOS 10.15+), about a quarter smaller; electron-builder can't write that format itself
+# only the languages the app speaks; every other Chromium locale is dead weight
+electronLanguages: [en, en-US, tr]
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.social-networking
+  icon: build/icon.png
+  identity: null
+dmg:
+  artifactName: OpenCommunicate-${version}-mac-${arch}.${ext}
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  artifactName: OpenCommunicate-${version}-windows-${arch}-setup.${ext}

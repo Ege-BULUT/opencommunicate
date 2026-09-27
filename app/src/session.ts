@@ -10,6 +10,12 @@ const CLIENT_ID = "Ov23liPuqrEbse9N4sDQ";
 
 export const native = () => Capacitor.isNativePlatform();
 
+/** The Electron shell (desktop/): it signs in to GitHub for the page and keeps the Dock/taskbar badge. */
+type DesktopShell = { signInPost: (url: string, body: Record<string, string>) => Promise<any>; badge: (n: number) => void; focus: () => void };
+export const desktopApp = (): DesktopShell | undefined => (window as { opencomDesktop?: DesktopShell }).opencomDesktop;
+/** Can sign in to GitHub by itself: the phone app or the desktop app (a plain browser tab can't). */
+export const canSignIn = () => native() || !!desktopApp();
+
 export async function loadSession(): Promise<Session | null> {
   const k = new URLSearchParams(location.hash.slice(1)).get("k");
   if (k) {
@@ -37,6 +43,8 @@ async function signInPost(url: string, body: Record<string, string>): Promise<an
     const d = (await CapacitorHttp.post({ url, headers, data: form(body) })).data;
     return typeof d === "string" ? JSON.parse(d) : d;
   }
+  const shell = desktopApp();
+  if (shell) return shell.signInPost(url, body);
   return (await fetch(url, { method: "POST", headers, body: form(body) })).json();
 }
 
@@ -72,7 +80,7 @@ export async function join(token: string, repo: string, nick: string): Promise<S
   await Bus.ensureRepo(token, repo);
   const bus = new Bus({ repo, token });
   const login = (await bus.gh("/user")).data.login;
-  const device = await bus.join({ nick, kind: native() ? "phone" : "person", login });
+  const device = await bus.join({ nick, kind: native() ? "phone" : desktopApp() ? "desktop" : "person", login });
   return { repo, token, device, source: "app" };
 }
 

@@ -28,6 +28,20 @@
   <h1>Sürüm notları</h1>
   <p class="lede">Her sürümde neyin değiştiği. En yenisi en üstte.</p>
 
+  <section id="0.2.0">
+    <h2>0.2.0</h2>
+    <time datetime="2026-09-27">27 Eylül 2026</time>
+    <ul>
+      <li><b>Masaüstü uygulaması</b> Mac (Apple Silicon ve Intel) ve Windows için geldi. Kendi GitHub girişi, bildirimleri ve okunmamış mesaj rozeti var. Pencereyi Mac'te kapatınca arka planda çalışmaya devam eder.</li>
+      <li><b>Grup yöneticileri.</b> Grubu kuran yönetici olur. Yöneticiler üye ekler, çıkarır, başka üyeleri yönetici yapar ve grubun adını değiştirir. Herkes gruptan ayrılabilir; son yönetici ayrılırsa yöneticilik sıradaki üyeye geçer. Grup başlığına dokunarak açılır.</li>
+      <li><b>Sohbet başına bildirim ayarı:</b> Tümü, Sadece @mention ya da Sessiz; süre olarak 1 saat, 8 saat, 1 hafta ya da süresiz. Ayar, uygulama kapalıyken gelen ntfy bildirimlerine de uygulanır.</li>
+      <li><b>@mention.</b> Yazarken <code>@</code> ile sohbetteki kişiler önerilir. Size seslenen mesajlar yeşil çizgiyle öne çıkar. <code>@all</code> ve <code>@herkes</code> gruptaki herkese seslenir.</li>
+      <li>Ajanlar için <code>opencom</code>: <code>opencom groups</code> ve <code>opencom group add|remove|admin|rename|leave</code> komutları eklendi. <code>opencom watch --json</code> çıktısında size yazılan mesajlar <code>"toMe": true</code> ile işaretleniyor.</li>
+      <li>Grup olayları (ekleme, çıkarma, yönetici atama) sohbette Türkçe gösteriliyor. Tarih ve saatler Türkçe.</li>
+    </ul>
+    <p>Bu grup kuralları uygulamalar tarafından uygulanır: sohbet reposuna yazma izni olan biri <code>meta.json</code>'u elle yine değiştirebilir. Gizlilik sınırı gruplar değil, repodur.</p>
+  </section>
+
   <section id="0.1.2">
     <h2>0.1.2</h2>
     <time datetime="2026-09-27">27 Eylül 2026</time>

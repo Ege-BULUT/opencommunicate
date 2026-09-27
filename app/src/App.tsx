@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bus, Watcher, dmChannel, dmPeer, handle, isDm, msgPath, type Device, type Group, type Message } from "../../core/src/index.ts";
+import { Bus, Watcher, addressedTo, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, quietFor, wantsNotice, type Device, type Group, type GroupChange, type Message, type Quiet } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { askNotifications, imageUrl, notify, openLink, saveFile } from "./platform.ts";
-import { accountProblem, checkAccount, clearSession, finishSignIn, githubLogin, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, canSignIn, checkAccount, clearSession, desktopApp, finishSignIn, githubLogin, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 const KIND: Record<string, string> = { agent: "ajan", phone: "telefon", desktop: "masaüstü", person: "kişi" };
@@ -60,7 +60,7 @@ function Onboarding({ onDone }: { onDone: (s: Session) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  if (!native() && !token) {
+  if (!canSignIn() && !token) {
     return (
       <div className="center"><div className="card">
         <h1 className="brand">OpenCommunicate</h1>
@@ -118,12 +118,14 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [messages, setMessages] = useState<Record<string, Pending[]>>({});
   const [active, setActive] = useState("all");
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
-  const [dialog, setDialog] = useState<"group" | "settings" | null>(null);
+  const [dialog, setDialog] = useState<"group" | "settings" | "channel" | null>(null);
   const [status, setStatus] = useState("Yükleniyor…");
   const [account, setAccount] = useState<string | null>(null); // a GitHub problem only the person can fix
   const [read, setRead] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(READ_KEY) ?? "{}"); } catch { return {}; } });
   const activeRef = useRef(active);
   activeRef.current = active;
+  const meRef = useRef(me);
+  meRef.current = me;
 
   const add = useCallback((list: Message[]) => {
     if (!list.length) return;
@@ -183,7 +185,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           setDevices([...watcher.devices]); setGroups([...watcher.groups]);
           add(fresh);
           for (const m of fresh) {
-            if (m.from === session.device.id) continue;
+            if (m.from === session.device.id || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || "📎 dosya");
           }
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); bus.presence().then(setPresence).catch(() => {}); }
@@ -212,11 +214,28 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
 
   const others = devices.filter((d) => d.id !== me.id).sort((a, b) => a.nick.localeCompare(b.nick));
   const myGroups = groups.filter((g) => g.members.includes(me.id));
+  const activeGroup = myGroups.find((g) => g.channel === active);
+  useEffect(() => { if (active.startsWith("g-") && groups.length && !activeGroup) { setActive("all"); setDialog((d) => (d === "channel" ? null : d)); } }, [active, activeGroup, groups.length]);
+  const quiet = (ch: string) => quietFor(me, ch);
+  const saveQuiet = async (ch: string, q: Quiet | null) => {
+    const next: Device = { ...me, quiet: { ...me.quiet } };
+    if (q) next.quiet![ch] = q; else delete next.quiet![ch];
+    await bus.updateDevice(next);
+    setMe(next);
+    if (session.source === "app") saveSession({ ...session, device: next });
+  };
+  const changeGroup = async (g: Group, change: GroupChange) => {
+    const next = await bus.changeGroup(g.channel, change, me, devices);
+    setGroups((list) => list.map((x) => (x.channel === next.channel ? next : x)));
+    await watcher.refresh();
+  };
   const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && (!read[ch] || m.id > read[ch])).length;
   const online = (id: string) => presence[id] && Date.now() - Date.parse(presence[id]) < 10 * 60_000;
   const title = active === "all" ? "#all" : isDm(active) ? `@${handle(devices.find((d) => d.id === dmPeer(active, me.id)) ?? { nick: "?", id: dmPeer(active, me.id) })}` : `#${groups.find((g) => g.channel === active)?.name ?? active}`;
 
   const open = (ch: string) => { setActive(ch); setMobileView("chat"); };
+  const loud = Object.keys(messages).filter((ch) => quietFor(me, ch)?.mode !== "off").reduce((n, ch) => n + unread(ch), 0);
+  useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
 
   const send = async (text: string, files: File[]) => {
     const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) })));
@@ -244,14 +263,14 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <div className="me">{handle(me)} <span className="muted">· {session.repo.split("/")[1]}</span></div>
         <nav>
-          <ChannelRow label="#all" sub="Herkes" count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />
+          <ChannelRow label="#all" sub="Herkes" quiet={quiet("all")} count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />
           <div className="section">Gruplar <button className="mini" onClick={() => setDialog("group")}>+ Yeni</button></div>
           {myGroups.length === 0 && <p className="muted small">Henüz grup yok.</p>}
-          {myGroups.map((g) => <ChannelRow key={g.channel} label={`#${g.name}`} sub={`${g.members.length} üye`} count={unread(g.channel)} activeCh={active === g.channel} onClick={() => open(g.channel)} />)}
+          {myGroups.map((g) => <ChannelRow key={g.channel} label={`#${g.name}`} sub={`${g.members.length} üye${groupAdmins(g).includes(me.id) ? " · yönetici" : ""}`} quiet={quiet(g.channel)} count={unread(g.channel)} activeCh={active === g.channel} onClick={() => open(g.channel)} />)}
           <div className="section">Kişiler</div>
           {others.map((d) => {
             const ch = dmChannel(me.id, d.id);
-            return <ChannelRow key={d.id} label={handle(d)} sub={KIND[d.kind] ?? d.kind} dot={online(d.id) ? "on" : "off"} count={unread(ch)} activeCh={active === ch} onClick={() => open(ch)} />;
+            return <ChannelRow key={d.id} label={handle(d)} sub={KIND[d.kind] ?? d.kind} dot={online(d.id) ? "on" : "off"} quiet={quiet(ch)} count={unread(ch)} activeCh={active === ch} onClick={() => open(ch)} />;
           })}
         </nav>
       </aside>
@@ -259,12 +278,15 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
       <main className="chat">
         <header className="chat-head">
           <button className="icon back" onClick={() => setMobileView("list")} aria-label="Geri">‹</button>
-          <b>{title}</b>
+          <button className="title" onClick={() => setDialog("channel")} title="Sohbet ayrıntıları">
+            <b>{title}</b>
+            <span className="muted small">{activeGroup ? `${activeGroup.members.length} üye · ayrıntılar` : "bildirim ayarı"}{quiet(active) ? (quiet(active)!.mode === "off" ? " · 🔕" : " · @") : ""}</span>
+          </button>
           {status && <span className="status">{status}</span>}
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
-        <MessageList list={messages[active] ?? []} me={me} bus={bus} />
-        <Composer onSend={send} />
+        <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} loading={status === "Yükleniyor…"} />
+        <Composer onSend={send} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />
       </main>
 
       {dialog === "group" && <GroupDialog others={others} onClose={() => setDialog(null)} onCreate={async (name, ids) => {
@@ -272,6 +294,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         setGroups((x) => [...x, g]); setMessages((x) => ({ ...x, [g.channel]: [] })); setDialog(null); open(g.channel);
         await watcher.refresh();
       }} />}
+      {dialog === "channel" && <ChannelDialog key={active} channel={active} title={title} group={activeGroup} me={me} devices={devices} quiet={quiet(active)}
+        onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut} />}
     </div>
   );
@@ -286,37 +310,57 @@ function AccountAlert({ text, onFix }: { text: string; onFix: () => void }) {
   );
 }
 
-function ChannelRow({ label, sub, count, activeCh, dot, onClick }: { label: string; sub?: string; count: number; activeCh: boolean; dot?: "on" | "off"; onClick: () => void }) {
+function ChannelRow({ label, sub, count, activeCh, dot, quiet, onClick }: { label: string; sub?: string; count: number; activeCh: boolean; dot?: "on" | "off"; quiet?: Quiet | null; onClick: () => void }) {
   return (
     <button className={`row ${activeCh ? "active" : ""}`} onClick={onClick}>
       {dot && <i className={`dot ${dot}`} />}
       <span className="row-text"><span className="row-label">{label}</span>{sub && <span className="row-sub">{sub}</span>}</span>
-      {count > 0 && <span className="badge">{count}</span>}
+      {quiet && <span className="quiet" title={quiet.mode === "off" ? "Sessiz" : "Sadece @mention"}>{quiet.mode === "off" ? "🔕" : "@"}</span>}
+      {count > 0 && <span className={`badge ${quiet ? "dim" : ""}`}>{count}</span>}
     </button>
   );
 }
 
 const linkify = (text: string) => text.split(/(https?:\/\/\S+)/g).map((part, i) => (/^https?:\/\//.test(part) ? <a key={i} href={part} onClick={(e) => { e.preventDefault(); openLink(part); }}>{part}</a> : part));
 const size = (n: number) => (n < 1024 ? `${n} B` : n < 1e6 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1e6).toFixed(1)} MB`);
-const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const day = (iso: string) => new Date(iso).toLocaleDateString([], { day: "numeric", month: "long" });
+const time = (iso: string) => new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+const day = (iso: string) => new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
 
-function MessageList({ list, me, bus }: { list: Pending[]; me: Device; bus: Bus }) {
+/** System notices in the app's language (the stored text is English, for the CLI and agents). */
+function systemText(m: Message, devices: Device[]): string {
+  const who = (id: string) => { const d = devices.find((x) => x.id === id); return d ? handle(d) : `#${id}`; };
+  const by = `${m.fromNick}#${m.from}`;
+  const s = m.system!;
+  if (s.type === "join") return `${by} katıldı`;
+  if (s.type === "group") return `${by}, ${s.group?.name ?? "bir"} grubunu kurdu`;
+  const c = s.change;
+  if (!c) return m.text;
+  switch (c.type) {
+    case "add": return `${by} ekledi: ${c.ids.map(who).join(", ")}`;
+    case "remove": return `${by} gruptan çıkardı: ${who(c.id)}`;
+    case "admin": return c.id === m.from ? `${by} ${c.on ? "artık yönetici" : "yöneticilikten ayrıldı"}` : `${by} ${c.on ? "yönetici yaptı" : "yöneticilikten aldı"}: ${who(c.id)}`;
+    case "rename": return `${by} grubun adını değiştirdi: ${c.name}`;
+    case "leave": return `${by} gruptan ayrıldı`;
+  }
+}
+
+function MessageList({ list, me, bus, devices, loading }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; loading: boolean }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
-  if (!list.length) return <div className="messages empty muted">Henüz mesaj yok. İlk mesajı siz yazın.</div>;
+  if (!list.length) return <div className="messages empty muted">{loading ? "Mesajlar yükleniyor…" : "Henüz mesaj yok. İlk mesajı siz yazın."}</div>;
   let lastDay = "";
   return (
     <div className="messages">
       {list.map((m) => {
         const d = day(m.ts);
         const sep = d !== lastDay ? (lastDay = d) : null;
-        if (m.system) return <div key={m.id}>{sep && <div className="day">{sep}</div>}<div className="system">{m.text}</div></div>;
+        if (m.system) return <div key={m.id}>{sep && <div className="day">{sep}</div>}<div className="system">{systemText(m, devices)}</div></div>;
         const mine = m.from === me.id;
+        const toMe = !mine && !isDm(m.channel) && addressedTo(m, me);
         return (
           <div key={m.id}>
             {sep && <div className="day">{sep}</div>}
-            <div className={`msg ${mine ? "mine" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}>
+            <div className={`msg ${mine ? "mine" : ""} ${toMe ? "tome" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}>
               {!mine && <div className="who">{m.fromNick}<span className="muted">#{m.from}</span></div>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
@@ -351,8 +395,12 @@ function Attachment({ file, bus }: { file: { name: string; path: string; size: n
   );
 }
 
-function Composer({ onSend }: { onSend: (text: string, files: File[]) => void }) {
+function Composer({ onSend, people }: { onSend: (text: string, files: File[]) => void; people: Device[] }) {
   const [text, setText] = useState("");
+  // "@" followed by the start of a nick at the end of the text suggests people in this chat
+  const at = text.match(/(^|\s)@([\w-]*)$/);
+  const suggest = at ? people.filter((d) => handle(d).toLowerCase().startsWith(at[2].toLowerCase())).slice(0, 6) : [];
+  const mention = (d: Device) => setText(text.slice(0, text.length - at![2].length - 1) + `@${handle(d)} `);
   const [files, setFiles] = useState<File[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const submit = () => {
@@ -363,6 +411,7 @@ function Composer({ onSend }: { onSend: (text: string, files: File[]) => void })
   };
   return (
     <div className="composer">
+      {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
         <button className="icon" title="Dosya ekle" onClick={() => input.current?.click()}>＋</button>
@@ -370,6 +419,99 @@ function Composer({ onSend }: { onSend: (text: string, files: File[]) => void })
         <textarea rows={1} value={text} placeholder="Mesaj yazın" onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
         <button className="primary send" onClick={submit} disabled={!text.trim() && !files.length}>Gönder</button>
+      </div>
+    </div>
+  );
+}
+
+const QUIET_FOR: [string, number | null][] = [["Süresiz", null], ["1 saat", 3600e3], ["8 saat", 8 * 3600e3], ["1 hafta", 7 * 86400e3]];
+
+function ChannelDialog({ channel, title, group, me, devices, quiet, onQuiet, onChange, onClose }: {
+  channel: string; title: string; group?: Group; me: Device; devices: Device[]; quiet: Quiet | null;
+  onQuiet: (q: Quiet | null) => Promise<void>; onChange: (c: GroupChange) => Promise<void>; onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [mode, setMode] = useState<"all" | Quiet["mode"]>(quiet?.mode ?? "all");
+  const [span, setSpan] = useState(0);
+  const [name, setName] = useState(group?.name ?? "");
+  const [adding, setAdding] = useState<Set<string> | null>(null);
+  const [leaving, setLeaving] = useState(false);
+  const admin = !!group && groupAdmins(group).includes(me.id);
+  const admins = group ? groupAdmins(group) : [];
+  const run = async (f: () => Promise<void>) => { setBusy(true); setError(""); try { await f(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
+  const who = (id: string) => devices.find((d) => d.id === id) ?? { id, nick: "?", kind: "person" as const, joinedAt: "" };
+  const saveQuiet = () => run(async () => {
+    const ms = QUIET_FOR[span][1];
+    await onQuiet(mode === "all" ? null : { mode, ...(ms ? { until: new Date(Date.now() + ms).toISOString() } : {}) });
+  });
+  const until = quiet?.until ? new Date(quiet.until).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
+  return (
+    <div className="dialog" onClick={onClose}>
+      <div className="card channel-card" onClick={(e) => e.stopPropagation()}>
+        <h2>{title}</h2>
+        {group && <p className="muted small">{group.members.length} üye · {admin ? "Bu grubun yöneticisisiniz." : "Üyeleri yalnız yöneticiler değiştirebilir."}</p>}
+
+        <h3>Bildirimler</h3>
+        <div className="seg" role="radiogroup" aria-label="Bildirimler">
+          {([["all", "Tümü"], ["mentions", "Sadece @mention"], ["off", "Sessiz"]] as const).map(([v, l]) => (
+            <button key={v} role="radio" aria-checked={mode === v} className={mode === v ? "on" : ""} onClick={() => setMode(v)}>{l}</button>
+          ))}
+        </div>
+        {mode !== "all" && (
+          <label className="inline">Süre
+            <select value={span} onChange={(e) => setSpan(Number(e.target.value))}>{QUIET_FOR.map(([l], i) => <option key={l} value={i}>{l}</option>)}</select>
+          </label>
+        )}
+        <p className="muted small">{quiet ? `Şu an: ${quiet.mode === "off" ? "sessiz" : "sadece @mention"}${until ? `, ${until}'e kadar` : ""}.` : "Şu an: her mesajda bildirim."} Ayar kapalı uygulamaya giden ntfy bildirimleri için de geçerli.</p>
+        <div className="actions start"><button className="primary" disabled={busy} onClick={saveQuiet}>Bildirim ayarını kaydet</button></div>
+
+        {group && <>
+          <h3>Grup adı</h3>
+          {admin ? (
+            <div className="compose-row"><input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+              <button className="ghost" disabled={busy || !name.trim() || name.trim() === group.name} onClick={() => run(() => onChange({ type: "rename", name }))}>Kaydet</button></div>
+          ) : <p>{group.name}</p>}
+
+          <h3>Üyeler</h3>
+          <div className="members">
+            {[...group.members].sort((a, b) => Number(admins.includes(b)) - Number(admins.includes(a))).map((id) => {
+              const d = who(id), isAdmin = admins.includes(id), self = id === me.id;
+              return (
+                <div key={id} className="member">
+                  <span className="row-text"><span className="row-label">{handle(d)}{self ? " (siz)" : ""}</span><span className="row-sub">{KIND[d.kind] ?? d.kind}{isAdmin ? " · yönetici" : ""}</span></span>
+                  {admin && !self && <>
+                    <button className="mini" disabled={busy} onClick={() => run(() => onChange({ type: "admin", id, on: !isAdmin }))}>{isAdmin ? "Yöneticilikten al" : "Yönetici yap"}</button>
+                    <button className="mini danger" disabled={busy} onClick={() => run(() => onChange({ type: "remove", id }))}>Çıkar</button>
+                  </>}
+                </div>
+              );
+            })}
+          </div>
+          {admin && (adding ? (
+            <>
+              <div className="pick">
+                {devices.filter((d) => !group.members.includes(d.id)).map((d) => (
+                  <label key={d.id} className="check"><input type="checkbox" checked={adding.has(d.id)} onChange={() => { const n = new Set(adding); if (n.has(d.id)) n.delete(d.id); else n.add(d.id); setAdding(n); }} />{handle(d)} <span className="muted small">{KIND[d.kind] ?? d.kind}</span></label>
+                ))}
+                {devices.every((d) => group.members.includes(d.id)) && <p className="muted small">Sohbetteki herkes zaten bu grupta.</p>}
+              </div>
+              <div className="actions start">
+                <button className="primary" disabled={busy || !adding.size} onClick={() => run(async () => { await onChange({ type: "add", ids: [...adding] }); setAdding(null); })}>Ekle</button>
+                <button className="ghost" onClick={() => setAdding(null)}>Vazgeç</button>
+              </div>
+            </>
+          ) : <div className="actions start"><button className="ghost" onClick={() => setAdding(new Set())}>+ Üye ekle</button></div>)}
+
+          <div className="actions start">
+            {leaving
+              ? <><button className="primary danger-fill" disabled={busy} onClick={() => run(() => onChange({ type: "leave" }))}>Evet, ayrıl</button><button className="ghost" onClick={() => setLeaving(false)}>Vazgeç</button></>
+              : <button className="ghost danger" onClick={() => setLeaving(true)}>Gruptan ayrıl</button>}
+          </div>
+          {leaving && admins.length === 1 && admin && group.members.length > 1 && <p className="muted small">Tek yönetici sizsiniz; ayrılırsanız yöneticilik gruptaki bir sonraki üyeye geçer.</p>}
+        </>}
+        {error && <p className="error">{error}</p>}
+        <div className="actions"><button className="ghost" onClick={onClose}>Kapat</button></div>
       </div>
     </div>
   );

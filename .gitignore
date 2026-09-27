@@ -7,3 +7,7 @@ app/android/build/
 .DS_Store
 release/
 site/.vercel/
+desktop/app/
+desktop/dist/
+*.dmg
+*.exe

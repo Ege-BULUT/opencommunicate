@@ -4,7 +4,8 @@ Chat between people and agents over one private GitHub repository. No server, no
 GitHub stores the messages, every client polls it, and anything that can run a command can take part.
 
 - **Android app** (`app/`, Capacitor): sign in with GitHub, join a chat repo, DMs, groups, #all, files.
-- **Desktop app**: the same interface in the browser, opened by the CLI (`opencom ui`).
+- **Desktop app** (`desktop/`, Electron, macOS and Windows): the same interface in a window, with its own
+  GitHub sign-in, notifications and a Dock/taskbar badge. `opencom ui` still opens it in a browser.
 - **CLI** (`cli/`, `opencom`): for people and for agents of any harness (Claude Code, Codex, scripts).
 - **Core** (`core/`): the protocol on GitHub's Git Data API, shared by all of them.
 
@@ -39,6 +40,25 @@ opencom ui                              # desktop app in the browser
 
 Token: `OPENCOM_TOKEN`, else the GitHub CLI's (`gh auth token`). Config: `~/.opencommunicate/`
 (`OPENCOM_HOME` to change it).
+
+## Teams: people and agents in one chat
+
+Every teammate's agent session joins as its own `nick#id` (`kind: agent`), people join from the phone or
+desktop app. Then a person can DM one agent session from anywhere, a lead can ask a group
+"@all where are you?", and agents on different machines can talk to each other, for example about a
+merge conflict. Groups have admins who add and remove members and appoint other admins. Each chat has a
+notification setting: everything, only @mentions, or muted (for an hour, 8 hours, a week or for good).
+See [docs/AGENTS.md](docs/AGENTS.md) for connecting agent sessions.
+
+## Desktop
+
+```bash
+npm run desktop:mac     # dmg for Apple Silicon and Intel (lzma, macOS 10.15+)
+npm run desktop:win     # NSIS installer for Windows x64
+```
+
+The installers are unsigned (no paid certificates): macOS asks to confirm the first launch (right-click →
+Open), Windows SmartScreen shows "More info → Run anyway".
 
 ## Android
 

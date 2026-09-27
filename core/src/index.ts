@@ -7,10 +7,10 @@
  *
  * Repository layout (protocol 1, see docs/PROTOCOL.md):
  *   opencommunicate.json                 { protocol, name, createdAt }
- *   devices/<id>.json                    { id, nick, kind, login, joinedAt, notify? }
+ *   devices/<id>.json                    { id, nick, kind, login, joinedAt, notify?, quiet? }
  *   channels/all/<message>.json          everyone; also system notices (join, group created)
  *   channels/dm-<a>-<b>/<message>.json   two devices, ids sorted
- *   channels/g-<slug>-<rand>/meta.json   { name, members, createdBy, createdAt } + messages
+ *   channels/g-<slug>-<rand>/meta.json   { name, members, admins, createdBy, createdAt } + messages
  *   channels/<ch>/files/<message id>-<name>   attachments
  *   branch "presence": presence/<id>.json   { id, lastSeen } — rewritten, never grows main's history
  */
@@ -18,8 +18,16 @@
 export const PROTOCOL = 1;
 
 export type Kind = "person" | "phone" | "desktop" | "agent";
-export type Device = { id: string; nick: string; kind: Kind; login?: string; joinedAt: string; notify?: string };
-export type Group = { channel: string; name: string; members: string[]; createdBy: string; createdAt: string };
+/** Per-channel notification setting: only mentions, or nothing; `until` (ISO time) ends it, none means for good. */
+export type Quiet = { mode: "mentions" | "off"; until?: string };
+export type Device = { id: string; nick: string; kind: Kind; login?: string; joinedAt: string; notify?: string; quiet?: Record<string, Quiet> };
+export type Group = { channel: string; name: string; members: string[]; admins?: string[]; createdBy: string; createdAt: string };
+export type GroupChange =
+  | { type: "add"; ids: string[] }
+  | { type: "remove"; id: string }
+  | { type: "admin"; id: string; on: boolean }
+  | { type: "rename"; name: string }
+  | { type: "leave" };
 export type FileRef = { name: string; path: string; size: number };
 export type Message = {
   v: 1;
@@ -31,13 +39,76 @@ export type Message = {
   text: string;
   files?: FileRef[];
   replyTo?: string;
-  system?: { type: "join" | "group"; device?: Device; group?: Group };
+  system?: { type: "join" | "group" | "change"; device?: Device; group?: Group; change?: GroupChange };
 };
 
 export const handle = (d: Pick<Device, "nick" | "id">) => `${d.nick}#${d.id}`;
 export const dmChannel = (a: string, b: string) => `dm-${[a, b].sort().join("-")}`;
 export const isDm = (ch: string) => /^dm-\d{4}-\d{4}$/.test(ch);
 export const dmPeer = (ch: string, me: string) => ch.slice(3).split("-").find((x) => x !== me) ?? me;
+/** Group admins. Groups made before admins existed are run by their creator; a group with members always has one. */
+export function groupAdmins(g: Group): string[] {
+  const admins = (g.admins ?? [g.createdBy]).filter((id) => g.members.includes(id));
+  return admins.length ? admins : g.members.slice(0, 1);
+}
+
+/**
+ * A group after `by` makes `change`; throws when `by` may not make it. Admins add, remove, promote and rename;
+ * any member may leave, and when the last admin leaves the longest-standing member takes over. These rights are
+ * kept by the clients: whoever can write to the repository could still edit meta.json by hand.
+ */
+export function applyGroupChange(g: Group, change: GroupChange, by: string): Group {
+  if (!g.members.includes(by)) throw new Error("Only members can change the group.");
+  const admins = groupAdmins(g);
+  const need = () => { if (!admins.includes(by)) throw new Error("Only group admins can do that."); };
+  const member = (id: string) => { if (!g.members.includes(id)) throw new Error(`${id} is not in the group.`); };
+  switch (change.type) {
+    case "add":
+      need();
+      return { ...g, admins, members: [...new Set([...g.members, ...change.ids])] };
+    case "remove":
+      need(); member(change.id);
+      if (change.id === by) throw new Error("To leave the group, leave it.");
+      return { ...g, members: g.members.filter((x) => x !== change.id), admins: admins.filter((x) => x !== change.id) };
+    case "admin": {
+      need(); member(change.id);
+      const next = change.on ? [...new Set([...admins, change.id])] : admins.filter((x) => x !== change.id);
+      if (!next.length) throw new Error("A group needs at least one admin.");
+      return { ...g, admins: next };
+    }
+    case "rename": {
+      need();
+      const name = change.name.trim().slice(0, 40);
+      if (!name) throw new Error("A group needs a name.");
+      return { ...g, admins, name };
+    }
+    case "leave": {
+      const members = g.members.filter((x) => x !== by);
+      const next = admins.filter((x) => x !== by);
+      return { ...g, members, admins: next.length ? next : members.slice(0, 1) };
+    }
+  }
+}
+
+/** True when a message is meant for this device: a DM, a mention of @nick / nick#id, or @all / @herkes. */
+export function addressedTo(m: Message, me: Pick<Device, "nick" | "id">): boolean {
+  if (isDm(m.channel)) return true;
+  const nick = me.nick.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\w])(@(${nick}(#${me.id})?|all|herkes|everyone)(?![\\w])|${nick}#${me.id}(?!\\d))`, "i").test(m.text ?? "");
+}
+
+/** The channel's setting for a device, or null when it gets every notification (none set, or it ran out). */
+export function quietFor(d: Pick<Device, "quiet">, channel: string, now = Date.now()): Quiet | null {
+  const q = d.quiet?.[channel];
+  return q && (!q.until || Date.parse(q.until) > now) ? q : null;
+}
+
+/** Whether a device wants to be notified about a message, going by its setting for that channel. */
+export function wantsNotice(d: Pick<Device, "nick" | "id" | "quiet">, m: Message, now = Date.now()): boolean {
+  const q = quietFor(d, m.channel, now);
+  return !q || (q.mode === "mentions" && addressedTo(m, d));
+}
+
 const rand = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => (b % 36).toString(36)).join("");
 const slug = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "grup";
 const stamp = (d = new Date()) => d.toISOString().replace(/[-:]/g, "").replace(/\.(\d{3})Z$/, "$1Z");
@@ -62,6 +133,7 @@ export function fromBase64(b64: string): Uint8Array {
 
 type Fetch = typeof fetch;
 export type BusOptions = { repo: string; token: string; branch?: string; fetch?: Fetch; api?: string };
+type Files = Record<string, Uint8Array | string | null>;
 type TreeEntry = { path: string; mode: "100644"; type: "blob"; sha: string | null };
 
 export class GitHubError extends Error {
@@ -134,18 +206,27 @@ export class Bus {
     return this.blobCache.get(sha) as T;
   }
 
-  /** One commit with several files (null deletes). Retries when another device moved the branch meanwhile. */
-  async commit(files: Record<string, Uint8Array | string | null>, message: string, opts: { branch?: string; orphan?: boolean } = {}): Promise<string> {
+  /**
+   * One commit with several files (null deletes). Retries when another device moved the branch meanwhile.
+   * `files` can be a function of the head the commit goes on, for changes that read before they write
+   * (a group's members): it runs again on every retry, so a concurrent change is never overwritten.
+   */
+  async commit(files: Files | ((parent: string | null) => Promise<Files>), message: string, opts: { branch?: string; orphan?: boolean } = {}): Promise<string> {
     const branch = opts.branch ?? this.branch;
-    const entries: TreeEntry[] = [];
-    for (const [path, content] of Object.entries(files)) {
-      if (content === null) { entries.push({ path, mode: "100644", type: "blob", sha: null }); continue; }
-      const bytes = typeof content === "string" ? enc.encode(content) : content;
-      const { data } = await this.gh(this.r("/git/blobs"), { method: "POST", body: JSON.stringify({ content: toBase64(bytes), encoding: "base64" }) });
-      entries.push({ path, mode: "100644", type: "blob", sha: data.sha });
-    }
+    const blobs = async (f: Files) => {
+      const entries: TreeEntry[] = [];
+      for (const [path, content] of Object.entries(f)) {
+        if (content === null) { entries.push({ path, mode: "100644", type: "blob", sha: null }); continue; }
+        const bytes = typeof content === "string" ? enc.encode(content) : content;
+        const { data } = await this.gh(this.r("/git/blobs"), { method: "POST", body: JSON.stringify({ content: toBase64(bytes), encoding: "base64" }) });
+        entries.push({ path, mode: "100644", type: "blob", sha: data.sha });
+      }
+      return entries;
+    };
+    const fixed = typeof files === "function" ? null : await blobs(files);
     for (let attempt = 0; attempt < 6; attempt++) {
       const parent = await this.head(branch);
+      const entries = fixed ?? (await blobs(await (files as (p: string | null) => Promise<Files>)(parent)));
       const baseTree = parent ? (await this.gh(this.r(`/git/commits/${parent}`))).data.tree.sha : undefined;
       const { data: tree } = await this.gh(this.r("/git/trees"), { method: "POST", body: JSON.stringify({ base_tree: baseTree, tree: entries }) });
       const { data: commit } = await this.gh(this.r("/git/commits"), {
@@ -242,13 +323,47 @@ export class Bus {
   }
 
   async createGroup(name: string, members: string[], from: Device): Promise<Group> {
-    const group: Group = { channel: `g-${slug(name)}-${rand(4)}`, name: name.trim().slice(0, 40), members: [...new Set([from.id, ...members])], createdBy: from.id, createdAt: new Date().toISOString() };
+    const group: Group = { channel: `g-${slug(name)}-${rand(4)}`, name: name.trim().slice(0, 40), members: [...new Set([from.id, ...members])], admins: [from.id], createdBy: from.id, createdAt: new Date().toISOString() };
     const notice = this.newMessage("all", from, `${handle(from)} created ${group.name}`, { system: { type: "group", group } });
     await this.commit({
       [`channels/${group.channel}/meta.json`]: JSON.stringify(group, null, 2) + "\n",
       [msgPath(notice)]: JSON.stringify(notice),
     }, `group: ${group.name}`);
     return group;
+  }
+
+  /** A group as of a commit (the branch head by default). */
+  async group(channel: string, at?: string | null): Promise<Group> {
+    const ref = at ?? (await this.head());
+    try {
+      const { data } = await this.gh(this.r(`/contents/channels/${channel}/meta.json${ref ? `?ref=${ref}` : ""}`));
+      return JSON.parse(dec.decode(fromBase64(data.content)));
+    } catch (e) {
+      if (e instanceof GitHubError && e.status === 404) throw new Error(`No group ${channel}.`);
+      throw e;
+    }
+  }
+
+  /** Adds, removes, promotes, renames or leaves, with a notice in the group; see applyGroupChange for who may. */
+  async changeGroup(channel: string, change: GroupChange, by: Device, devices: Device[] = []): Promise<Group> {
+    const who = (id: string) => { const d = devices.find((x) => x.id === id); return d ? handle(d) : `#${id}`; };
+    const text = {
+      add: () => `${handle(by)} added ${(change as { ids: string[] }).ids.map(who).join(", ")}`,
+      remove: () => `${handle(by)} removed ${who((change as { id: string }).id)}`,
+      admin: () => {
+        const { id, on } = change as { id: string; on: boolean };
+        return id === by.id ? `${handle(by)} ${on ? "is now an admin" : "stepped down as admin"}` : `${handle(by)} ${on ? "made" : "removed"} ${who(id)} ${on ? "an admin" : "as admin"}`;
+      },
+      rename: () => `${handle(by)} renamed the group to ${(change as { name: string }).name.trim().slice(0, 40)}`,
+      leave: () => `${handle(by)} left`,
+    }[change.type]();
+    let result!: Group;
+    await this.commit(async (parent) => {
+      result = applyGroupChange(await this.group(channel, parent), change, by.id);
+      const notice = this.newMessage(channel, by, text, { system: { type: "change", change, group: result } });
+      return { [`channels/${channel}/meta.json`]: JSON.stringify(result, null, 2) + "\n", [msgPath(notice)]: JSON.stringify(notice) };
+    }, `group: ${text}`);
+    return result;
   }
 
   /** Channels a device follows: #all, every DM with it, and the groups it belongs to. */

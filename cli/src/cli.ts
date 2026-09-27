@@ -5,7 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, Watcher, dmChannel, handle, isDm, dmPeer, type Device, type Group, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, Watcher, addressedTo, dmChannel, groupAdmins, handle, isDm, dmPeer, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
@@ -22,8 +22,17 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    to: all | nick#1234 | 1234 | <group name>
   opencom history <to> [-n 20]     recent messages
   opencom watch [--json] [--interval 5]
-                                   print new messages as they arrive (JSON lines with --json)
-  opencom group <name> <member…>   create a group (members: nick#1234 or 1234)
+                                   print new messages as they arrive (JSON lines with --json;
+                                   "toMe" is true for DMs and for @nick, nick#1234 or @all)
+  opencom groups                   your groups, their members and admins (★)
+  opencom group create <name> <member…>
+                                   create a group; you are its admin (members: nick#1234 or 1234)
+  opencom group add <group> <member…>      admins: add members
+  opencom group remove <group> <member>    admins: remove a member
+  opencom group admin <group> <member> [--off]
+                                   admins: make a member an admin (--off: take it back)
+  opencom group rename <group> <name…>     admins: rename
+  opencom group leave <group>      leave (if you were the last admin, the next member takes over)
   opencom notify on|off            phone notifications through ntfy for this device
   opencom ui [--port 4817]         open the desktop app in the browser
 `;
@@ -72,6 +81,11 @@ export function label(ch: string, me: Device, devices: Device[], groups: Group[]
   if (isDm(ch)) { const d = devices.find((x) => x.id === dmPeer(ch, me.id)); return d ? `@${handle(d)}` : ch; }
   return `#${groups.find((g) => g.channel === ch)?.name ?? ch}`;
 }
+
+const members = (g: Group, devices: Device[]) => {
+  const admins = groupAdmins(g);
+  return g.members.map((id) => `${handle(devices.find((d) => d.id === id) ?? { nick: "?", id })}${admins.includes(id) ? " ★" : ""}`).join(", ");
+};
 
 const local = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const line = (m: Message, me: Device, devices: Device[], groups: Group[]) =>
@@ -132,18 +146,41 @@ async function main(argv: string[]) {
       for (const m of await bus.history(channel, Number(f.n?.[0] ?? 20))) console.log(line(m, me, devices, groups));
       return;
     }
-    case "group": {
-      const [name, ...who] = rest;
-      if (!name) throw new Error("Usage: opencom group <name> <member…>");
+    case "groups": {
       const { devices, groups } = await load();
-      const ids = who.map((w) => {
+      const mine = groups.filter((g) => g.members.includes(me.id));
+      if (!mine.length) console.log("No groups yet. Create one: opencom group create <name> <member…>");
+      for (const g of mine) console.log(`#${g.name}  ${members(g, devices)}`);
+      return;
+    }
+    case "group": {
+      const sub = ["create", "add", "remove", "admin", "rename", "leave"].includes(rest[0]) ? rest.shift()! : "create"; // "opencom group <name> …" still creates
+      const { devices, groups } = await load();
+      const idOf = (w: string) => {
         const id = w.match(/^(?:.*#)?(\d{4})$/)?.[1];
-        if (!id || !devices.some((d) => d.id === id)) throw new Error(`Unknown member ${w}`);
+        if (!id || !devices.some((d) => d.id === id)) throw new Error(`Unknown member ${w}. See: opencom contacts`);
         return id;
-      });
-      const g = await bus.createGroup(name, ids, me);
-      console.log(`created #${g.name} (${g.channel}) with ${g.members.map((id) => handle(devices.find((d) => d.id === id) ?? { nick: "?", id })).join(", ")}`);
-      void groups;
+      };
+      if (sub === "create") {
+        const [name, ...who] = rest;
+        if (!name) throw new Error("Usage: opencom group create <name> <member…>");
+        const g = await bus.createGroup(name, who.map(idOf), me);
+        console.log(`created #${g.name} with ${members(g, devices)}`);
+        return;
+      }
+      const [target, ...more] = rest;
+      if (!target) throw new Error(`Usage: see opencom help`);
+      const channel = resolveTarget(target, me, devices, groups);
+      if (!channel.startsWith("g-")) throw new Error(`${target} is not a group.`);
+      const change: GroupChange =
+        sub === "add" ? { type: "add", ids: more.map(idOf) }
+        : sub === "remove" ? { type: "remove", id: idOf(more[0] ?? "") }
+        : sub === "admin" ? { type: "admin", id: idOf(more[0] ?? ""), on: !f.off }
+        : sub === "rename" ? { type: "rename", name: more.join(" ") }
+        : { type: "leave" };
+      if (change.type === "add" && !change.ids.length) throw new Error("Usage: opencom group add <group> <member…>");
+      const g = await bus.changeGroup(channel, change, me, devices);
+      console.log(change.type === "leave" ? `left #${g.name}` : `#${g.name}  ${members(g, devices)}`);
       return;
     }
     case "notify": {
@@ -165,7 +202,7 @@ async function main(argv: string[]) {
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(me).catch(() => {}); }
           for (const m of await w.tick()) {
             if (m.from === me.id && !f.all) continue;
-            console.log(f.json ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups) }) : line(m, me, w.devices, w.groups));
+            console.log(f.json ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me) }) : line(m, me, w.devices, w.groups));
           }
         } catch (e) {
           console.error(`watch: ${(e as Error).message}`);

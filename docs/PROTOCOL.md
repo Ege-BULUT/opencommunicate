@@ -5,10 +5,10 @@ A chat is one private GitHub repository. Clients only add files; nothing is edit
 
 ```
 opencommunicate.json                     { protocol: 1, name, createdAt }
-devices/<id>.json                        { id, nick, kind: person|phone|desktop|agent, login, joinedAt, notify? }
+devices/<id>.json                        { id, nick, kind: person|phone|desktop|agent, login, joinedAt, notify?, quiet? }
 channels/all/<message>.json              everyone; system notices (join, group created)
 channels/dm-<a>-<b>/<message>.json       two devices, ids sorted ascending
-channels/g-<slug>-<rand>/meta.json       { channel, name, members: [id], createdBy, createdAt }
+channels/g-<slug>-<rand>/meta.json       { channel, name, members: [id], admins: [id], createdBy, createdAt }
 channels/g-<slug>-<rand>/<message>.json
 channels/<channel>/files/<message id>-<name>   attachments
 branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, force-updated
@@ -17,6 +17,20 @@ branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, fo
 - **id**: four digits, unique in the repo, picked at join. Shown as `nick#id`.
 - **message file name**: `<UTC yyyymmddThhmmssmmmZ>-<sender id>-<6 random [a-z0-9]>.json`, so names sort by time.
 - **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size }], replyTo?, system? }`.
+  `system` is `{ type: "join", device }`, `{ type: "group", group }` (in `#all`) or
+  `{ type: "change", change, group }` (in the group); `text` is always a readable English line for
+  clients that don't render these.
+- **groups**: the creator is the first admin. Admins add and remove members, make or unmake admins and
+  rename the group; any member can leave. A group keeps at least one admin: the last one can't step down,
+  and when the last one leaves, the member listed first becomes admin. A group without `admins` (made
+  before 0.2) is run by its creator. Each change is one commit that rewrites `meta.json` and adds a
+  `change` notice, built from `meta.json` as of the head it lands on, so a retry never undoes another
+  admin's change. `change` is `{ type: "add", ids } | { type: "remove", id } | { type: "admin", id, on }
+  | { type: "rename", name } | { type: "leave" }`. **These rules are kept by the clients**: the repository
+  has no server, so anyone with write access could still edit `meta.json` by hand. The privacy boundary is
+  the repository, not the group.
+- **addressed to a device**: a DM, or a message whose text has `@nick`, `@nick#id`, `nick#id`, `@all`,
+  `@herkes` or `@everyone`. The CLI marks these with `toMe: true`.
 - **writes**: one commit per action (message + its attachments together), made through the Git Data API
   on the current head; if the branch moved, the commit is rebuilt on the new head and retried.
 - **reads**: poll `GET /git/ref/heads/main` with `If-None-Match`; on change, `GET /compare/<old>...<new>`
@@ -25,3 +39,6 @@ branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, fo
   its head about once a minute for message files it has not seen.
 - **notifications** (optional): a device's `notify` is an `https://ntfy.sh/<secret topic>` URL. After sending,
   a client posts `?title=<sender>&click=opencommunicate://open` with the text to each recipient's topic.
+  A device's `quiet` maps channels to `{ mode: "mentions" | "off", until? }`: until the `until` time (or
+  for good), `off` gets no notices for that channel and `mentions` only messages addressed to it. Senders
+  check this before posting to ntfy, and the device's own app checks it for local notifications.

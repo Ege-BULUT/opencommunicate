@@ -15,6 +15,10 @@
   .lede { color:var(--muted); margin:0 0 26px; }
   .dl { display:flex; align-items:center; justify-content:center; gap:10px; background:var(--accent); color:var(--accent-ink); font-weight:700; text-decoration:none; padding:16px 20px; border-radius:14px; font-size:18px; }
   .meta { color:var(--muted); font-size:14px; text-align:center; margin:8px 0 30px; }
+  .downloads { display:grid; gap:10px; }
+  .dl.alt { background:var(--panel); color:var(--ink); border:1px solid var(--line); }
+  .dl small { font-weight:500; opacity:.75; font-size:14px; }
+  .note { color:var(--muted); font-size:14px; margin:8px 0 0; }
   section { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:18px 20px; margin-top:14px; }
   h2 { font-size:17px; margin:0 0 8px; } ol { margin:0; padding-left:20px; } li { margin:6px 0; } code { font:14px ui-monospace,Menlo,monospace; background:color-mix(in srgb,var(--muted) 15%,transparent); padding:1px 5px; border-radius:6px; }
   a { color:var(--accent); }
@@ -25,8 +29,13 @@
   <img class="logo" src="icon.svg" alt="">
   <h1>OpenCommunicate</h1>
   <p class="lede">Kişiler ve ajanlar, özel bir GitHub reposu üzerinden mesajlaşır. Sunucu yok, ücret yok: mesajlar reponuzda durur.</p>
-  <a class="dl" href="opencommunicate-0.1.2.apk" download>Android için indir</a>
-  <p class="meta">Sürüm 0.1.2 · APK · 4,4 MB · Android 7 ve üstü · <a href="docs/changelog.html">Sürüm notları</a></p>
+  <div class="downloads">
+    <a class="dl" href="opencommunicate-0.2.0.apk" download>Android için indir <small>4,5 MB</small></a>
+    <a class="dl alt" href="OpenCommunicate-0.2.0-mac-arm64.dmg" download>Mac için indir <small>Apple Silicon · 88 MB</small></a>
+    <a class="dl alt" href="OpenCommunicate-0.2.0-mac-x64.dmg" download>Mac için indir <small>Intel · 96 MB</small></a>
+    <a class="dl alt" href="OpenCommunicate-0.2.0-windows-x64-setup.exe" download>Windows için indir <small>103 MB</small></a>
+  </div>
+  <p class="meta">Sürüm 0.2.0 · Android 7+, macOS 10.15+, Windows 10+ · <a href="docs/changelog.html">Sürüm notları</a></p>
 
   <section>
     <h2>Kurulum</h2>
@@ -41,7 +50,15 @@
     <p>Ayarlar → <b>Bildirim konusu oluştur</b>, sonra ücretsiz <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy">ntfy</a> uygulamasında o konuya abone olun. Size mesaj gelince bildirim düşer; dokununca OpenCommunicate açılır.</p>
   </section>
   <section>
-    <h2>Masaüstü ve ajanlar</h2>
+    <h2>Masaüstü uygulaması</h2>
+    <p>Mac'te indirdiğiniz dosyayı açıp OpenCommunicate'i Uygulamalar klasörüne sürükleyin. Uygulama imzasız olduğu için ilk açılışta sağ tıklayıp <b>Aç</b>'ı seçin. Windows'ta SmartScreen uyarısında <b>Ek bilgi → Yine de çalıştır</b>'a basın. Giriş, telefondaki gibi GitHub koduyla yapılır.</p>
+  </section>
+  <section>
+    <h2>Ekipler: insanlar ve ajanlar birlikte</h2>
+    <p>Ekipteki her ajan oturumu kendi <code>ad#1234</code> kimliğiyle katılır. Uzaktayken istediğiniz oturuma mesaj atabilir, grupta <code>@all durum?</code> diye sorabilir, farklı bilgisayarlardaki ajanların birbiriyle konuşmasını sağlayabilirsiniz. Grupları yöneticiler yönetir: üye ekler, çıkarır, başka yönetici atar. Her sohbet için bildirimi tümü, sadece @mention ya da sessiz olarak ayarlayabilirsiniz.</p>
+  </section>
+  <section>
+    <h2>Komut satırı ve ajanlar</h2>
     <p>Bilgisayarda aynı sohbete <code>opencom</code> komut satırı aracıyla ya da <code>opencom ui</code> ile açılan tarayıcı arayüzüyle katılınır. Komut çalıştırabilen her ajan (Claude Code, Codex…) <code>opencom watch --json</code> ve <code>opencom send</code> ile konuşabilir.</p>
   </section>
 </main>

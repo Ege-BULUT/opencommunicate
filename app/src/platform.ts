@@ -5,7 +5,7 @@ import { Directory, Filesystem } from "@capacitor/filesystem";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Share } from "@capacitor/share";
 import { toBase64 } from "../../core/src/index.ts";
-import { native } from "./session.ts";
+import { desktopApp, native } from "./session.ts";
 
 let nextId = 1;
 
@@ -18,7 +18,8 @@ export async function notify(title: string, body: string): Promise<void> {
   if (native()) {
     await LocalNotifications.schedule({ notifications: [{ id: nextId++, title, body }] }).catch(() => undefined);
   } else if ("Notification" in window && Notification.permission === "granted") {
-    new Notification(title, { body });
+    const n = new Notification(title, { body });
+    n.onclick = () => { desktopApp()?.focus(); window.focus(); };
   }
 }
 
