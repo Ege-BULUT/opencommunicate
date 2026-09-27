@@ -1,7 +1,7 @@
 /* Where a session comes from: the desktop CLI (`opencom ui` hands this page its config once), or, on the
    phone, a GitHub device-flow sign-in followed by joining a bus repository. */
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
-import { Bus, type Device } from "../../core/src/index.ts";
+import { Bus, GitHubError, type Device } from "../../core/src/index.ts";
 
 export type Session = { repo: string; token: string; device: Device; source: "desktop" | "app" };
 const KEY = "oc.session";
@@ -79,4 +79,22 @@ export async function join(token: string, repo: string, nick: string): Promise<S
 export async function githubLogin(token: string): Promise<string> {
   const res = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${token}` } });
   return (await res.json()).login;
+}
+
+/** Who the token belongs to; throws a GitHubError when it is invalid or can't read the chat repository. */
+export async function checkAccount(token: string, repo: string): Promise<string> {
+  const bus = new Bus({ repo, token });
+  const login = (await bus.gh("/user")).data.login;
+  await bus.gh(`/repos/${repo}`);
+  return login;
+}
+
+/** A GitHub problem only the person can fix (sign in again, get access), in words; null for passing trouble. */
+export function accountProblem(e: unknown, repo: string): string | null {
+  if (!(e instanceof GitHubError)) return null;
+  if (e.status === 401) return "GitHub oturumu geçersiz ya da iptal edilmiş (401). Yeniden giriş yapın.";
+  if (e.status === 403 && !/rate limit/i.test(e.message)) return `Bu GitHub hesabının ${repo} reposuna erişimi yok (403). Repo sahibi sizi collaborator olarak eklemeli.`;
+  // GitHub answers 404 for a private repository the account can't see
+  if (e.status === 404 && e.message.startsWith(`GitHub 404 /repos/${repo}:`)) return `${repo} reposu bulunamadı ya da bu hesap onu göremiyor (404). Repo sahibi sizi collaborator olarak eklemeli.`;
+  return null;
 }

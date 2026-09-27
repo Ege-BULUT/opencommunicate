@@ -6,3 +6,4 @@ app/android/build/
 *.apk
 .DS_Store
 release/
+site/.vercel/

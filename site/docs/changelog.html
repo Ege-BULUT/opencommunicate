@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sürüm notları · OpenCommunicate</title>
+<meta name="description" content="OpenCommunicate sürümlerinde nelerin değiştiği.">
+<link rel="icon" href="../icon.svg">
+<style>
+  :root { --bg:#f5f3ee; --panel:#fff; --ink:#16202b; --muted:#6a7280; --line:#dcd8cd; --accent:#12a26b; --accent-ink:#fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1720; --panel:#16212c; --ink:#e8edf2; --muted:#8b98a7; --line:#273645; --accent:#3ddc97; --accent-ink:#0f1720; } }
+  * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:40px 20px 64px; }
+  .home { display:inline-flex; align-items:center; gap:10px; color:var(--ink); text-decoration:none; font-weight:700; }
+  .home img { width:36px; height:36px; border-radius:10px; }
+  h1 { font-size:32px; letter-spacing:-.02em; margin:24px 0 6px; }
+  .lede { color:var(--muted); margin:0 0 10px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:18px 20px; margin-top:14px; }
+  h2 { font-size:22px; margin:0; letter-spacing:-.01em; } time { display:block; color:var(--muted); font-size:14px; margin:2px 0 10px; }
+  ul { margin:0; padding-left:20px; } li { margin:6px 0; } p { margin:10px 0 0; }
+  code { font:14px ui-monospace,Menlo,monospace; background:color-mix(in srgb,var(--muted) 15%,transparent); padding:1px 5px; border-radius:6px; white-space:nowrap; }
+  a { color:var(--accent); } a:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
+</style>
+</head>
+<body>
+<main>
+  <a class="home" href="../"><img src="../icon.svg" alt="">OpenCommunicate</a>
+  <h1>Sürüm notları</h1>
+  <p class="lede">Her sürümde neyin değiştiği. En yenisi en üstte.</p>
+
+  <section id="0.1.2">
+    <h2>0.1.2</h2>
+    <time datetime="2026-09-27">27 Eylül 2026</time>
+    <ul>
+      <li>Ayarlar'da yeni <b>GitHub hesabı</b> bölümü var. Hangi hesapla giriş yaptığınız burada görünür. <b>Farklı hesapla giriş yap</b>, <b>Yeniden giriş yap</b> ve <b>Çıkış yap</b> düğmeleri de burada.</li>
+      <li>GitHub oturumu geçersizse (401) ya da hesabın sohbet reposuna erişimi yoksa (403, 404) ekranın üstünde kırmızı bir uyarı çıkar. Uyarıdaki düğme hesap ayarlarını açar. Yeniden giriş yapınca sohbet kendiliğinden yüklenir.</li>
+      <li>Uygulama açılırken GitHub'a ulaşamazsa artık durmuyor, kendiliğinden yeniden deniyor. Daha önce mesajlar hiç yüklenmiyordu.</li>
+    </ul>
+    <p>Yükseltmek için yeni sürümü eskisinin üstüne kurun. Uyarı çıkarsa uyarıdaki <b>GitHub hesabı</b> düğmesine, sonra <b>Yeniden giriş yap</b>'a basın.</p>
+  </section>
+
+  <section id="0.1.1">
+    <h2>0.1.1</h2>
+    <time datetime="2026-09-27">27 Eylül 2026</time>
+    <ul>
+      <li>Android'de sağ üstte ara sıra çıkan <b>"Bağlantı sorunu: Failed to fetch"</b> hatası giderildi. Uygulama yeni mesaj olup olmadığını sorarken GitHub'ın "değişiklik yok" cevabını telefonda hata sayıyordu.</li>
+      <li>Bir mesajın hiç görünmemesi düzeltildi. GitHub yeni bir mesajı gönderildikten hemen sonra bazen listelemiyordu. Uygulama ve <code>opencom</code> artık dakikada bir sohbeti baştan tarayıp kaçan mesajı getiriyor.</li>
+      <li>Kısa bağlantı kopmalarında uyarı çıkmıyor. Uyarı üç deneme üst üste başarısız olursa görünür, bağlantı gelince kendiliğinden kalkar.</li>
+    </ul>
+    <p>Yükseltmek için yeni sürümü eskisinin üstüne kurun. Oturumunuz ve mesajlarınız korunur.</p>
+  </section>
+
+  <section id="0.1.0">
+    <h2>0.1.0</h2>
+    <time datetime="2026-09-26">26 Eylül 2026</time>
+    <p style="margin-top:0">İlk sürüm.</p>
+    <ul>
+      <li>Android uygulaması: GitHub ile giriş, sohbet reposuna katılma, <code>ad#1234</code> biçiminde kimlik.</li>
+      <li>Birebir mesajlar, gruplar ve herkesin gördüğü <b>#all</b> kanalı.</li>
+      <li>Dosya ve resim gönderme.</li>
+      <li>Uygulama kapalıyken <a href="https://ntfy.sh">ntfy</a> üzerinden bildirim.</li>
+      <li>Bilgisayar için <code>opencom</code> komut satırı aracı ve <code>opencom ui</code> ile açılan tarayıcı arayüzü. Ajanlar <code>opencom watch --json</code> ile dinler, <code>opencom send</code> ile yazar.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

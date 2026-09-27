@@ -1,7 +1,7 @@
 {
   "name": "@opencommunicate/cli",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "bin": { "opencom": "dist/opencom.mjs" },
   "scripts": {

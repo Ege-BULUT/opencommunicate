@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bus, Watcher, dmChannel, dmPeer, handle, isDm, msgPath, type Device, type Group, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { askNotifications, imageUrl, notify, openLink, saveFile } from "./platform.ts";
-import { clearSession, finishSignIn, githubLogin, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, checkAccount, clearSession, finishSignIn, githubLogin, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 const KIND: Record<string, string> = { agent: "ajan", phone: "telefon", desktop: "masaüstü", person: "kişi" };
@@ -12,21 +12,53 @@ export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   useEffect(() => { loadSession().then(setSession).catch(() => setSession(null)); }, []);
   if (session === undefined) return <div className="center muted">Açılıyor…</div>;
-  if (!session) return <Onboarding onDone={(s) => { saveSession(s); setSession(s); }} />;
-  return <Chat session={session} onSignOut={() => { clearSession(); setSession(null); }} />;
+  const use = (s: Session) => { saveSession(s); setSession(s); };
+  if (!session) return <Onboarding onDone={use} />;
+  // a new token (signed in again, or another account) starts the chat afresh
+  return <Chat key={session.token} session={session} onSession={use} onSignOut={() => { clearSession(); setSession(null); }} />;
+}
+
+// GitHub device flow: shows the code, opens github.com/login/device, hands the token on
+function GitHubSignIn({ label, primary = true, onToken }: { label: string; primary?: boolean; onToken: (token: string) => Promise<void> }) {
+  const [code, setCode] = useState<DeviceCode | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const gone = useRef(false);
+  useEffect(() => { gone.current = false; return () => { gone.current = true; }; }, []);
+  const go = async () => {
+    setError(""); setBusy(true);
+    try {
+      const c = await startSignIn();
+      setCode(c);
+      openLink(c.verification_uri).catch(() => {}); // the code stays on screen even if no browser opens
+      const token = await finishSignIn(c, () => gone.current);
+      setCode(null);
+      await onToken(token);
+    } catch (e) { if (!gone.current) setError((e as Error).message); }
+    finally { if (!gone.current) { setBusy(false); setCode(null); } }
+  };
+  if (code) return (
+    <div className="code">
+      <p>github.com/login/device sayfasına bu kodu girin:</p>
+      <strong className="usercode" onClick={() => navigator.clipboard?.writeText(code.user_code)}>{code.user_code}</strong>
+      <button className="ghost" onClick={() => openLink(code.verification_uri)}>Sayfayı yeniden aç</button>
+      <p className="muted small">Onayladıktan sonra burada kendiliğinden devam eder. Başka bir hesap için GitHub sayfasında önce o hesaba geçin.</p>
+    </div>
+  );
+  return <>
+    <button className={primary ? "primary" : "ghost"} disabled={busy} onClick={go}>{busy ? "Bekleniyor…" : label}</button>
+    {error && <p className="error">{error}</p>}
+  </>;
 }
 
 // ---------------- sign-in + join (phone) ----------------
 function Onboarding({ onDone }: { onDone: (s: Session) => void }) {
-  const [code, setCode] = useState<DeviceCode | null>(null);
   const [token, setToken] = useState("");
   const [login, setLogin] = useState("");
   const [repo, setRepo] = useState("");
   const [nick, setNick] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const cancelled = useRef(false);
-  useEffect(() => () => { cancelled.current = true; }, []);
 
   if (!native() && !token) {
     return (
@@ -39,17 +71,9 @@ function Onboarding({ onDone }: { onDone: (s: Session) => void }) {
     );
   }
 
-  const signIn = async () => {
-    setError(""); setBusy(true);
-    try {
-      const c = await startSignIn();
-      setCode(c);
-      openLink(c.verification_uri).catch(() => {}); // the code stays on screen even if no browser opens
-      const t = await finishSignIn(c, () => cancelled.current);
-      const l = await githubLogin(t);
-      setToken(t); setLogin(l); setRepo(`${l}/opencommunicate-chat`); setNick(l.toLowerCase().slice(0, 12));
-    } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); setCode(null); }
+  const signedIn = async (t: string) => {
+    const l = await githubLogin(t);
+    setToken(t); setLogin(l); setRepo(`${l}/opencommunicate-chat`); setNick(l.toLowerCase().slice(0, 12));
   };
 
   const doJoin = async () => {
@@ -65,16 +89,7 @@ function Onboarding({ onDone }: { onDone: (s: Session) => void }) {
       {!token ? (
         <>
           <p>Kişiler ve ajanlar, özel bir GitHub reposu üzerinden mesajlaşır. Başlamak için GitHub ile giriş yapın.</p>
-          {code ? (
-            <div className="code">
-              <p>github.com/login/device sayfasına bu kodu girin:</p>
-              <strong className="usercode" onClick={() => navigator.clipboard?.writeText(code.user_code)}>{code.user_code}</strong>
-              <button className="ghost" onClick={() => openLink(code.verification_uri)}>Sayfayı yeniden aç</button>
-              <p className="muted">Onayladıktan sonra burada kendiliğinden devam eder.</p>
-            </div>
-          ) : (
-            <button className="primary" disabled={busy} onClick={signIn}>GitHub ile giriş yap</button>
-          )}
+          <GitHubSignIn label="GitHub ile giriş yap" onToken={signedIn} />
         </>
       ) : (
         <>
@@ -93,7 +108,7 @@ function Onboarding({ onDone }: { onDone: (s: Session) => void }) {
 // ---------------- chat ----------------
 type Pending = Message & { pending?: boolean; failed?: boolean };
 
-function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+function Chat({ session, onSession, onSignOut }: { session: Session; onSession: (s: Session) => void; onSignOut: () => void }) {
   const bus = useMemo(() => new Bus({ repo: session.repo, token: session.token }), [session]);
   const [me, setMe] = useState<Device>(session.device);
   const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device]);
@@ -105,6 +120,7 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
   const [dialog, setDialog] = useState<"group" | "settings" | null>(null);
   const [status, setStatus] = useState("Yükleniyor…");
+  const [account, setAccount] = useState<string | null>(null); // a GitHub problem only the person can fix
   const [read, setRead] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(READ_KEY) ?? "{}"); } catch { return {}; } });
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -125,32 +141,42 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
   // start: directory + recent history of every channel, then poll
   useEffect(() => {
     let stop = false;
-    let cleanup = () => {};
+    // coming back to the app checks at once instead of waiting out the interval
+    let wake = () => {};
+    const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); wake = () => { clearTimeout(t); r(); }; });
+    const onVisible = () => { if (!document.hidden) wake(); };
+    document.addEventListener("visibilitychange", onVisible);
     (async () => {
-      try {
-        await watcher.start();
+      // a failed start is retried (the phone may be offline or just waking up); an account problem waits for sign-in
+      for (let wait = POLL_MS; ; wait = Math.min(wait * 2, 60_000)) {
+        if (stop) return;
+        try {
+          await bus.gh(`/repos/${session.repo}`); // a repository this account can't see would otherwise look empty
+          await watcher.start();
         setDevices(watcher.devices); setGroups(watcher.groups);
         // the repository's devices/<id>.json is the truth (another client may have changed it)
         const stored = watcher.devices.find((d) => d.id === session.device.id);
-        if (stored) { setMe(stored); if (session.source === "app") saveSession({ ...session, device: stored }); }
-        else if (watcher.devices.length) { setStatus("Bu cihaz sohbetten çıkarılmış. Ayarlar → Çıkış yapıp yeniden katılın."); return; }
-        const hist = await bus.histories([...watcher.channels], 60, watcher.head ?? undefined);
-        for (const list of Object.values(hist)) list.forEach((m) => watcher.seen.add(msgPath(m)));
-        setMessages(hist);
-        setStatus("");
-        bus.presence().then(setPresence).catch(() => {});
-        bus.heartbeat(session.device).catch(() => {});
-        askNotifications();
-      } catch (e) { setStatus((e as Error).message); return; }
+          if (stored) { setMe(stored); if (session.source === "app") saveSession({ ...session, device: stored }); }
+          else if (watcher.devices.length) { setStatus("Bu cihaz sohbetten çıkarılmış. Ayarlar → Çıkış yapıp yeniden katılın."); return; }
+          const hist = await bus.histories([...watcher.channels], 60, watcher.head ?? undefined);
+          for (const list of Object.values(hist)) list.forEach((m) => watcher.seen.add(msgPath(m)));
+          setMessages(hist);
+          setStatus(""); setAccount(null);
+          bus.presence().then(setPresence).catch(() => {});
+          bus.heartbeat(session.device).catch(() => {});
+          askNotifications();
+          break;
+        } catch (e) {
+          const problem = accountProblem(e, session.repo);
+          setAccount(problem);
+          setStatus(problem ? "" : `Bağlanılamadı, yeniden deneniyor: ${(e as Error).message}`);
+          await sleep(wait);
+        }
+      }
       let beat = Date.now();
       let failures = 0;
-      // coming back to the app checks at once instead of waiting out the interval
-      let wake = () => {};
-      const onVisible = () => { if (!document.hidden) wake(); };
-      document.addEventListener("visibilitychange", onVisible);
-      cleanup = () => document.removeEventListener("visibilitychange", onVisible);
       while (!stop) {
-        await new Promise<void>((r) => { const t = setTimeout(r, POLL_MS); wake = () => { clearTimeout(t); r(); }; });
+        await sleep(POLL_MS);
         if (stop) break;
         try {
           const fresh = await watcher.tick();
@@ -162,14 +188,16 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
           }
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); bus.presence().then(setPresence).catch(() => {}); }
           failures = 0;
-          setStatus("");
+          setStatus(""); setAccount(null);
         } catch (e) {
+          const problem = accountProblem(e, session.repo);
+          if (problem) setAccount(problem);
           // phones drop a request now and then (network switch, app waking up); only a run of failures is news
-          if (++failures >= 3) setStatus(`Bağlantı sorunu: ${(e as Error).message}`);
+          else if (++failures >= 3) setStatus(`Bağlantı sorunu: ${(e as Error).message}`);
         }
       }
     })();
-    return () => { stop = true; cleanup(); };
+    return () => { stop = true; wake(); document.removeEventListener("visibilitychange", onVisible); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watcher]);
 
@@ -201,7 +229,8 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
       notifyRecipients(sent, me, devices, groups).catch(() => {});
     } catch (e) {
       setMessages((prev) => ({ ...prev, [active]: (prev[active] ?? []).map((x) => (x.id === draft.id ? { ...x, pending: false, failed: true } : x)) }));
-      setStatus(`Gönderilemedi: ${(e as Error).message}`);
+      const problem = accountProblem(e, session.repo);
+      if (problem) setAccount(problem); else setStatus(`Gönderilemedi: ${(e as Error).message}`);
     }
   };
 
@@ -212,6 +241,7 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
           <span className="brand">OpenCommunicate</span>
           <button className="icon" title="Ayarlar" onClick={() => setDialog("settings")}>⚙︎</button>
         </header>
+        {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <div className="me">{handle(me)} <span className="muted">· {session.repo.split("/")[1]}</span></div>
         <nav>
           <ChannelRow label="#all" sub="Herkes" count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />
@@ -232,6 +262,7 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
           <b>{title}</b>
           {status && <span className="status">{status}</span>}
         </header>
+        {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} />
         <Composer onSend={send} />
       </main>
@@ -241,7 +272,16 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
         setGroups((x) => [...x, g]); setMessages((x) => ({ ...x, [g.channel]: [] })); setDialog(null); open(g.channel);
         await watcher.refresh();
       }} />}
-      {dialog === "settings" && <Settings session={session} me={me} bus={bus} onMe={setMe} onClose={() => setDialog(null)} onSignOut={onSignOut} />}
+      {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut} />}
+    </div>
+  );
+}
+
+function AccountAlert({ text, onFix }: { text: string; onFix: () => void }) {
+  return (
+    <div className="alert" role="alert">
+      <span>{text}</span>
+      <button className="ghost" onClick={onFix}>GitHub hesabı</button>
     </div>
   );
 }
@@ -359,8 +399,25 @@ function GroupDialog({ others, onClose, onCreate }: { others: Device[]; onClose:
   );
 }
 
-function Settings({ session, me, bus, onMe, onClose, onSignOut }: { session: Session; me: Device; bus: Bus; onMe: (d: Device) => void; onClose: () => void; onSignOut: () => void }) {
+function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignOut }: { session: Session; me: Device; bus: Bus; problem: string | null; onMe: (d: Device) => void; onSession: (s: Session) => void; onClose: () => void; onSignOut: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [login, setLogin] = useState<string | null>(null);
+  const [trouble, setTrouble] = useState<string | null>(problem);
+  useEffect(() => {
+    checkAccount(session.token, session.repo).then(
+      (l) => { setLogin(l); setTrouble(null); },
+      (e) => setTrouble(accountProblem(e, session.repo) ?? `GitHub'a ulaşılamadı: ${(e as Error).message}`),
+    );
+  }, [session]);
+  // a new token must reach the chat repository before it replaces the old one
+  const adoptToken = async (token: string) => {
+    let l: string;
+    try { l = await checkAccount(token, session.repo); }
+    catch (e) { throw new Error(accountProblem(e, session.repo) ?? (e as Error).message); }
+    const device = { ...me, login: l };
+    if (me.login !== l) await new Bus({ repo: session.repo, token }).updateDevice(device);
+    onSession({ ...session, token, device });
+  };
   const toggleNotify = async () => {
     setBusy(true);
     try {
@@ -376,6 +433,18 @@ function Settings({ session, me, bus, onMe, onClose, onSignOut }: { session: Ses
         <h2>Ayarlar</h2>
         <p><b>{handle(me)}</b> <span className="muted">({KIND[me.kind] ?? me.kind})</span></p>
         <p className="muted small">Sohbet reposu: {session.repo}</p>
+        <h3>GitHub hesabı</h3>
+        {login && !trouble && <p className="small">Giriş yapılan hesap: <b>@{login}</b> ✓</p>}
+        {!login && !trouble && <p className="muted small">Kontrol ediliyor…</p>}
+        {trouble && <p className="error small">{trouble}</p>}
+        {session.source === "app" ? (
+          <div className="actions start">
+            <GitHubSignIn label={trouble ? "Yeniden giriş yap" : "Farklı hesapla giriş yap"} primary={!!trouble} onToken={adoptToken} />
+            <button className="ghost danger" onClick={onSignOut}>Çıkış yap</button>
+          </div>
+        ) : (
+          <p className="muted small">Masaüstünde hesap komut satırından yönetilir: <code>gh auth login</code> (ya da <code>OPENCOM_TOKEN</code>), sonra <code>opencom ui</code>'yi yeniden açın.</p>
+        )}
         <h3>Anlık bildirim (ntfy)</h3>
         <p className="small">Uygulama açıkken mesajlar anında gelir. Kapalıyken de haber almak için ücretsiz <b>ntfy</b> uygulamasını kurup aşağıdaki konuya abone olun; size mesaj atan cihaz bu konuya kısa bir bildirim gönderir, bildirime dokununca bu uygulama açılır.</p>
         {native() && <button className="ghost" onClick={() => openLink("https://play.google.com/store/apps/details?id=io.heckel.ntfy")}>ntfy'ı Play Store'dan kur</button>}
@@ -390,8 +459,7 @@ function Settings({ session, me, bus, onMe, onClose, onSignOut }: { session: Ses
         ) : (
           <button className="primary" disabled={busy} onClick={toggleNotify}>Bildirim konusu oluştur</button>
         )}
-        <div className="actions spread">
-          {session.source === "app" && <button className="ghost danger" onClick={onSignOut}>Çıkış yap</button>}
+        <div className="actions">
           <button className="ghost" onClick={onClose}>Kapat</button>
         </div>
       </div>
