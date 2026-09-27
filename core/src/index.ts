@@ -340,6 +340,7 @@ export class Watcher {
   groups: Group[] = [];
   private bus: Bus;
   private me: Device;
+  private ticks = 0;
   constructor(bus: Bus, me: Device) { this.bus = bus; this.me = me; }
 
   get channels() { return new Set(this.bus.channelsFor(this.me.id, this.devices, this.groups)); }
@@ -347,6 +348,11 @@ export class Watcher {
   async start(): Promise<void> {
     this.head = await this.bus.head();
     await this.refresh();
+    // everything already in this device's channels counts as seen; only new messages are delivered
+    if (this.head) {
+      const mine = this.channels;
+      for (const e of await this.bus.tree(this.head)) if (isMessagePath(e.path) && mine.has(e.path.split("/")[1])) this.seen.add(e.path);
+    }
     await this.bus.headIfChanged(); // prime the ETag
   }
 
@@ -356,18 +362,37 @@ export class Watcher {
   }
 
   async tick(): Promise<Message[]> {
+    this.ticks++;
+    const out: Message[] = [];
     const next = await this.bus.headIfChanged();
-    if (!next || next === this.head) return [];
-    if (!this.head) { this.head = next; await this.refresh(); return []; }
-    const res = await this.bus.changes(this.head, next, this.channels, this.seen);
-    this.head = next;
-    if (res.metaChanged || res.devicesChanged) {
-      const before = this.channels;
-      await this.refresh();
-      // a group this device was just added to: include messages already in it
-      const added = [...this.channels].filter((c) => !before.has(c));
-      for (const ch of added) for (const m of await this.bus.history(ch, 50, next)) if (!this.seen.has(msgPath(m))) { this.seen.add(msgPath(m)); res.messages.push(m); }
+    if (next && next !== this.head) {
+      if (!this.head) { this.head = next; await this.refresh(); }
+      else {
+        const res = await this.bus.changes(this.head, next, this.channels, this.seen);
+        this.head = next;
+        out.push(...res.messages);
+        if (res.metaChanged || res.devicesChanged) {
+          const before = this.channels;
+          await this.refresh();
+          // a group this device was just added to: include messages already in it
+          const added = [...this.channels].filter((c) => !before.has(c));
+          for (const ch of added) for (const m of await this.bus.history(ch, 50, next)) if (!this.seen.has(msgPath(m))) { this.seen.add(msgPath(m)); out.push(m); }
+        }
+      }
     }
-    return res.messages;
+    // Safety net: right after a push GitHub's compare view can come back without the new files, and a
+    // message skipped that way would never be read again. Once a minute, scan the tree for anything unseen.
+    if (this.head && this.ticks % 12 === 0) out.push(...(await this.reconcile()));
+    return out.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /** Messages in this device's channels that are in the repository but were never delivered. */
+  async reconcile(): Promise<Message[]> {
+    if (!this.head) return [];
+    const mine = this.channels;
+    const missing = (await this.bus.tree(this.head)).filter((e) => isMessagePath(e.path) && mine.has(e.path.split("/")[1]) && !this.seen.has(e.path));
+    const found = await Promise.all(missing.map((e) => this.bus.json<Message>(e.sha)));
+    missing.forEach((e) => this.seen.add(e.path));
+    return found;
   }
 }

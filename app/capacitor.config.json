@@ -6,9 +6,6 @@
     "allowMixedContent": false
   },
   "plugins": {
-    "CapacitorHttp": {
-      "enabled": true
-    },
     "LocalNotifications": {
       "iconColor": "#3ddc97"
     },

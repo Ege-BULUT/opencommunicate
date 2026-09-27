@@ -1,6 +1,6 @@
 /* Where a session comes from: the desktop CLI (`opencom ui` hands this page its config once), or, on the
    phone, a GitHub device-flow sign-in followed by joining a bus repository. */
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { Bus, type Device } from "../../core/src/index.ts";
 
 export type Session = { repo: string; token: string; device: Device; source: "desktop" | "app" };
@@ -27,15 +27,23 @@ export const clearSession = () => localStorage.removeItem(KEY);
 
 const form = (o: Record<string, string>) => new URLSearchParams(o).toString();
 
+/* github.com's sign-in endpoints don't allow browser (CORS) requests, so on the phone they go through
+   Capacitor's native HTTP. Everything else uses the WebView's own fetch: api.github.com allows CORS, and
+   Capacitor's fetch patch sends GETs through a native proxy that can't pass a "304 Not Modified" back, so
+   the chat's conditional polling failed with "Failed to fetch" (38 of 40 polls on the emulator). */
+async function signInPost(url: string, body: Record<string, string>): Promise<any> {
+  const headers = { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" };
+  if (native()) {
+    const d = (await CapacitorHttp.post({ url, headers, data: form(body) })).data;
+    return typeof d === "string" ? JSON.parse(d) : d;
+  }
+  return (await fetch(url, { method: "POST", headers, body: form(body) })).json();
+}
+
 export type DeviceCode = { device_code: string; user_code: string; verification_uri: string; interval: number; expires_in: number };
 
 export async function startSignIn(): Promise<DeviceCode> {
-  const res = await fetch("https://github.com/login/device/code", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-    body: form({ client_id: CLIENT_ID, scope: "repo" }),
-  });
-  const data = await res.json();
+  const data = await signInPost("https://github.com/login/device/code", { client_id: CLIENT_ID, scope: "repo" });
   if (!data.device_code) throw new Error(data.error_description ?? "GitHub did not start the sign-in.");
   return data;
 }
@@ -48,12 +56,7 @@ export async function finishSignIn(code: DeviceCode, cancelled: () => boolean): 
     await new Promise((r) => setTimeout(r, wait));
     let data;
     try {
-      const res = await fetch("https://github.com/login/oauth/access_token", {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
-        body: form({ client_id: CLIENT_ID, device_code: code.device_code, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }),
-      });
-      data = await res.json();
+      data = await signInPost("https://github.com/login/oauth/access_token", { client_id: CLIENT_ID, device_code: code.device_code, grant_type: "urn:ietf:params:oauth:grant-type:device_code" });
     } catch {
       continue; // a dropped connection while waiting is not a reason to give up; ask again next round
     }

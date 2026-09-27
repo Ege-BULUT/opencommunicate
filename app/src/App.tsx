@@ -125,6 +125,7 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
   // start: directory + recent history of every channel, then poll
   useEffect(() => {
     let stop = false;
+    let cleanup = () => {};
     (async () => {
       try {
         await watcher.start();
@@ -142,8 +143,14 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
         askNotifications();
       } catch (e) { setStatus((e as Error).message); return; }
       let beat = Date.now();
+      let failures = 0;
+      // coming back to the app checks at once instead of waiting out the interval
+      let wake = () => {};
+      const onVisible = () => { if (!document.hidden) wake(); };
+      document.addEventListener("visibilitychange", onVisible);
+      cleanup = () => document.removeEventListener("visibilitychange", onVisible);
       while (!stop) {
-        await new Promise((r) => setTimeout(r, POLL_MS));
+        await new Promise<void>((r) => { const t = setTimeout(r, POLL_MS); wake = () => { clearTimeout(t); r(); }; });
         if (stop) break;
         try {
           const fresh = await watcher.tick();
@@ -154,11 +161,15 @@ function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void 
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || "📎 dosya");
           }
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); bus.presence().then(setPresence).catch(() => {}); }
-          if (status) setStatus("");
-        } catch (e) { setStatus(`Bağlantı sorunu: ${(e as Error).message}`); }
+          failures = 0;
+          setStatus("");
+        } catch (e) {
+          // phones drop a request now and then (network switch, app waking up); only a run of failures is news
+          if (++failures >= 3) setStatus(`Bağlantı sorunu: ${(e as Error).message}`);
+        }
       }
     })();
-    return () => { stop = true; };
+    return () => { stop = true; cleanup(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watcher]);
 

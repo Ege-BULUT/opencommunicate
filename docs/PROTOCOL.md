@@ -21,5 +21,7 @@ branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, fo
   on the current head; if the branch moved, the commit is rebuilt on the new head and retried.
 - **reads**: poll `GET /git/ref/heads/main` with `If-None-Match`; on change, `GET /compare/<old>...<new>`
   lists the new files. A client follows `#all`, its DMs and the groups whose `members` include it.
+  Right after a push, compare can come back without the new files, so a client also scans the tree of
+  its head about once a minute for message files it has not seen.
 - **notifications** (optional): a device's `notify` is an `https://ntfy.sh/<secret topic>` URL. After sending,
   a client posts `?title=<sender>&click=opencommunicate://open` with the text to each recipient's topic.
