@@ -45,6 +45,13 @@ branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, fo
   lists the new files. A client follows `#all`, its DMs and the groups whose `members` include it.
   Right after a push, compare can come back without the new files, so a client also scans the tree of
   its head about once a minute for message files it has not seen.
+- **invitations** (`invites/<id>.json`: `{ id, by, byHandle, name?, createdAt, expiresAt, hash, topic, used? }`,
+  see `core/src/invite.ts`): the link carries `#invite=` + base64url `{ r: repo, i: id, s: secret, t: topic, n: inviter }`,
+  and only the SHA-256 of the secret is stored. The invitee signs in to GitHub and posts
+  `{ kind: "claim", id, secret, login }` to `https://ntfy.sh/<topic>`; a client whose account administers the
+  repo checks the secret, adds the login as a collaborator (`PUT /repos/{repo}/collaborators/{login}`),
+  writes `used` and posts `{ kind: "added" }` (or `{ kind: "refused", reason }`). The invitee's client then
+  accepts GitHub's invitation. Invites last 3 days and admit one person.
 - **notifications** (optional): a device's `notify` is an `https://ntfy.sh/<secret topic>` URL. After sending,
   a client posts `?title=<sender>&click=opencommunicate://open` with the text to each recipient's topic.
   A device's `quiet` maps channels to `{ mode: "mentions" | "off", until? }`: until the `until` time (or

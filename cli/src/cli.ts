@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { Bus, PALETTES, PHOTO_MAX, Watcher, addressedTo, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
+import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
 const CONFIG = path.join(CONFIG_DIR, "config.json");
@@ -36,6 +37,10 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom picture [--random] [--seed <text>] [--palette <name>] [--photo <file>] [--reset]
                                    this device's profile picture: generated art (agents get one
                                    by default) or a photo of 50 KB at most
+  opencom invite [--name <name>] [--phone <number>]
+                                   a one-time link for someone new (and a WhatsApp link with --phone);
+                                   "opencom invites" lists them. Whoever administers the repo lets the
+                                   invitee in: the app, or "opencom watch", does it while running
   opencom notify on|off            phone notifications through ntfy for this device
   opencom ui [--port 4817]         open the desktop app in the browser
 `;
@@ -209,6 +214,19 @@ async function main(argv: string[]) {
       console.log(`${handle(me)}: ${describe(pictureOf(next))}`);
       return;
     }
+    case "invite": {
+      const name = f.name?.[0];
+      const { link } = await createInvite(bus, me, { name, base: INVITE_BASE });
+      const text = inviteMessage(link, handle(me), cfg.repo, name);
+      console.log(text);
+      if (f.phone) console.log(`\nWhatsApp: ${whatsappLink(f.phone[0], text)}`);
+      if (!(await canAdmit(bus))) console.log("\nNote: this GitHub account doesn't administer the repo; an admin's app or `opencom watch` must be running to let the invitee in.");
+      return;
+    }
+    case "invites": {
+      for (const i of await invites(bus)) console.log(`${i.id}  by ${i.byHandle}${i.name ? ` for ${i.name}` : ""}  ${i.used ? `used by ${i.used.login} ${local(i.used.at)}` : isOpen(i) ? `open until ${local(i.expiresAt)}` : "expired"}`);
+      return;
+    }
     case "notify": {
       const on = rest[0] !== "off";
       const next: Device = { ...me, notify: on ? me.notify ?? `https://ntfy.sh/opencom-${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}` : undefined };
@@ -222,10 +240,17 @@ async function main(argv: string[]) {
       await w.start();
       const every = Math.max(2, Number(f.interval?.[0] ?? 5)) * 1000;
       let beat = 0;
+      // an admin's watch also lets invited people in (every 15 s)
+      const admits = await canAdmit(bus);
+      let invitesAt = 0;
       if (!f.json) console.error(`watching ${cfg.repo} as ${handle(me)}…`);
       for (;;) {
         try {
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(me).catch(() => {}); }
+          if (admits && Date.now() - invitesAt > 15_000) {
+            invitesAt = Date.now();
+            for (const login of await processInvites(bus, me)) console.error(`watch: admitted ${login} (invitation)`);
+          }
           for (const m of await w.tick()) {
             if (m.from === me.id && !f.all) continue;
             console.log(f.json ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me) }) : line(m, me, w.devices, w.groups));

@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Bus, PALETTES, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, pictureOf, quietFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type Picture, type Quiet } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
+import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
+import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
-import { accountProblem, canSignIn, checkAccount, clearSession, desktopApp, finishSignIn, githubLogin, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, canSignIn, checkAccount, clearSession, desktopApp, finishSignIn, githubLogin, hosted, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 
@@ -62,14 +64,124 @@ const BusContext = createContext<Bus | null>(null);
 const KIND: Record<string, string> = { agent: "ajan", phone: "telefon", desktop: "masaüstü", person: "kişi" };
 const READ_KEY = "oc.read";
 
+/** What the address brought: an invitation (#invite=…) or a chat repo (?repo=…), on the web or through an
+ *  Android link (opencommunicate://invite#invite=…, opencommunicate://join?repo=…). */
+type Arrival = { invite: InviteCode | null; repo: string | null };
+const arrivalFrom = (url: string): Arrival => ({ invite: decodeInvite(url), repo: decodeURIComponent(url.match(/[?&]repo=([^&#]+)/)?.[1] ?? "") || null });
+const noArrival: Arrival = { invite: null, repo: null };
+
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [arrival, setArrival] = useState<Arrival>(() => arrivalFrom(location.href));
   useEffect(() => { loadSession().then(setSession).catch(() => setSession(null)); }, []);
+  useEffect(() => {
+    if (!native()) return;
+    NativeApp.getLaunchUrl().then((u) => { if (u?.url) setArrival(arrivalFrom(u.url)); });
+    const l = NativeApp.addListener("appUrlOpen", ({ url }) => setArrival(arrivalFrom(url)));
+    return () => { l.then((h) => h.remove()); };
+  }, []);
   if (session === undefined) return <div className="center muted">Açılıyor…</div>;
   const use = (s: Session) => { saveSession(s); setSession(s); };
-  if (!session) return <Onboarding onDone={use} />;
+  const forget = () => { setArrival(noArrival); if (location.hash.includes("invite=")) history.replaceState(null, "", location.pathname + location.search); };
+  if (!session) return <Onboarding arrival={arrival} onDone={(s) => { forget(); use(s); }} />;
+  // an invitation to another chat while signed in to one: this device can be in one chat at a time
+  if (arrival.invite && arrival.invite.r.toLowerCase() !== session.repo.toLowerCase()) return (
+    <div className="center"><div className="card">
+      <h1 className="brand">Davet</h1>
+      <p><b>{arrival.invite.n}</b> seni <b>{arrival.invite.r.split("/")[1]}</b> sohbetine davet ediyor. Bu cihaz şu an <b>{session.repo.split("/")[1]}</b> sohbetinde.</p>
+      <p className="muted small">Katılırsan bu cihaz şu anki sohbetten çıkar; mesajlar repoda kalır, sonra geri dönebilirsin.</p>
+      <div className="actions start">
+        <button className="primary" onClick={() => { clearSession(); setSession(null); }}>Davete katıl</button>
+        <button className="ghost" onClick={forget}>Vazgeç</button>
+      </div>
+    </div></div>
+  );
   // a new token (signed in again, or another account) starts the chat afresh
   return <Chat key={session.token} session={session} onSession={use} onSignOut={() => { clearSession(); setSession(null); }} />;
+}
+
+const SITE = "https://opencommunicate.vercel.app/";
+const NTFY_IOS = "https://apps.apple.com/app/ntfy/id1625396347";
+const platform = () => {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1)) return "ios";
+  return /Android/.test(ua) ? "android" : "desktop";
+};
+
+/** After joining on the web: install the app for this device, or keep this page on the home screen. */
+function NextSteps({ session, onContinue }: { session: Session; onContinue: () => void }) {
+  const p = platform();
+  const standalone = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone;
+  return (
+    <div className="center"><div className="card">
+      <h1 className="brand">Hazırsın 🎉</h1>
+      <p><b>{handle(session.device)}</b> olarak <b>{session.repo.split("/")[1]}</b> sohbetine katıldın.</p>
+      {p === "ios" && !standalone && (
+        <ol className="steps">
+          <li>Safari'de alttaki <b>Paylaş</b> düğmesine (kareden çıkan ok) bas, <b>Ana Ekrana Ekle</b>'yi seç. OpenCommunicate ana ekranında uygulama gibi açılır.</li>
+          <li>Ana ekrandaki simgeden açınca bir kez daha <b>GitHub ile giriş yap</b>; sohbet hazır gelir.</li>
+          <li>Uygulama kapalıyken bildirim için ücretsiz <a href={NTFY_IOS} target="_blank" rel="noreferrer">ntfy</a> uygulamasını kur, sonra OpenCommunicate'te Ayarlar → <b>Bildirim konusu oluştur</b>.</li>
+        </ol>
+      )}
+      {p === "android" && (
+        <ol className="steps">
+          <li><a href={SITE} target="_blank" rel="noreferrer">Android uygulamasını indir</a> ve kur (Android "bilinmeyen kaynak" izni isterse ver).</li>
+          <li>Kurduktan sonra: <a href={`opencommunicate://join?repo=${encodeURIComponent(session.repo)}`}>Uygulamada aç</a>. GitHub ile giriş yapınca sohbet hazır gelir.</li>
+        </ol>
+      )}
+      {p === "desktop" && <p>İstersen <a href={SITE} target="_blank" rel="noreferrer">Mac ya da Windows uygulamasını indir</a>; ya da bu tarayıcıda devam et.</p>}
+      <button className="primary" onClick={onContinue}>{p === "ios" && !standalone ? "Şimdilik tarayıcıda devam et" : "Sohbete geç"}</button>
+    </div></div>
+  );
+}
+
+/** Phone app: an invitation link copied from a message, for when the link opened the browser instead. */
+function PasteInvite({ onInvite }: { onInvite: (c: InviteCode) => void }) {
+  const [text, setText] = useState("");
+  const code = decodeInvite(text);
+  return (
+    <details className="paste">
+      <summary>Davet bağlantım var</summary>
+      <input value={text} placeholder="Davet bağlantısını yapıştırın" onChange={(e) => setText(e.target.value)} />
+      {text && !code && <p className="error small">Bu bir davet bağlantısı değil.</p>}
+      {code && <button className="ghost" onClick={() => onInvite(code)}>{code.n} davetiyle devam et</button>}
+    </details>
+  );
+}
+
+/** Invite someone: a one-time link, sent by WhatsApp, copied or shared. */
+function InviteDialog({ bus, me, admin, onClose }: { bus: Bus; me: Device; admin: boolean; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState("");
+  const [error, setError] = useState("");
+  const message = async () => {
+    let l = link;
+    if (!l) { l = (await createInvite(bus, me, { name: name.trim() || undefined, base: INVITE_BASE })).link; setLink(l); }
+    return inviteMessage(l, handle(me), bus.repo, name.trim() || undefined);
+  };
+  const run = (f: (text: string) => Promise<void> | void) => async () => {
+    setBusy(true); setError(""); setDone("");
+    try { await f(await message()); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+  return (
+    <Sheet title="Kişi davet et" onClose={onClose}>
+      <p className="small">Tek kullanımlık bir bağlantı oluşturulur. Davetli bağlantıyı açıp GitHub ile giriş yapınca sohbete eklenir; Android, iPhone ve bilgisayarda çalışır. Bağlantı 3 gün geçerli.</p>
+      {!admin && <p className="muted small">Davetleri repo yöneticisinin açık uygulaması onaylar. Senin hesabın bu reponun yöneticisi değil; davetli, yöneticinin uygulaması açıkken eklenir.</p>}
+      <label>Adı (isteğe bağlı)<input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder="Ayşe" /></label>
+      <label>Telefon numarası<input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+90 5xx xxx xx xx" /></label>
+      <div className="actions start">
+        <button className="primary" disabled={busy || phone.replace(/\D/g, "").length < 10} onClick={run((t) => openLink(whatsappLink(phone, t)))}>WhatsApp'ta gönder</button>
+        <button className="ghost" disabled={busy} onClick={run(async (t) => { await navigator.clipboard.writeText(t); setDone("Mesaj kopyalandı; istediğin yerden gönderebilirsin."); })}>Mesajı kopyala</button>
+        {(native() || "share" in navigator) && <button className="ghost" disabled={busy} onClick={run(async (t) => { if (native()) await Share.share({ text: t }); else await navigator.share({ text: t }); })}>Paylaş</button>}
+      </div>
+      {link && <p className="muted small">Bağlantı oluşturuldu. Aynı pencereden tekrar gönderirsen aynı bağlantı gider.</p>}
+      {done && <p className="small">{done}</p>}
+      {error && <p className="error small">{error}</p>}
+    </Sheet>
+  );
 }
 
 // GitHub device flow: shows the code, opens github.com/login/device, hands the token on
@@ -106,13 +218,41 @@ function GitHubSignIn({ label, primary = true, onToken }: { label: string; prima
 }
 
 // ---------------- sign-in + join (phone) ----------------
-function Onboarding({ onDone }: { onDone: (s: Session) => void }) {
+function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session) => void }) {
+  const invite = arrival.invite;
   const [token, setToken] = useState("");
   const [login, setLogin] = useState("");
-  const [repo, setRepo] = useState("");
+  const [repo, setRepo] = useState(invite?.r ?? arrival.repo ?? "");
   const [nick, setNick] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [stage, setStage] = useState<"signin" | "admit" | "join" | "next">("signin");
+  const [note, setNote] = useState("");
+  const [joined, setJoined] = useState<Session | null>(null);
+
+  // invited: ask to be let in, then wait for an admin's app to add us and accept GitHub's invitation
+  useEffect(() => {
+    if (stage !== "admit" || !invite) return;
+    let stop = false;
+    (async () => {
+      const since = new Date(Date.now() - 60_000).toISOString();
+      let claimed = 0;
+      const started = Date.now();
+      while (!stop) {
+        try {
+          if (await acceptInvitation(token, invite.r)) { if (!stop) setStage("join"); return; }
+          if (Date.now() - claimed > 60_000) { await post(invite.t, { kind: "claim", id: invite.i, secret: invite.s, login }); claimed = Date.now(); }
+          const refused = (await read(invite.t, since)).find((n) => n.kind === "refused" && n.login === login);
+          if (refused && "reason" in refused) { setError(refused.reason); return; }
+          setNote(Date.now() - started < 20_000 ? "Davet onaylanıyor…"
+            : `${invite.n} ya da sohbetteki bir yöneticinin uygulaması açık olduğunda onaylanır. Bu sayfayı açık bırak; onaylanınca kendiliğinden devam eder.`);
+        } catch (e) { setNote(`Bağlantı sorunu, yeniden deneniyor: ${(e as Error).message}`); }
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+    })();
+    return () => { stop = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
 
   if (!canSignIn() && !token) {
     return (
@@ -127,30 +267,51 @@ function Onboarding({ onDone }: { onDone: (s: Session) => void }) {
 
   const signedIn = async (t: string) => {
     const l = await githubLogin(t);
-    setToken(t); setLogin(l); setRepo(`${l}/opencommunicate-chat`); setNick(l.toLowerCase().slice(0, 12));
+    setToken(t); setLogin(l); setNick(l.toLowerCase().slice(0, 12));
+    setRepo((r) => r || `${l}/opencommunicate-chat`);
+    setStage(invite ? "admit" : "join");
   };
 
   const doJoin = async () => {
     setError(""); setBusy(true);
-    try { onDone(await join(token, repo.trim(), nick.trim())); }
+    try {
+      const s = await join(token, repo.trim(), nick.trim());
+      // on the web the next step depends on the device: install the app, or add this page to the home screen
+      if (hosted()) {
+        history.replaceState(null, "", `${location.pathname}?repo=${encodeURIComponent(s.repo)}`);
+        setJoined(s); setStage("next");
+      } else onDone(s);
+    }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
 
+  if (stage === "next" && joined) return <NextSteps session={joined} onContinue={() => onDone(joined)} />;
+
   return (
     <div className="center"><div className="card">
       <h1 className="brand">OpenCommunicate</h1>
-      {!token ? (
+      {invite && <p className="invite-note"><b>{invite.n}</b> seni <b>{invite.r.split("/")[1]}</b> sohbetine davet ediyor.</p>}
+      {stage === "signin" && (
         <>
-          <p>Kişiler ve ajanlar, özel bir GitHub reposu üzerinden mesajlaşır. Başlamak için GitHub ile giriş yapın.</p>
+          <p>Kişiler ve ajanlar, özel bir GitHub reposu üzerinden mesajlaşır. {invite ? "Katılmak" : "Başlamak"} için GitHub ile giriş yapın.</p>
           <GitHubSignIn label="GitHub ile giriş yap" onToken={signedIn} />
+          {invite && <p className="muted small">GitHub hesabın yoksa github.com'da ücretsiz açıp buraya dönebilirsin.</p>}
+          {!invite && native() && <PasteInvite onInvite={(c) => { setRepo(c.r); location.hash = `invite=${encodeInvite(c)}`; location.reload(); }} />}
         </>
-      ) : (
+      )}
+      {stage === "admit" && (
         <>
-          <p>Giriş yapıldı: <b>{login}</b>. Hangi sohbete katılıyorsunuz?</p>
-          <label>Sohbet reposu<input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="sahip/repo" /></label>
+          <p>Giriş yapıldı: <b>{login}</b>.</p>
+          {!error && <p className="muted"><span className="spinner" aria-hidden="true" /> {note || "Davet onaylanıyor…"}</p>}
+        </>
+      )}
+      {stage === "join" && (
+        <>
+          <p>Giriş yapıldı: <b>{login}</b>. {invite ? "Sohbete eklendin. Bir takma ad seç:" : "Hangi sohbete katılıyorsunuz?"}</p>
+          {!invite && <label>Sohbet reposu<input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="sahip/repo" /></label>}
           <label>Takma ad<input value={nick} maxLength={24} onChange={(e) => setNick(e.target.value)} /></label>
-          <p className="muted">Repo yoksa private olarak oluşturulur. Size ad#1234 biçiminde bir kimlik verilir.</p>
+          <p className="muted">{invite ? "" : "Repo yoksa private olarak oluşturulur. "}Size ad#1234 biçiminde bir kimlik verilir.</p>
           <button className="primary" disabled={busy || !repo.includes("/") || !nick.trim()} onClick={doJoin}>{busy ? "Bağlanıyor…" : "Katıl"}</button>
         </>
       )}
@@ -172,7 +333,9 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [messages, setMessages] = useState<Record<string, Pending[]>>({});
   const [active, setActive] = useState("all");
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
-  const [dialog, setDialog] = useState<"group" | "settings" | "channel" | null>(null);
+  const [dialog, setDialog] = useState<"group" | "settings" | "channel" | "invite" | null>(null);
+  const [admin, setAdmin] = useState(false);
+  const [toast, setToast] = useState("");
   const [status, setStatus] = useState("Yükleniyor…");
   const [account, setAccount] = useState<string | null>(null); // a GitHub problem only the person can fix
   const [read, setRead] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(READ_KEY) ?? "{}"); } catch { return {}; } });
@@ -257,6 +420,22 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watcher]);
 
+  // a client whose account runs the repo lets invited people in (see core/src/invite.ts)
+  useEffect(() => {
+    let stop = false;
+    (async () => {
+      if (!(await canAdmit(bus))) return;
+      setAdmin(true);
+      while (!stop) {
+        try {
+          for (const login of await processInvites(bus, meRef.current)) { setToast(`${login} davetle sohbete eklendi.`); setTimeout(() => setToast(""), 8000); }
+        } catch { /* next round */ }
+        await new Promise((r) => setTimeout(r, 15_000));
+      }
+    })();
+    return () => { stop = true; };
+  }, [bus]);
+
   const markRead = useCallback((ch: string) => {
     const last = messages[ch]?.at(-1)?.id;
     if (!last || read[ch] === last) return;
@@ -335,7 +514,10 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
       <aside className="sidebar">
         <header className="side-head">
           <span className="brand">OpenCommunicate</span>
-          <button className="icon" title="Ayarlar" aria-label="Ayarlar" onClick={() => setDialog("settings")}><Gear /></button>
+          <span className="head-buttons">
+            <button className="icon" title="Kişi davet et" aria-label="Kişi davet et" onClick={() => setDialog("invite")}><PersonPlus /></button>
+            <button className="icon" title="Ayarlar" aria-label="Ayarlar" onClick={() => setDialog("settings")}><Gear /></button>
+          </span>
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <div className="me">
@@ -385,6 +567,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
       }} />}
       {dialog === "channel" && <ChannelDialog key={active} channel={active} title={title} group={activeGroup} me={me} devices={devices} quiet={quiet(active)}
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
+      {dialog === "invite" && <InviteDialog bus={bus} me={me} admin={admin} onClose={() => setDialog(null)} />}
+      {toast && <div className="toast" role="status">{toast}</div>}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut} />}
     </div>
     </BusContext.Provider>
@@ -425,6 +609,7 @@ function Avatar({ name, seed, shape, online, size = 40, picture }: { name: strin
 }
 
 const Gear = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>;
+const PersonPlus = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6" /></svg>;
 const Info = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>;
 const Clip = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.5 12.5 21a6 6 0 0 1-8.5-8.5L13 3.5a4 4 0 0 1 5.7 5.7L9.7 18.2a2 2 0 0 1-2.8-2.8L15 7.3" /></svg>;
 const Plane = () => <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6v6.4l12 2-12 2z" /></svg>;
@@ -812,6 +997,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         <h3>Anlık bildirim (ntfy)</h3>
         <p className="small">Uygulama açıkken mesajlar anında gelir. Kapalıyken de haber almak için ücretsiz <b>ntfy</b> uygulamasını kurup aşağıdaki konuya abone olun; size mesaj atan cihaz bu konuya kısa bir bildirim gönderir, bildirime dokununca bu uygulama açılır.</p>
         {native() && <button className="ghost" onClick={() => openLink("https://play.google.com/store/apps/details?id=io.heckel.ntfy")}>ntfy'ı Play Store'dan kur</button>}
+        {!native() && platform() === "ios" && <button className="ghost" onClick={() => openLink(NTFY_IOS)}>ntfy'ı App Store'dan kur</button>}
         {me.notify ? (
           <>
             <code className="topic" onClick={() => navigator.clipboard?.writeText(me.notify!)}>{me.notify}</code>

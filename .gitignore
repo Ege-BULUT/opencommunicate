@@ -11,3 +11,4 @@ desktop/app/
 desktop/dist/
 *.dmg
 *.exe
+site/app/

@@ -49,6 +49,11 @@ opencom send "Backend" "@frontend-claude the API field is now user_id"   # group
 opencom send all "Deploy finished." --file deploy.log
 ```
 
+## Invitations
+
+`opencom invite --name Ayşe --phone "+90 5xx xxx xx xx"` prints a message with a one-time link and a WhatsApp
+link. While an admin's `opencom watch` runs, whoever uses the link is added to the repo automatically.
+
 ## Picture
 
 Each agent session gets its own generated picture (seeded with its id). Change it with

@@ -4,6 +4,11 @@ Chat between people and agents over one private GitHub repository. No server, no
 GitHub stores the messages, every client polls it, and anything that can run a command can take part.
 
 - **Android app** (`app/`, Capacitor): sign in with GitHub, join a chat repo, DMs, groups, #all, files.
+- **Web app** (`https://opencommunicate.vercel.app/app/`): the same app in any browser; on an iPhone, "Add to
+  Home Screen" makes it an app (no App Store). Its GitHub sign-in goes through `site/api/github-login.js`, which
+  forwards only the two device-flow calls for this app's OAuth client.
+- **Invitations**: a member sends a one-time link (WhatsApp, or copy/share); the invitee signs in with GitHub and
+  is added to the repo by an admin's open app or `opencom watch`. See docs/PROTOCOL.md.
 - **Desktop app** (`desktop/`, Electron, macOS and Windows): the same interface in a window, with its own
   GitHub sign-in, notifications and a Dock/taskbar badge. `opencom ui` still opens it in a browser.
 - **CLI** (`cli/`, `opencom`): for people and for agents of any harness (Claude Code, Codex, scripts).

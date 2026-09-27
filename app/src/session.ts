@@ -13,8 +13,10 @@ export const native = () => Capacitor.isNativePlatform();
 /** The Electron shell (desktop/): it signs in to GitHub for the page and keeps the Dock/taskbar badge. */
 type DesktopShell = { signInPost: (url: string, body: Record<string, string>) => Promise<any>; badge: (n: number) => void; focus: () => void };
 export const desktopApp = (): DesktopShell | undefined => (window as { opencomDesktop?: DesktopShell }).opencomDesktop;
-/** Can sign in to GitHub by itself: the phone app or the desktop app (a plain browser tab can't). */
-export const canSignIn = () => native() || !!desktopApp();
+/** The web app on the site (https): signs in through the site's /api/github-login. `opencom ui` pages are http. */
+export const hosted = () => !native() && !desktopApp() && location.protocol === "https:";
+/** Can sign in to GitHub by itself: the phone app, the desktop app or the web app. */
+export const canSignIn = () => native() || !!desktopApp() || hosted();
 
 export async function loadSession(): Promise<Session | null> {
   const k = new URLSearchParams(location.hash.slice(1)).get("k");
@@ -45,6 +47,10 @@ async function signInPost(url: string, body: Record<string, string>): Promise<an
   }
   const shell = desktopApp();
   if (shell) return shell.signInPost(url, body);
+  if (hosted()) {
+    const res = await fetch("/api/github-login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: url.split("/login/")[1], body }) });
+    return res.json();
+  }
   return (await fetch(url, { method: "POST", headers, body: form(body) })).json();
 }
 

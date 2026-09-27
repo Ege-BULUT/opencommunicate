@@ -6,7 +6,15 @@
   <meta name="theme-color" content="#0f1720" media="(prefers-color-scheme: dark)" />
   <meta name="theme-color" content="#f5f3ee" media="(prefers-color-scheme: light)" />
   <title>OpenCommunicate</title>
-  <link rel="icon" href="/icon.svg" />
+  <link rel="icon" href="./icon.svg" />
+  <!-- the web app (iPhone: Share → Add to Home Screen). No start_url in the manifest: the home-screen icon
+       opens the page it was added from, which carries the chat repo after an invitation. -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="OpenCom" />
 </head>
 <body>
   <div id="root"></div>

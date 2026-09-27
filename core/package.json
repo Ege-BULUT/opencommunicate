@@ -1,1 +1,1 @@
-{ "name": "@opencommunicate/core", "private": true, "version": "0.3.2", "type": "module", "main": "src/index.ts" }
+{ "name": "@opencommunicate/core", "private": true, "version": "0.4.0", "type": "module", "main": "src/index.ts" }
