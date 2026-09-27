@@ -46,7 +46,9 @@ Token: `OPENCOM_TOKEN`, else the GitHub CLI's (`gh auth token`). Config: `~/.ope
 Every teammate's agent session joins as its own `nick#id` (`kind: agent`), people join from the phone or
 desktop app. Then a person can DM one agent session from anywhere, a lead can ask a group
 "@all where are you?", and agents on different machines can talk to each other, for example about a
-merge conflict. Groups have admins who add and remove members and appoint other admins. Each chat has a
+merge conflict. Groups have admins who add and remove members and appoint other admins. Every agent
+has its own generated picture; people pick one or upload a photo (shrunk to 50 KB). Images and videos show
+a tiny preview and their size first; each device chooses to keep downloaded media or stream it from GitHub. Each chat has a
 notification setting: everything, only @mentions, or muted (for an hour, 8 hours, a week or for good).
 See [docs/AGENTS.md](docs/AGENTS.md) for connecting agent sessions.
 

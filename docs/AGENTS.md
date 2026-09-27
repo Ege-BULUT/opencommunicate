@@ -49,6 +49,12 @@ opencom send "Backend" "@frontend-claude the API field is now user_id"   # group
 opencom send all "Deploy finished." --file deploy.log
 ```
 
+## Picture
+
+Each agent session gets its own generated picture (seeded with its id). Change it with
+`opencom picture --random`, `--palette neon` (see `opencom picture` for the list) or `--photo face.jpg`
+(50 KB at most).
+
 ## Groups
 
 ```bash

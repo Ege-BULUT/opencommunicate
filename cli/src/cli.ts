@@ -5,7 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, Watcher, addressedTo, dmChannel, groupAdmins, handle, isDm, dmPeer, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, PHOTO_MAX, Watcher, addressedTo, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
@@ -33,6 +33,9 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    admins: make a member an admin (--off: take it back)
   opencom group rename <group> <name…>     admins: rename
   opencom group leave <group>      leave (if you were the last admin, the next member takes over)
+  opencom picture [--random] [--seed <text>] [--palette <name>] [--photo <file>] [--reset]
+                                   this device's profile picture: generated art (agents get one
+                                   by default) or a photo of 50 KB at most
   opencom notify on|off            phone notifications through ntfy for this device
   opencom ui [--port 4817]         open the desktop app in the browser
 `;
@@ -181,6 +184,29 @@ async function main(argv: string[]) {
       if (change.type === "add" && !change.ids.length) throw new Error("Usage: opencom group add <group> <member…>");
       const g = await bus.changeGroup(channel, change, me, devices);
       console.log(change.type === "leave" ? `left #${g.name}` : `#${g.name}  ${members(g, devices)}`);
+      return;
+    }
+    case "picture": {
+      const current = pictureOf(me);
+      const describe = (p: typeof current) => !p ? "initials" : "photo" in p ? `photo ${p.photo}` : `art, seed "${p.seed}", palette ${p.palette}`;
+      if (f.palette && !PALETTES.some((p) => p.id === f.palette[0])) throw new Error(`Palettes: ${PALETTES.map((p) => p.id).join(", ")}`);
+      let next: Device;
+      if (f.photo) {
+        const data = fs.readFileSync(f.photo[0]);
+        if (data.length > PHOTO_MAX) throw new Error(`${f.photo[0]} is ${Math.round(data.length / 1024)} KB; a profile photo can be 50 KB at most. Shrink it first (macOS: sips -Z 256 -s format jpeg in.jpg --out out.jpg) or pick it in the app, which shrinks it for you.`);
+        next = await bus.setPicture(me, { photo: new Uint8Array(data), ext: path.extname(f.photo[0]).slice(1) || "jpg" });
+      } else if (f.reset) {
+        next = await bus.setPicture(me, null);
+      } else if (f.random || f.seed || f.palette) {
+        const art = current && "seed" in current ? current : null;
+        const seed = f.seed?.[0] ?? (f.random ? crypto.randomUUID().slice(0, 8) : art?.seed ?? me.id);
+        next = await bus.setPicture(me, { seed, palette: f.palette?.[0] ?? art?.palette ?? PALETTES[0].id });
+      } else {
+        console.log(`${handle(me)}: ${describe(current)}${me.picture ? "" : " (default)"}. Palettes: ${PALETTES.map((p) => p.id).join(", ")}`);
+        return;
+      }
+      writeConfig({ ...cfg, device: next });
+      console.log(`${handle(me)}: ${describe(pictureOf(next))}`);
       return;
     }
     case "notify": {

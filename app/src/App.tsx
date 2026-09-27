@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, Watcher, addressedTo, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, quietFor, wantsNotice, type Device, type Group, type GroupChange, type Message, type Quiet } from "../../core/src/index.ts";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Bus, PALETTES, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, pictureOf, quietFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type Picture, type Quiet } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
-import { askNotifications, imageUrl, notify, openLink, saveFile } from "./platform.ts";
+import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
+import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
 import { accountProblem, canSignIn, checkAccount, clearSession, desktopApp, finishSignIn, githubLogin, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
+const BusContext = createContext<Bus | null>(null);
 const KIND: Record<string, string> = { agent: "ajan", phone: "telefon", desktop: "masaüstü", person: "kişi" };
 const READ_KEY = "oc.read";
 
@@ -248,7 +250,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
 
   const open = (ch: string) => { setActive(ch); setMobileView("chat"); };
   const peer = isDm(active) ? devices.find((d) => d.id === dmPeer(active, me.id)) : undefined;
-  const headAvatar = peer ? <Avatar name={peer.nick} seed={peer.id} shape={peer.kind === "agent" ? "agent" : "person"} online={online(peer.id)} size={36} />
+  const headAvatar = peer ? <Avatar name={peer.nick} seed={peer.id} shape={peer.kind === "agent" ? "agent" : "person"} online={online(peer.id)} size={36} picture={pictureOf(peer)} />
     : <Avatar name={activeGroup?.name ?? "all"} seed={activeGroup?.channel ?? "all"} shape="group" size={36} />;
   const headSub = peer ? [KIND[peer.kind] ?? peer.kind, seen(peer.id)].filter(Boolean).join(" · ")
     : activeGroup ? `${activeGroup.members.length} üye` : `herkes · ${devices.length} kişi`;
@@ -256,11 +258,13 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
 
   const send = async (text: string, files: File[]) => {
-    const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) })));
-    const draft: Pending = { ...bus.newMessage(active, me, text), pending: true, files: payload.map((f) => ({ name: f.name, path: "", size: f.data.length })) };
+    const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()), ...(await describe(f)) })));
+    const draft: Pending = { ...bus.newMessage(active, me, text), pending: true, files: payload.map(({ data, ...f }) => ({ ...f, path: "", size: data.length })) };
     add([draft]);
     try {
       const sent = await bus.send(active, me, text, payload);
+      const modes = mediaModes();
+      sent.files?.forEach((f, i) => { const k = kindOf(f); remember(f.path, payload[i].data, !!k && modes[k] === "save"); });
       watcher.seen.add(msgPath(sent));
       setMessages((prev) => ({ ...prev, [active]: [...(prev[active] ?? []).filter((x) => x.id !== draft.id), sent].sort((a, b) => a.id.localeCompare(b.id)) }));
       notifyRecipients(sent, me, devices, groups).catch(() => {});
@@ -272,6 +276,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   };
 
   return (
+    <BusContext.Provider value={bus}>
     <div className={`layout view-${mobileView}`}>
       <aside className="sidebar">
         <header className="side-head">
@@ -280,7 +285,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <div className="me">
-          <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} />
+          <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} picture={pictureOf(me)} />
           <span className="me-text"><b>{handle(me)}</b><span className="muted">{session.repo.split("/")[1]}</span></span>
         </div>
         <div className="filter"><input type="search" value={filter} placeholder="Sohbet ya da kişi ara" aria-label="Ara" onChange={(e) => setFilter(e.target.value)} /></div>
@@ -295,7 +300,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           <div className="section">Kişiler ve ajanlar</div>
           {others.filter((d) => shown(handle(d))).sort((a, b) => recent(dmChannel(me.id, a.id), dmChannel(me.id, b.id)) || a.nick.localeCompare(b.nick, "tr")).map((d) => {
             const ch = dmChannel(me.id, d.id);
-            return <ChannelRow key={d.id} avatar={<Avatar name={d.nick} seed={d.id} shape={d.kind === "agent" ? "agent" : "person"} online={online(d.id)} />} label={handle(d)}
+            return <ChannelRow key={d.id} avatar={<Avatar name={d.nick} seed={d.id} shape={d.kind === "agent" ? "agent" : "person"} online={online(d.id)} picture={pictureOf(d)} />} label={handle(d)}
               preview={preview(ch) || [KIND[d.kind] ?? d.kind, seen(d.id)].filter(Boolean).join(" · ")} time={last(ch)?.ts} quiet={quiet(ch)} count={unread(ch)} activeCh={active === ch} onClick={() => open(ch)} />;
           })}
         </nav>
@@ -328,6 +333,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut} />}
     </div>
+    </BusContext.Provider>
   );
 }
 
@@ -344,10 +350,21 @@ const hue = (s: string) => { let h = 7; for (const c of s) h = (h * 31 + c.charC
 const initials = (name: string) => (name.match(/[\p{L}\p{N}]/gu) ?? ["?"]).slice(0, 2).join("").toLocaleUpperCase("tr-TR");
 
 /** People are round, agents square, groups tinted; the colour comes from the id, so it stays put. */
-function Avatar({ name, seed, shape, online, size = 40 }: { name: string; seed: string; shape: "person" | "agent" | "group"; online?: boolean; size?: number }) {
+function Avatar({ name, seed, shape, online, size = 40, picture }: { name: string; seed: string; shape: "person" | "agent" | "group"; online?: boolean; size?: number; picture?: Picture | null }) {
+  const bus = useContext(BusContext);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const path = picture && "photo" in picture ? picture.photo : null;
+  useEffect(() => {
+    setPhoto(null);
+    if (!path || !bus) return;
+    let live = true;
+    fetchFile(bus, path, true).then((d) => { if (live) setPhoto(objectUrl(path, d, mimeOf({ name: path }))); }).catch(() => {});
+    return () => { live = false; };
+  }, [bus, path]);
+  const src = photo ?? (picture && "seed" in picture ? artDataUrl(picture) : null);
   return (
-    <span className={`avatar ${shape}`} style={{ "--h": hue(seed), width: size, height: size, fontSize: Math.round(size * 0.38) } as CSSProperties} aria-hidden="true">
-      {seed === "all" ? "#" : initials(name)}
+    <span className={`avatar ${shape} ${src ? "pic" : ""}`} style={{ "--h": hue(seed), width: size, height: size, fontSize: Math.round(size * 0.38) } as CSSProperties} aria-hidden="true">
+      {src ? <img src={src} alt="" draggable={false} /> : seed === "all" ? "#" : initials(name)}
       {online !== undefined && <i className={`presence ${online ? "on" : ""}`} />}
     </span>
   );
@@ -378,7 +395,8 @@ function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, 
 }
 
 const linkify = (text: string) => text.split(/(https?:\/\/\S+)/g).map((part, i) => (/^https?:\/\//.test(part) ? <a key={i} href={part} onClick={(e) => { e.preventDefault(); openLink(part); }}>{part}</a> : part));
-const size = (n: number) => (n < 1024 ? `${n} B` : n < 1e6 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1e6).toFixed(1)} MB`);
+const num = (x: number) => x.toLocaleString("tr-TR", { maximumFractionDigits: 1 });
+const size = (n: number) => (n < 1024 ? `${n} B` : n < 1e6 ? `${num(n / 1024)} KB` : `${num(n / 1e6)} MB`);
 const time = (iso: string) => new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
 const day = (iso: string) => new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
 
@@ -420,7 +438,7 @@ function MessageList({ list, me, bus, devices, authors, loading }: { list: Pendi
           <div key={m.id} className={`item ${run ? "run" : ""}`}>
             {sep && <div className="day"><span>{sep}</span></div>}
             <div className={`line ${mine ? "mine" : ""}`}>
-              {authors && !mine && (run ? <span className="avatar-gap" /> : <Avatar name={m.fromNick} seed={m.from} shape={sender?.kind === "agent" ? "agent" : "person"} size={32} />)}
+              {authors && !mine && (run ? <span className="avatar-gap" /> : <Avatar name={m.fromNick} seed={m.from} shape={sender?.kind === "agent" ? "agent" : "person"} size={32} picture={sender ? pictureOf(sender) : null} />)}
             <div className={`msg ${mine ? "mine" : ""} ${toMe ? "tome" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}>
               {authors && !mine && !run && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">ajan</span>}</div>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
@@ -436,23 +454,57 @@ function MessageList({ list, me, bus, devices, authors, loading }: { list: Pendi
   );
 }
 
-function Attachment({ file, bus }: { file: { name: string; path: string; size: number }; bus: Bus }) {
-  const [img, setImg] = useState<string | null>(null);
+/** Images and videos: a blurred ~1 KB preview with the size until downloaded, then the real thing in the chat.
+ *  Other files: a download button. */
+function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
+  const kind = kindOf(file);
+  const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const isImage = /\.(png|jpe?g|gif|webp)$/i.test(file.name);
-  const get = async () => {
-    if (!file.path) return;
-    setBusy(true);
-    try {
-      const data = await bus.file(file.path);
-      const url = isImage ? imageUrl(file.name, data) : null;
-      if (url) setImg(url); else await saveFile(file.name, data);
-    } finally { setBusy(false); }
+  const [error, setError] = useState("");
+  const [zoom, setZoom] = useState(false);
+  const keep = !!kind && mediaModes()[kind] === "save";
+  const load = async () => {
+    if (!file.path) return null;
+    setBusy(true); setError("");
+    try { return await fetchFile(bus, file.path, keep); }
+    catch (e) { setError((e as Error).message); return null; }
+    finally { setBusy(false); }
   };
-  if (img) return <img className="attach-img" src={img} alt={file.name} onClick={async () => saveFile(file.name, await bus.file(file.path))} />;
+  const show = async () => { const data = await load(); if (data) setUrl(objectUrl(file.path, data, mimeOf(file))); };
+  const save = async () => { const data = await load(); if (data) await saveFile(file.name, data); };
+  // already on this device (kept, or seen this session): no tap needed
+  useEffect(() => {
+    let live = true;
+    if (kind && file.path) isLocal(file.path).then((here) => { if (here && live) show(); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.path]);
+
+  if (!kind) return (
+    <button className="attach" disabled={busy || !file.path} onClick={save}>
+      📎 {file.name} <span className="muted">{size(file.size)} · {busy ? "indiriliyor…" : "indir"}</span>
+    </button>
+  );
+  const ratio = file.w && file.h ? Math.min(2, Math.max(0.5, file.w / file.h)) : kind === "video" ? 16 / 9 : 4 / 3;
+  if (url) return (
+    <div className="media">
+      {kind === "image"
+        ? <img className="attach-img" src={url} alt={file.name} onClick={() => setZoom(true)} />
+        : <video className="attach-video" src={url} controls playsInline preload="metadata" />}
+      <div className="media-bar"><span className="muted small">{file.name} · {size(file.size)}</span><button className="mini" disabled={busy} onClick={save}>Cihaza kaydet</button></div>
+      {zoom && (
+        <div className="lightbox" onClick={() => setZoom(false)}>
+          <img src={url} alt={file.name} />
+          <div className="actions"><button className="ghost" onClick={(e) => { e.stopPropagation(); save(); }}>Cihaza kaydet</button><button className="ghost" onClick={() => setZoom(false)}>Kapat</button></div>
+        </div>
+      )}
+    </div>
+  );
   return (
-    <button className="attach" disabled={busy || !file.path} onClick={get}>
-      📎 {file.name} <span className="muted">{size(file.size)} · {busy ? "indiriliyor…" : isImage ? "göster" : "indir"}</span>
+    <button className="media-preview" style={{ aspectRatio: String(ratio) }} disabled={busy || !file.path} onClick={show} aria-label={`${file.name}, ${size(file.size)}, indir`}>
+      {file.thumb && <img className="media-thumb" src={file.thumb} alt="" />}
+      <span className="media-dl">{busy ? "İndiriliyor…" : `${kind === "video" ? "▶" : "⬇"} ${size(file.size)}`}</span>
+      {error && <span className="media-error">{error}</span>}
     </button>
   );
 }
@@ -541,6 +593,7 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, onQuiet, onC
               const d = who(id), isAdmin = admins.includes(id), self = id === me.id;
               return (
                 <div key={id} className="member">
+                  <Avatar name={d.nick} seed={d.id} shape={d.kind === "agent" ? "agent" : "person"} size={32} picture={pictureOf(d)} />
                   <span className="row-text"><span className="row-label">{handle(d)}{self ? " (siz)" : ""}</span><span className="row-sub">{KIND[d.kind] ?? d.kind}{isAdmin ? " · yönetici" : ""}</span></span>
                   {admin && !self && <>
                     <button className="mini" disabled={busy} onClick={() => run(() => onChange({ type: "admin", id, on: !isAdmin }))}>{isAdmin ? "Yöneticilikten al" : "Yönetici yap"}</button>
@@ -622,6 +675,33 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
     if (me.login !== l) await new Bus({ repo: session.repo, token }).updateDevice(device);
     onSession({ ...session, token, device });
   };
+  const [picture, setPicture] = useState<Picture | null | undefined>(undefined); // undefined: unchanged
+  const [photo, setPhoto] = useState<{ data: Uint8Array; ext: string; url: string } | null>(null);
+  const [picError, setPicError] = useState("");
+  const [modes, setModes] = useState(mediaModes());
+  const [kept, setKept] = useState<number | null>(null);
+  useEffect(() => { storedSize().then(setKept); }, []);
+  const shown: Picture | null = photo ? null : picture === undefined ? pictureOf(me) : picture;
+  const art = shown && "seed" in shown ? shown : null;
+  const reroll = () => { setPhoto(null); setPicture({ seed: crypto.randomUUID().slice(0, 8), palette: art?.palette ?? PALETTES[Math.floor(Math.random() * PALETTES.length)].id }); };
+  const pickPalette = (id: string) => { setPhoto(null); setPicture({ seed: art?.seed ?? crypto.randomUUID().slice(0, 8), palette: id }); };
+  const choosePhoto = async (f?: File) => {
+    if (!f) return;
+    setPicError("");
+    try { setPhoto(await shrinkPhoto(f)); } catch (e) { setPicError((e as Error).message); }
+  };
+  const savePicture = async () => {
+    setBusy(true); setPicError("");
+    try {
+      const next = await bus.setPicture(me, photo ? { photo: photo.data, ext: photo.ext } : picture && "seed" in picture ? picture : null);
+      if (photo && next.picture && "photo" in next.picture) remember(next.picture.photo, photo.data, true);
+      onMe(next);
+      if (session.source === "app") saveSession({ ...session, device: next });
+      setPicture(undefined); setPhoto(null);
+    } catch (e) { setPicError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  const changeMode = (k: MediaKind, m: MediaMode) => { setMediaMode(k, m); setModes(mediaModes()); };
   const toggleNotify = async () => {
     setBusy(true);
     try {
@@ -635,8 +715,26 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
     <div className="dialog" onClick={onClose}>
       <div className="card" onClick={(e) => e.stopPropagation()}>
         <h2>Ayarlar</h2>
-        <p><b>{handle(me)}</b> <span className="muted">({KIND[me.kind] ?? me.kind})</span></p>
-        <p className="muted small">Sohbet reposu: {session.repo}</p>
+        <div className="profile">
+          {photo ? <span className="avatar person pic" style={{ width: 72, height: 72 }}><img src={photo.url} alt="" /></span>
+            : <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={72} picture={shown} />}
+          <span><b>{handle(me)}</b> <span className="muted">({KIND[me.kind] ?? me.kind})</span><br /><span className="muted small">Sohbet reposu: {session.repo}</span></span>
+        </div>
+        <h3>Profil resmi</h3>
+        <div className="swatches" role="radiogroup" aria-label="Renk paleti">
+          {PALETTES.map((p) => (
+            <button key={p.id} role="radio" aria-checked={art?.palette === p.id} title={p.name} className={`swatch ${art?.palette === p.id ? "on" : ""}`} onClick={() => pickPalette(p.id)}
+              style={{ background: `conic-gradient(${p.colors.map((c, i) => `${c} ${i * 72}deg ${(i + 1) * 72}deg`).join(", ")})` }} />
+          ))}
+        </div>
+        <div className="actions start">
+          <button className="ghost" onClick={reroll}>Yeni desen</button>
+          <label className="ghost file-btn">Fotoğraf yükle<input type="file" accept="image/*" hidden onChange={(e) => { choosePhoto(e.target.files?.[0]); e.target.value = ""; }} /></label>
+          {me.kind !== "agent" && (shown || photo) && <button className="ghost" onClick={() => { setPhoto(null); setPicture(null); }}>Baş harfler</button>}
+        </div>
+        {photo && <p className="muted small">Fotoğraf {(photo.data.length / 1024).toFixed(0)} KB'a küçültüldü.</p>}
+        {(picture !== undefined || photo) && <div className="actions start"><button className="primary" disabled={busy} onClick={savePicture}>Profil resmini kaydet</button><button className="ghost" onClick={() => { setPicture(undefined); setPhoto(null); }}>Vazgeç</button></div>}
+        {picError && <p className="error small">{picError}</p>}
         <h3>GitHub hesabı</h3>
         {login && !trouble && <p className="small">Giriş yapılan hesap: <b>@{login}</b> ✓</p>}
         {!login && !trouble && <p className="muted small">Kontrol ediliyor…</p>}
@@ -649,6 +747,17 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         ) : (
           <p className="muted small">Masaüstünde hesap komut satırından yönetilir: <code>gh auth login</code> (ya da <code>OPENCOM_TOKEN</code>), sonra <code>opencom ui</code>'yi yeniden açın.</p>
         )}
+        <h3>Medya</h3>
+        <p className="small">İndirilen görseller ve videolar: <b>Cihaza kaydet</b> onları bu cihazda saklar, sonra internetsiz de açılır. <b>GitHub'dan aktar</b> her açılışta GitHub'dan getirir, cihazda yer kaplamaz.</p>
+        {(["image", "video"] as const).map((k) => (
+          <label key={k} className="inline">{k === "image" ? "Görseller" : "Videolar"}
+            <select value={modes[k]} onChange={(e) => changeMode(k, e.target.value as MediaMode)}>
+              <option value="save">Cihaza kaydet</option>
+              <option value="stream">GitHub'dan aktar</option>
+            </select>
+          </label>
+        ))}
+        {kept !== null && <div className="actions start"><span className="muted small">Cihazda saklanan: {size(kept)}</span>{kept > 0 && <button className="mini" onClick={async () => { await clearStored(); setKept(0); }}>Temizle</button>}</div>}
         <h3>Anlık bildirim (ntfy)</h3>
         <p className="small">Uygulama açıkken mesajlar anında gelir. Kapalıyken de haber almak için ücretsiz <b>ntfy</b> uygulamasını kurup aşağıdaki konuya abone olun; size mesaj atan cihaz bu konuya kısa bir bildirim gönderir, bildirime dokununca bu uygulama açılır.</p>
         {native() && <button className="ghost" onClick={() => openLink("https://play.google.com/store/apps/details?id=io.heckel.ntfy")}>ntfy'ı Play Store'dan kur</button>}

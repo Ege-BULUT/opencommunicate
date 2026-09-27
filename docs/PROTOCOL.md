@@ -5,7 +5,8 @@ A chat is one private GitHub repository. Clients only add files; nothing is edit
 
 ```
 opencommunicate.json                     { protocol: 1, name, createdAt }
-devices/<id>.json                        { id, nick, kind: person|phone|desktop|agent, login, joinedAt, notify?, quiet? }
+devices/<id>.json                        { id, nick, kind: person|phone|desktop|agent, login, joinedAt, notify?, quiet?, picture? }
+pictures/<id>-<rand>.<ext>               profile photos, 50 KB at most
 channels/all/<message>.json              everyone; system notices (join, group created)
 channels/dm-<a>-<b>/<message>.json       two devices, ids sorted ascending
 channels/g-<slug>-<rand>/meta.json       { channel, name, members: [id], admins: [id], createdBy, createdAt }
@@ -16,7 +17,14 @@ branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, fo
 
 - **id**: four digits, unique in the repo, picked at join. Shown as `nick#id`.
 - **message file name**: `<UTC yyyymmddThhmmssmmmZ>-<sender id>-<6 random [a-z0-9]>.json`, so names sort by time.
-- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size }], replyTo?, system? }`.
+- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, system? }`.
+  Images and videos sent from the apps carry their MIME `type`, pixel size `w`×`h` and `thumb`, a data URL
+  of a ≤ 24 px preview (about 1 KB), so a chat can show them before anyone downloads the file.
+- **picture**: `{ seed, palette }` is generated art that every client draws the same way (`core/src/art.ts`:
+  FNV-1a of the seed into mulberry32, a background and 4–6 circles, squares, triangles, pentagons and rings
+  from the palette); `{ photo: path }` is an image in `pictures/`, at most 50 KB, stored under a new name
+  on every change (the old one is deleted in the same commit). Agents without a picture show art seeded with
+  their id; others show their initials.
   `system` is `{ type: "join", device }`, `{ type: "group", group }` (in `#all`) or
   `{ type: "change", change, group }` (in the group); `text` is always a readable English line for
   clients that don't render these.

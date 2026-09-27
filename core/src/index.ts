@@ -7,7 +7,8 @@
  *
  * Repository layout (protocol 1, see docs/PROTOCOL.md):
  *   opencommunicate.json                 { protocol, name, createdAt }
- *   devices/<id>.json                    { id, nick, kind, login, joinedAt, notify?, quiet? }
+ *   devices/<id>.json                    { id, nick, kind, login, joinedAt, notify?, quiet?, picture? }
+ *   pictures/<id>-<rand>.<ext>           profile photos, 50 KB at most
  *   channels/all/<message>.json          everyone; also system notices (join, group created)
  *   channels/dm-<a>-<b>/<message>.json   two devices, ids sorted
  *   channels/g-<slug>-<rand>/meta.json   { name, members, admins, createdBy, createdAt } + messages
@@ -15,12 +16,16 @@
  *   branch "presence": presence/<id>.json   { id, lastSeen } — rewritten, never grows main's history
  */
 
+import { paletteFor as defaultPalette } from "./art.ts";
+
 export const PROTOCOL = 1;
 
 export type Kind = "person" | "phone" | "desktop" | "agent";
 /** Per-channel notification setting: only mentions, or nothing; `until` (ISO time) ends it, none means for good. */
 export type Quiet = { mode: "mentions" | "off"; until?: string };
-export type Device = { id: string; nick: string; kind: Kind; login?: string; joinedAt: string; notify?: string; quiet?: Record<string, Quiet> };
+/** A profile picture: generated art ({ seed, palette }, see art.ts) or a photo file in the repo (≤ 50 KB). */
+export type Picture = { seed: string; palette: string } | { photo: string };
+export type Device = { id: string; nick: string; kind: Kind; login?: string; joinedAt: string; notify?: string; quiet?: Record<string, Quiet>; picture?: Picture };
 export type Group = { channel: string; name: string; members: string[]; admins?: string[]; createdBy: string; createdAt: string };
 export type GroupChange =
   | { type: "add"; ids: string[] }
@@ -28,7 +33,11 @@ export type GroupChange =
   | { type: "admin"; id: string; on: boolean }
   | { type: "rename"; name: string }
   | { type: "leave" };
-export type FileRef = { name: string; path: string; size: number };
+/** An attachment. Images and videos sent from the apps also carry their size and a tiny preview (a data URL of
+ *  about 1 KB), so a chat shows what it is before anyone downloads it. */
+export type FileRef = { name: string; path: string; size: number; type?: string; w?: number; h?: number; thumb?: string };
+export type Upload = { name: string; data: Uint8Array } & Pick<FileRef, "type" | "w" | "h" | "thumb">;
+export const PHOTO_MAX = 50 * 1024;
 export type Message = {
   v: 1;
   id: string;
@@ -301,12 +310,31 @@ export class Bus {
     await this.commit({ [`devices/${device.id}.json`]: JSON.stringify(device, null, 2) + "\n" }, `device: ${handle(device)}`);
   }
 
+  /** Sets (or with null, clears) a device's picture. A photo is stored under a new name and the old one deleted. */
+  async setPicture(device: Device, picture: { seed: string; palette: string } | { photo: Uint8Array; ext: string } | null): Promise<Device> {
+    const files: Files = {};
+    const old = device.picture && "photo" in device.picture ? device.picture.photo : null;
+    let next: Picture | undefined;
+    if (picture && "photo" in picture) {
+      if (picture.photo.length > PHOTO_MAX) throw new Error(`A profile photo can be ${PHOTO_MAX / 1024} KB at most.`);
+      const path = `pictures/${device.id}-${rand(6)}.${picture.ext.replace(/[^a-z0-9]/gi, "").slice(0, 5) || "jpg"}`;
+      files[path] = picture.photo;
+      next = { photo: path };
+    } else if (picture) next = { seed: picture.seed.slice(0, 64), palette: picture.palette };
+    if (old) files[old] = null;
+    const updated: Device = { ...device, picture: next };
+    if (!next) delete updated.picture;
+    files[`devices/${device.id}.json`] = JSON.stringify(updated, null, 2) + "\n";
+    await this.commit(files, `picture: ${handle(device)}`);
+    return updated;
+  }
+
   // ---------- messages ----------
   newMessage(channel: string, from: Device, text: string, extra: Partial<Message> = {}): Message {
     return { v: 1, id: `${stamp()}-${from.id}-${rand(6)}`, channel, from: from.id, fromNick: from.nick, ts: new Date().toISOString(), text, ...extra };
   }
 
-  async send(channel: string, from: Device, text: string, files: { name: string; data: Uint8Array }[] = [], replyTo?: string): Promise<Message> {
+  async send(channel: string, from: Device, text: string, files: Upload[] = [], replyTo?: string): Promise<Message> {
     const msg = this.newMessage(channel, from, text, replyTo ? { replyTo } : {});
     const out: Record<string, Uint8Array | string> = {};
     if (files.length) {
@@ -314,7 +342,8 @@ export class Bus {
         const name = f.name.replace(/[^\w.\-]+/g, "_").slice(-80) || "file";
         const path = `channels/${channel}/files/${msg.id}-${name}`;
         out[path] = f.data;
-        return { name: f.name, path, size: f.data.length };
+        const extra = Object.fromEntries(Object.entries({ type: f.type, w: f.w, h: f.h, thumb: f.thumb }).filter(([, v]) => v !== undefined));
+        return { name: f.name, path, size: f.data.length, ...extra };
       });
     }
     out[msgPath(msg)] = JSON.stringify(msg);
@@ -420,11 +449,15 @@ export class Bus {
     return { messages: messages.sort((a, b) => a.id.localeCompare(b.id)), metaChanged, devicesChanged };
   }
 
+  /** A file by path: its sha from the contents API (one small call), then the blob (up to 100 MB). */
   async file(path: string): Promise<Uint8Array> {
-    const head = await this.head();
-    const entry = head ? (await this.tree(head)).find((e) => e.path === path) : undefined;
-    if (!entry) throw new Error(`No such file: ${path}`);
-    return this.blob(entry.sha);
+    try {
+      const { data } = await this.gh(this.r(`/contents/${path.split("/").map(encodeURIComponent).join("/")}`));
+      return this.blob(data.sha);
+    } catch (e) {
+      if (e instanceof GitHubError && e.status === 404) throw new Error(`No such file: ${path}`);
+      throw e;
+    }
   }
 
   // ---------- presence (own branch, rewritten; never adds history to main) ----------
@@ -510,4 +543,11 @@ export class Watcher {
     missing.forEach((e) => this.seen.add(e.path));
     return found;
   }
+}
+
+export { PALETTES, artSvg, artDataUrl, paletteFor, type Art, type Palette } from "./art.ts";
+
+/** The picture to show for a device: its own, else generated art for agents; people without one get initials. */
+export function pictureOf(d: Pick<Device, "id" | "kind" | "picture">): Picture | null {
+  return d.picture ?? (d.kind === "agent" ? { seed: d.id, palette: defaultPalette(d.id) } : null);
 }
