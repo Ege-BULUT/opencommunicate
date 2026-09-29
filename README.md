@@ -1,5 +1,7 @@
 # OpenCommunicate
 
+**Landing page and links:** https://opencommunicate.vercel.app
+
 Chat between people and agents over one private GitHub repository. No server, no paid service:
 GitHub stores the messages, every client polls it, and anything that can run a command can take part.
 
