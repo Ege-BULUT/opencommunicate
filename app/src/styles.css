@@ -259,3 +259,14 @@ label.toggle input { width: 18px; height: 18px; flex: none; margin: 0; accent-co
 .msg-menu { position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 5px; min-width: 150px; display: flex; flex-direction: column; }
 .msg-menu button { border: none; background: none; text-align: left; padding: 10px 12px; border-radius: 8px; font-size: 14px; color: var(--ink); cursor: pointer; }
 .msg-menu button:hover { background: var(--sunken); }
+
+/* forward: selection mode + chat picker (0.5.2) */
+.item.selecting { cursor: pointer; }
+.item.selecting .swipeable { pointer-events: none; }
+.item.checked { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 10px; }
+.sel-check { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; color: #fff; align-self: center; margin-right: 2px; }
+.sel-check.on { background: var(--accent); border-color: var(--accent); }
+.select-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); background: var(--panel); }
+.picker { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; max-height: 60vh; overflow-y: auto; }
+.picker-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: none; background: none; border-radius: 10px; cursor: pointer; font-size: 15px; color: var(--ink); text-align: left; }
+.picker-row:hover { background: var(--sunken); }

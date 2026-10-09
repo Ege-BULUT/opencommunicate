@@ -370,6 +370,23 @@ export class Bus {
     return msg;
   }
 
+  /**
+   * Forwards messages into `channel` as `from`, one commit for all of them. Each new message copies the source's
+   * text and file references (the blobs already live in the repo, read by path from any channel, so nothing is
+   * re-uploaded) and keeps the order given. A message that was not originally `from`'s own is marked `forwarded`,
+   * so the app hides its author and shows "forwarded"; forwarding your own message looks like a normal new one.
+   */
+  async forward(channel: string, from: Device, sources: Message[]): Promise<Message[]> {
+    const out: Message[] = sources.map((src) => this.newMessage(channel, from, src.text ?? "", {
+      ...(src.files?.length ? { files: src.files } : {}),
+      ...(src.from !== from.id ? { forwarded: true } : {}),
+    }));
+    const files: Record<string, string> = {};
+    for (const m of out) files[msgPath(m)] = JSON.stringify(m);
+    await this.commit(files, `forward: ${handle(from)} → ${channel} (${out.length})`);
+    return out;
+  }
+
   async createGroup(name: string, members: string[], from: Device): Promise<Group> {
     const group: Group = { channel: `g-${slug(name)}-${rand(4)}`, name: name.trim().slice(0, 40), members: [...new Set([from.id, ...members])], admins: [from.id], createdBy: from.id, createdAt: new Date().toISOString() };
     const notice = this.newMessage("all", from, `${handle(from)} created ${group.name}`, { system: { type: "group", group } });

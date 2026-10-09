@@ -23,6 +23,9 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    to: all | nick#1234 | 1234 | <group name>;
                                    --reply quotes a message in that chat (its id, from history/watch)
   opencom history <to> [-n 20]     recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read
+  opencom forward <to> <id…> --from <chat>
+                                   forward one or more messages (by id, from --from's recent
+                                   history) into another chat; someone else's is marked "forwarded"
   opencom watch [--json] [--interval 5]
                                    print new messages as they arrive (JSON lines with --json;
                                    "toMe" is true for DMs and for @nick, nick#1234 or @all)
@@ -250,6 +253,19 @@ async function main(argv: string[]) {
       if (rest[0] !== "on" && rest[0] !== "off") { console.log(`Read receipts are ${cfg.readReceipts === false ? "off" : "on"}.`); return; }
       writeConfig({ ...cfg, readReceipts: rest[0] === "on" });
       console.log(rest[0] === "on" ? "Read receipts on: senders see blue ticks once watch has printed their message." : "Read receipts off: senders only see that their message was delivered.");
+      return;
+    }
+    case "forward": {
+      const [to, ...ids] = rest;
+      if (!to || !ids.length || !f.from) throw new Error("Usage: opencom forward <to> <message-id…> --from <chat>");
+      const { devices, groups } = await load();
+      const dest = resolveTarget(to, me, devices, groups);
+      const src = resolveTarget(f.from[0], me, devices, groups);
+      const hist = await bus.history(src, 200);
+      const pick = ids.map((id) => { const m = hist.find((x) => x.id === id || x.id.endsWith(id)); if (!m) throw new Error(`No message ${id} in ${label(src, me, devices, groups)} (last 200).`); return m; });
+      const sent = await bus.forward(dest, me, pick);
+      await Promise.all(sent.map((m) => notifyRecipients(m, me, devices, groups).catch(() => {})));
+      console.log(`forwarded ${sent.length} to ${label(dest, me, devices, groups)}`);
       return;
     }
     case "watch": {

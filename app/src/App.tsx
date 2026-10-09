@@ -515,6 +515,19 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [filter, setFilter] = useState("");
   const [reply, setReply] = useState<Message | null>(null);
   const [menu, setMenu] = useState<{ m: Message; x: number; y: number } | null>(null);
+  const [selected, setSelected] = useState<Set<string> | null>(null); // non-null = selection mode
+  const [forwarding, setForwarding] = useState<Message[] | null>(null); // messages waiting for a target chat
+  const toggleSel = useCallback((id: string) => setSelected((s) => { const n = new Set(s ?? []); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
+  const doForward = async (channel: string, msgs: Message[]) => {
+    setForwarding(null); setSelected(null);
+    try {
+      const sent = await bus.forward(channel, me, msgs);
+      if (channel === active) add(sent);
+      for (const m of sent) notifyRecipients(m, me, devices, groups).catch(() => {});
+      setToast(`${sent.length} mesaj ${isDm(channel) ? "@" + handle(devices.find((d) => d.id === dmPeer(channel, me.id)) ?? { nick: "?", id: "" }) : "#" + (channel === "all" ? "all" : groups.find((g) => g.channel === channel)?.name ?? channel)} sohbetine iletildi.`);
+      setTimeout(() => setToast(""), 5000);
+    } catch (e) { setToast(`İletilemedi: ${(e as Error).message}`); setTimeout(() => setToast(""), 6000); }
+  };
   const byId = useCallback((id: string) => (messages[active] ?? []).find((m) => m.id === id), [messages, active]);
   const jumpTo = useCallback((id: string) => {
     const el = document.getElementById(`m-${id}`);
@@ -615,8 +628,15 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === "Yükleniyor…"}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
-          quoted={byId} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })} />
-        <Composer onSend={send} reply={reply} onCancelReply={() => setReply(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />
+          quoted={byId} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
+          selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} />
+        {selected !== null
+          ? <div className="select-bar">
+              <button className="ghost" onClick={() => setSelected(null)}>Vazgeç</button>
+              <span className="muted">{selected.size} seçildi</span>
+              <button className="primary" disabled={!selected.size} onClick={() => { const msgs = (messages[active] ?? []).filter((m) => selected.has(m.id) && !m.pending && !m.failed && !m.system); if (msgs.length) setForwarding(msgs); }}>İlet</button>
+            </div>
+          : <Composer onSend={send} reply={reply} onCancelReply={() => setReply(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />}
       </main>
 
       {dialog === "group" && <GroupDialog others={others} onClose={() => setDialog(null)} onCreate={async (name, ids) => {
@@ -627,7 +647,13 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
       {dialog === "channel" && <ChannelDialog key={active} channel={active} title={title} group={activeGroup} me={me} devices={devices} quiet={quiet(active)}
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
       {dialog === "invite" && <InviteDialog bus={bus} me={me} admin={admin} onClose={() => setDialog(null)} />}
-      {menu && <MessageMenu m={menu.m} x={menu.x} y={menu.y} mine={menu.m.from === me.id} onReply={() => { setReply(menu.m); setMenu(null); }} onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }} onClose={() => setMenu(null)} />}
+      {menu && <MessageMenu m={menu.m} x={menu.x} y={menu.y} mine={menu.m.from === me.id}
+        onReply={() => { setReply(menu.m); setMenu(null); }}
+        onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }}
+        onForward={() => { setForwarding([menu.m]); setMenu(null); }}
+        onSelect={() => { setSelected(new Set([menu.m.id])); setMenu(null); }}
+        onClose={() => setMenu(null)} />}
+      {forwarding && <ChatPicker me={me} devices={devices} groups={groups} count={forwarding.length} onPick={(ch) => doForward(ch, forwarding)} onClose={() => setForwarding(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut}
         showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }} />}
@@ -763,7 +789,7 @@ function Swipeable({ className, children, onSwipe, onHold }: { className: string
 }
 
 /** The menu a long-press or right-click opens on a message: reply, copy (and, from 0.5.2, forward). */
-function MessageMenu({ m, x, y, mine, onReply, onCopy, onClose, onForward }: { m: Message; x: number; y: number; mine: boolean; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void }) {
+function MessageMenu({ m, x, y, mine, onReply, onCopy, onClose, onForward, onSelect }: { m: Message; x: number; y: number; mine: boolean; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void }) {
   useEffect(() => {
     const close = () => onClose();
     document.addEventListener("click", close); document.addEventListener("keydown", close); document.addEventListener("scroll", close, true);
@@ -774,6 +800,7 @@ function MessageMenu({ m, x, y, mine, onReply, onCopy, onClose, onForward }: { m
     <div className="msg-menu" style={style} role="menu" onClick={(e) => e.stopPropagation()}>
       <button role="menuitem" onClick={onReply}>↩ Alıntıla</button>
       {onForward && <button role="menuitem" onClick={onForward}>↪ İlet</button>}
+      {onSelect && <button role="menuitem" onClick={onSelect}>☑ Seç</button>}
       {m.text && <button role="menuitem" onClick={onCopy}>⧉ Kopyala</button>}
     </div>
   );
@@ -789,7 +816,7 @@ function TickMark({ state }: { state: Ticks }) {
   );
 }
 
-function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, onReply, onJump, onMenu }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void }) {
+function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, onReply, onJump, onMenu, selecting, selected, onToggle }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
   if (!list.length) return <div className="messages empty muted">{loading ? "Mesajlar yükleniyor…" : "Henüz mesaj yok. İlk mesajı siz yazın."}</div>;
@@ -806,13 +833,17 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
         const run = !sep && !!prev && !prev.system && prev.from === m.from && Date.parse(m.ts) - Date.parse(prev.ts) < 5 * 60_000;
         const sender = devices.find((x) => x.id === m.from);
         const q = m.replyTo ? quoted(m.replyTo) : undefined;
+        const selectable = selecting && !m.pending && !m.failed && !m.system;
+        const checked = !!selected?.has(m.id);
         return (
-          <div key={m.id} id={`m-${m.id}`} className={`item ${run ? "run" : ""}`}>
+          <div key={m.id} id={`m-${m.id}`} className={`item ${run ? "run" : ""} ${selecting ? "selecting" : ""} ${checked ? "checked" : ""}`}
+            onClick={selectable ? () => onToggle(m.id) : undefined}>
             {sep && <div className="day"><span>{sep}</span></div>}
             <div className={`line ${mine ? "mine" : ""}`}>
+              {selecting && <span className={`sel-check ${checked ? "on" : ""}`} aria-hidden="true">{checked ? "✓" : ""}</span>}
               {authors && !mine && (run ? <span className="avatar-gap" /> : <Avatar name={m.fromNick} seed={m.from} shape={sender?.kind === "agent" ? "agent" : "person"} size={32} picture={sender ? pictureOf(sender) : null} />)}
             <Swipeable className={`msg ${mine ? "mine" : ""} ${toMe ? "tome" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}
-              onSwipe={() => !m.pending && !m.failed && onReply(m)} onHold={(x, y) => !m.pending && !m.failed && onMenu(m, x, y)}>
+              onSwipe={() => !selecting && !m.pending && !m.failed && onReply(m)} onHold={(x, y) => !selecting && !m.pending && !m.failed && onMenu(m, x, y)}>
               {authors && !mine && !run && !m.forwarded && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">ajan</span>}</div>}
               {m.forwarded && <div className="fwd-tag">↪ iletildi</div>}
               {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? "Siz" : q.fromNick}</span><span className="quote-text">{snippet(q, 90)}</span></> : <span className="quote-text muted">mesaj</span>}</button>}
@@ -1008,6 +1039,29 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, onQuiet, onC
         </>}
         {error && <p className="error">{error}</p>}
         <div className="actions"><button className="ghost" onClick={onClose}>Kapat</button></div>
+    </Sheet>
+  );
+}
+
+/** Pick a chat to forward the selected messages into: #all, a group, or a person/agent. */
+function ChatPicker({ me, devices, groups, count, onPick, onClose }: { me: Device; devices: Device[]; groups: Group[]; count: number; onPick: (channel: string) => void; onClose: () => void }) {
+  useBack(true, onClose);
+  const [q, setQ] = useState("");
+  const match = (label: string) => label.toLocaleLowerCase("tr-TR").includes(q.trim().toLocaleLowerCase("tr-TR"));
+  const myGroups = groups.filter((g) => g.members.includes(me.id));
+  const others = devices.filter((d) => d.id !== me.id).sort((a, b) => a.nick.localeCompare(b.nick, "tr"));
+  return (
+    <Sheet title={`${count} mesajı ilet`} onClose={onClose}>
+      <div className="filter"><input type="search" value={q} placeholder="Sohbet ya da kişi ara" aria-label="Ara" onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="picker">
+        {match("#all herkes") && <button className="picker-row" onClick={() => onPick("all")}><Avatar name="all" seed="all" shape="group" size={34} /><span>#all</span></button>}
+        {myGroups.filter((g) => match(g.name)).map((g) => (
+          <button key={g.channel} className="picker-row" onClick={() => onPick(g.channel)}><Avatar name={g.name} seed={g.channel} shape="group" size={34} /><span>#{g.name}</span></button>
+        ))}
+        {others.filter((d) => match(handle(d))).map((d) => (
+          <button key={d.id} className="picker-row" onClick={() => onPick(dmChannel(me.id, d.id))}><Avatar name={d.nick} seed={d.id} shape={d.kind === "agent" ? "agent" : "person"} size={34} picture={pictureOf(d)} /><span>{handle(d)}</span></button>
+        ))}
+      </div>
     </Sheet>
   );
 }

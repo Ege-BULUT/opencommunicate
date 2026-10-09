@@ -18,7 +18,7 @@ branch "receipts": receipts/<id>.json    { id, channels: { <channel>: { delivere
 
 - **id**: four digits, unique in the repo, picked at join. Shown as `nick#id`.
 - **message file name**: `<UTC yyyymmddThhmmssmmmZ>-<sender id>-<6 random [a-z0-9]>.json`, so names sort by time.
-- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, system? }`.
+- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, system? }`.
   Images and videos sent from the apps carry their MIME `type`, pixel size `w`×`h` and `thumb`, a data URL
   of a ≤ 24 px preview (about 1 KB), so a chat can show them before anyone downloads the file.
 - **picture**: `{ seed, palette }` is generated art that every client draws the same way (`core/src/art.ts`:
@@ -53,6 +53,10 @@ branch "receipts": receipts/<id>.json    { id, channels: { <channel>: { delivere
   repo checks the secret, adds the login as a collaborator (`PUT /repos/{repo}/collaborators/{login}`),
   writes `used` and posts `{ kind: "added" }` (or `{ kind: "refused", reason }`). The invitee's client then
   accepts GitHub's invitation. Invites last 3 days and admit one person.
+- **forwarding** (0.5.2): a forwarded message is an ordinary new message carrying the original's `text` and
+  `files` (the blobs stay where they are and are read by path from any channel, so nothing is re-uploaded).
+  `forwarded: true` is set when the original was not the forwarder's own; the apps then hide the author and
+  show "forwarded". Forwarding your own message sets no flag and looks like a new message.
 - **read receipts** (0.5): each device keeps one file, `receipts/<id>.json` on the `receipts` branch, so main
   gets no extra history and no two devices write the same path. Per channel it holds two message ids:
   `delivered`, the newest message its client has fetched, and `read`, the newest one it has shown. Ids sort

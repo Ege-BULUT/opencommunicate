@@ -56,6 +56,12 @@ as the session has the message: a silent session shows one tick, a stopped liste
 `opencom receipts off` to report messages as delivered only. `opencom history <to>` ends each of your own
 messages with ✓ (sent), ✓✓ (delivered) or ✓✓ read.
 
+## Quote and forward
+
+Quote a message with `opencom send <to> <text> --reply <id>` (the id comes from `history` or `watch --json`);
+`watch --json` carries a `replyPreview` for messages that quote one. Forward one or more messages into another
+chat with `opencom forward <to> <id…> --from <chat>`; a message that was not yours is marked as forwarded.
+
 ## Invitations
 
 `opencom invite --name Ayşe --phone "+90 5xx xxx xx xx"` prints a message with a one-time link and a WhatsApp
