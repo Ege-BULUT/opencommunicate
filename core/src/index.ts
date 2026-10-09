@@ -58,7 +58,8 @@ export type Message = {
   ts: string;
   text: string;
   files?: FileRef[];
-  replyTo?: string;
+  replyTo?: string;              // the id of a message in the same channel this one quotes
+  forwarded?: boolean;          // this text/files came from someone else's message (author hidden, shown "forwarded")
   system?: { type: "join" | "group" | "change"; device?: Device; group?: Group; change?: GroupChange };
 };
 
@@ -348,8 +349,12 @@ export class Bus {
     return { v: 1, id: `${stamp()}-${from.id}-${rand(6)}`, channel, from: from.id, fromNick: from.nick, ts: new Date().toISOString(), text, ...extra };
   }
 
-  async send(channel: string, from: Device, text: string, files: Upload[] = [], replyTo?: string): Promise<Message> {
-    const msg = this.newMessage(channel, from, text, replyTo ? { replyTo } : {});
+  async send(channel: string, from: Device, text: string, files: Upload[] = [], opts: string | { replyTo?: string; forwarded?: boolean } = {}): Promise<Message> {
+    const o = typeof opts === "string" ? { replyTo: opts } : opts;
+    const extra: Partial<Message> = {};
+    if (o.replyTo) extra.replyTo = o.replyTo;
+    if (o.forwarded) extra.forwarded = true;
+    const msg = this.newMessage(channel, from, text, extra);
     const out: Record<string, Uint8Array | string> = {};
     if (files.length) {
       msg.files = files.map((f) => {
@@ -553,6 +558,14 @@ export function newestByChannel(list: Pick<Message, "id" | "channel">[]): Record
   const out: Record<string, string> = {};
   for (const m of list) if (!out[m.channel] || m.id > out[m.channel]) out[m.channel] = m.id;
   return out;
+}
+
+/** A short one-line preview of a message, for a reply quote or a chat-list row. */
+export function snippet(m: Pick<Message, "text" | "files"> | undefined, max = 80): string {
+  if (!m) return "";
+  const t = (m.text ?? "").replace(/\s+/g, " ").trim();
+  if (t) return t.length > max ? t.slice(0, max - 1) + "…" : t;
+  return m.files?.length ? `📎 ${m.files[0].name}` : "";
 }
 
 export const msgPath = (m: Pick<Message, "channel" | "id">) => `channels/${m.channel}/${m.id}.json`;

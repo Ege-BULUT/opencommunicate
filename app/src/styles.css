@@ -241,3 +241,21 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 @media (prefers-color-scheme: dark) { .meta .ticks.read { color: #53bdeb; } }
 label.toggle { justify-content: flex-start; color: var(--ink); font-size: 14px; }
 label.toggle input { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--accent); }
+
+/* quote (reply) + message menu + forward (0.5.1 / 0.5.2) */
+.swipeable { position: relative; touch-action: pan-y; }
+.swipe-hint { position: absolute; right: -26px; top: 50%; transform: translateY(-50%); opacity: 0; color: var(--muted); font-size: 15px; transition: opacity .1s; pointer-events: none; }
+.item.flash .msg { animation: flash 1.2s ease; }
+@keyframes flash { 0%, 40% { background: var(--sunken); } 100% {} }
+.quote { display: block; width: 100%; text-align: left; border: none; background: color-mix(in srgb, var(--accent) 12%, transparent); border-left: 3px solid var(--accent); border-radius: 7px; padding: 4px 8px; margin-bottom: 4px; cursor: pointer; overflow: hidden; }
+.msg.mine .quote { background: color-mix(in srgb, #000 8%, transparent); border-left-color: color-mix(in srgb, var(--accent) 70%, #000); }
+.quote-who { display: block; font-size: 12px; font-weight: 650; color: var(--accent); }
+.quote-text { display: block; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fwd-tag { font-size: 12px; font-style: italic; color: var(--muted); margin-bottom: 2px; }
+.reply-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin-bottom: 6px; background: var(--sunken); border-radius: 10px; }
+.reply-strip { width: 3px; align-self: stretch; background: var(--accent); border-radius: 2px; flex: none; }
+.reply-text { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply-x { border: none; background: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; flex: none; }
+.msg-menu { position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 5px; min-width: 150px; display: flex; flex-direction: column; }
+.msg-menu button { border: none; background: none; text-align: left; padding: 10px 12px; border-radius: 8px; font-size: 14px; color: var(--ink); cursor: pointer; }
+.msg-menu button:hover { background: var(--sunken); }

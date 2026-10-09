@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, PALETTES, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, quietFor, recipientsOf, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type Picture, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, PALETTES, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type Picture, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -513,6 +513,13 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && (!read[ch] || m.id > read[ch])).length;
   const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id]) < 10 * 60_000;
   const [filter, setFilter] = useState("");
+  const [reply, setReply] = useState<Message | null>(null);
+  const [menu, setMenu] = useState<{ m: Message; x: number; y: number } | null>(null);
+  const byId = useCallback((id: string) => (messages[active] ?? []).find((m) => m.id === id), [messages, active]);
+  const jumpTo = useCallback((id: string) => {
+    const el = document.getElementById(`m-${id}`);
+    if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); }
+  }, []);
   const last = (ch: string) => messages[ch]?.at(-1);
   const recent = (a: string, b: string) => (last(b)?.id ?? "").localeCompare(last(a)?.id ?? "");
   const shown = (label: string) => label.toLocaleLowerCase("tr-TR").includes(filter.trim().toLocaleLowerCase("tr-TR"));
@@ -540,10 +547,12 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
 
   const send = async (text: string, files: File[]) => {
     const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()), ...(await describe(f)) })));
-    const draft: Pending = { ...bus.newMessage(active, me, text), pending: true, files: payload.map(({ data, ...f }) => ({ ...f, path: "", size: data.length })) };
+    const replyTo = reply?.id;
+    const draft: Pending = { ...bus.newMessage(active, me, text, replyTo ? { replyTo } : {}), pending: true, files: payload.map(({ data, ...f }) => ({ ...f, path: "", size: data.length })) };
     add([draft]);
+    setReply(null);
     try {
-      const sent = await bus.send(active, me, text, payload);
+      const sent = await bus.send(active, me, text, payload, replyTo ? { replyTo } : {});
       const modes = mediaModes();
       sent.files?.forEach((f, i) => { const k = kindOf(f); remember(f.path, payload[i].data, !!k && modes[k] === "save"); });
       watcher.seen.add(msgPath(sent));
@@ -605,8 +614,9 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === "Yükleniyor…"}
-          ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)} />
-        <Composer onSend={send} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />
+          ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
+          quoted={byId} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })} />
+        <Composer onSend={send} reply={reply} onCancelReply={() => setReply(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />
       </main>
 
       {dialog === "group" && <GroupDialog others={others} onClose={() => setDialog(null)} onCreate={async (name, ids) => {
@@ -617,6 +627,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
       {dialog === "channel" && <ChannelDialog key={active} channel={active} title={title} group={activeGroup} me={me} devices={devices} quiet={quiet(active)}
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
       {dialog === "invite" && <InviteDialog bus={bus} me={me} admin={admin} onClose={() => setDialog(null)} />}
+      {menu && <MessageMenu m={menu.m} x={menu.x} y={menu.y} mine={menu.m.from === me.id} onReply={() => { setReply(menu.m); setMenu(null); }} onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }} onClose={() => setMenu(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut}
         showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }} />}
@@ -707,6 +718,67 @@ function systemText(m: Message, devices: Device[]): string {
   }
 }
 
+/** A message bubble you can swipe (touch) or drag (mouse) left to reply, and hold / right-click for a menu.
+ *  A short horizontal drag reveals a ↩ and fires onSwipe when released past the threshold; a long press with
+ *  little movement fires onHold with the point to anchor a menu. A normal tap still works (links, buttons). */
+function Swipeable({ className, children, onSwipe, onHold }: { className: string; children: ReactNode; onSwipe: () => void; onHold: (x: number, y: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const dx = useRef(0);
+  const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearHold = () => { if (hold.current) { clearTimeout(hold.current); hold.current = null; } };
+  const begin = (x: number, y: number) => {
+    start.current = { x, y }; dx.current = 0;
+    clearHold();
+    hold.current = setTimeout(() => { if (start.current && Math.abs(dx.current) < 8) { onHold(x, y); start.current = null; if (ref.current) ref.current.style.transform = ""; } }, 500);
+  };
+  const move = (x: number, y: number) => {
+    if (!start.current) return;
+    const ddx = x - start.current.x, ddy = y - start.current.y;
+    if (Math.abs(ddy) > Math.abs(ddx)) { start.current = null; clearHold(); if (ref.current) ref.current.style.transform = ""; return; } // vertical: let the list scroll
+    dx.current = Math.max(-80, Math.min(0, ddx));
+    if (Math.abs(ddx) > 6) clearHold();
+    if (ref.current) ref.current.style.transform = `translateX(${dx.current}px)`;
+  };
+  const end = () => {
+    clearHold();
+    if (ref.current) { ref.current.style.transition = "transform .15s"; ref.current.style.transform = ""; setTimeout(() => { if (ref.current) ref.current.style.transition = ""; }, 160); }
+    if (start.current && dx.current <= -48) onSwipe();
+    start.current = null; dx.current = 0;
+  };
+  return (
+    <div ref={ref} className={`${className} swipeable`}
+      onContextMenu={(e) => { e.preventDefault(); onHold(e.clientX, e.clientY); }}
+      onTouchStart={(e) => begin(e.touches[0].clientX, e.touches[0].clientY)}
+      onTouchMove={(e) => move(e.touches[0].clientX, e.touches[0].clientY)}
+      onTouchEnd={end}
+      onPointerDown={(e) => { if (e.pointerType === "mouse") begin(e.clientX, e.clientY); }}
+      onPointerMove={(e) => { if (e.pointerType === "mouse") move(e.clientX, e.clientY); }}
+      onPointerUp={(e) => { if (e.pointerType === "mouse") end(); }}
+      onPointerLeave={(e) => { if (e.pointerType === "mouse" && start.current) end(); }}>
+      <span className="swipe-hint" aria-hidden="true">↩</span>
+      {children}
+    </div>
+  );
+}
+
+/** The menu a long-press or right-click opens on a message: reply, copy (and, from 0.5.2, forward). */
+function MessageMenu({ m, x, y, mine, onReply, onCopy, onClose, onForward }: { m: Message; x: number; y: number; mine: boolean; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void }) {
+  useEffect(() => {
+    const close = () => onClose();
+    document.addEventListener("click", close); document.addEventListener("keydown", close); document.addEventListener("scroll", close, true);
+    return () => { document.removeEventListener("click", close); document.removeEventListener("keydown", close); document.removeEventListener("scroll", close, true); };
+  }, [onClose]);
+  const style: CSSProperties = { left: Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 400) - 180), top: Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 600) - 150) };
+  return (
+    <div className="msg-menu" style={style} role="menu" onClick={(e) => e.stopPropagation()}>
+      <button role="menuitem" onClick={onReply}>↩ Alıntıla</button>
+      {onForward && <button role="menuitem" onClick={onForward}>↪ İlet</button>}
+      {m.text && <button role="menuitem" onClick={onCopy}>⧉ Kopyala</button>}
+    </div>
+  );
+}
+
 const TICK_LABEL: Record<Ticks, string> = { sent: "gönderildi", delivered: "iletildi", read: "görüldü" };
 function TickMark({ state }: { state: Ticks }) {
   return (
@@ -717,7 +789,7 @@ function TickMark({ state }: { state: Ticks }) {
   );
 }
 
-function MessageList({ list, me, bus, devices, authors, loading, ticks }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks }) {
+function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, onReply, onJump, onMenu }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
   if (!list.length) return <div className="messages empty muted">{loading ? "Mesajlar yükleniyor…" : "Henüz mesaj yok. İlk mesajı siz yazın."}</div>;
@@ -733,17 +805,21 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks }: { list
         const prev = list[i - 1];
         const run = !sep && !!prev && !prev.system && prev.from === m.from && Date.parse(m.ts) - Date.parse(prev.ts) < 5 * 60_000;
         const sender = devices.find((x) => x.id === m.from);
+        const q = m.replyTo ? quoted(m.replyTo) : undefined;
         return (
-          <div key={m.id} className={`item ${run ? "run" : ""}`}>
+          <div key={m.id} id={`m-${m.id}`} className={`item ${run ? "run" : ""}`}>
             {sep && <div className="day"><span>{sep}</span></div>}
             <div className={`line ${mine ? "mine" : ""}`}>
               {authors && !mine && (run ? <span className="avatar-gap" /> : <Avatar name={m.fromNick} seed={m.from} shape={sender?.kind === "agent" ? "agent" : "person"} size={32} picture={sender ? pictureOf(sender) : null} />)}
-            <div className={`msg ${mine ? "mine" : ""} ${toMe ? "tome" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}>
-              {authors && !mine && !run && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">ajan</span>}</div>}
+            <Swipeable className={`msg ${mine ? "mine" : ""} ${toMe ? "tome" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}
+              onSwipe={() => !m.pending && !m.failed && onReply(m)} onHold={(x, y) => !m.pending && !m.failed && onMenu(m, x, y)}>
+              {authors && !mine && !run && !m.forwarded && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">ajan</span>}</div>}
+              {m.forwarded && <div className="fwd-tag">↪ iletildi</div>}
+              {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? "Siz" : q.fromNick}</span><span className="quote-text">{snippet(q, 90)}</span></> : <span className="quote-text muted">mesaj</span>}</button>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
               <div className="meta">{m.failed ? "gönderilemedi" : m.pending ? "gönderiliyor…" : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
-            </div>
+            </Swipeable>
             </div>
           </div>
         );
@@ -813,7 +889,7 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   );
 }
 
-function Composer({ onSend, people }: { onSend: (text: string, files: File[]) => void; people: Device[] }) {
+function Composer({ onSend, people, reply, onCancelReply }: { onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void }) {
   const [text, setText] = useState("");
   // "@" followed by the start of a nick at the end of the text suggests people in this chat
   const at = text.match(/(^|\s)@([\w-]*)$/);
@@ -827,14 +903,17 @@ function Composer({ onSend, people }: { onSend: (text: string, files: File[]) =>
     onSend(text.trim(), files);
     setText(""); setFiles([]);
   };
+  const replyInput = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => { if (reply) replyInput.current?.focus(); }, [reply]);
   return (
     <div className="composer">
+      {reply && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{reply.fromNick}</b><span className="muted"> · {snippet(reply, 70)}</span></span><button className="reply-x" aria-label="Alıntıyı iptal et" onClick={onCancelReply}>×</button></div>}
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
         <button className="icon attach-btn" title="Dosya ekle" aria-label="Dosya ekle" onClick={() => input.current?.click()}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-        <textarea rows={1} value={text} placeholder={people.length > 1 ? "Mesaj yazın · @ ile birini anın" : "Mesaj yazın"} onChange={(e) => setText(e.target.value)}
+        <textarea ref={replyInput} rows={1} value={text} placeholder={people.length > 1 ? "Mesaj yazın · @ ile birini anın" : "Mesaj yazın"} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
         <button className="primary send" aria-label="Gönder" onClick={submit} disabled={!text.trim() && !files.length}><Plane /><span className="send-label">Gönder</span></button>
       </div>

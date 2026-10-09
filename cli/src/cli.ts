@@ -5,7 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, PHOTO_MAX, Watcher, addressedTo, newestByChannel, recipientsOf, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, PHOTO_MAX, Watcher, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
@@ -19,8 +19,9 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    create the repo if needed and join it
   opencom whoami                   this device
   opencom contacts                 everyone connected (nick#id, last seen)
-  opencom send <to> <text…> [--file <path>]…
-                                   to: all | nick#1234 | 1234 | <group name>
+  opencom send <to> <text…> [--file <path>]… [--reply <message-id>]
+                                   to: all | nick#1234 | 1234 | <group name>;
+                                   --reply quotes a message in that chat (its id, from history/watch)
   opencom history <to> [-n 20]     recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read
   opencom watch [--json] [--interval 5]
                                    print new messages as they arrive (JSON lines with --json;
@@ -98,8 +99,12 @@ const members = (g: Group, devices: Device[]) => {
 };
 
 const local = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-const line = (m: Message, me: Device, devices: Device[], groups: Group[]) =>
-  `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${m.fromNick}#${m.from}: ${m.text}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}`;
+const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted?: Map<string, Message>) => {
+  const q = m.replyTo ? quoted?.get(m.replyTo) : undefined;
+  const quote = m.replyTo ? `  ↩ ${q ? `${q.fromNick}: ${snippet(q, 48)}` : `(mesaj ${m.replyTo.slice(-6)})`}` : "";
+  const who = m.forwarded ? "iletildi" : `${m.fromNick}#${m.from}`;
+  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${m.text}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}`;
+};
 
 async function main(argv: string[]) {
   const [cmd, ...args] = argv;
@@ -145,7 +150,7 @@ async function main(argv: string[]) {
       if (!text && !files.length) throw new Error("Nothing to send.");
       const { devices, groups } = await load();
       const channel = resolveTarget(to, me, devices, groups);
-      const msg = await bus.send(channel, me, text, files);
+      const msg = await bus.send(channel, me, text, files, f.reply ? { replyTo: f.reply[0] } : {});
       await notifyRecipients(msg, me, devices, groups).catch(() => {});
       console.log(`sent to ${label(channel, me, devices, groups)}`);
       return;
@@ -155,8 +160,9 @@ async function main(argv: string[]) {
       const channel = resolveTarget(rest[0] ?? "all", me, devices, groups);
       const [list, receipts] = await Promise.all([bus.history(channel, Number(f.n?.[0] ?? 20)), bus.receipts()]);
       const to = recipientsOf(channel, me.id, devices, groups);
+      const byId = new Map(list.map((m) => [m.id, m]));
       const mark = { sent: "✓", delivered: "✓✓", read: "✓✓ read" };
-      for (const m of list) console.log(line(m, me, devices, groups) + (m.from === me.id && !m.system ? `  ${mark[ticksFor(m, to, receipts, cfg.readReceipts !== false)]}` : ""));
+      for (const m of list) console.log(line(m, me, devices, groups, byId) + (m.from === me.id && !m.system ? `  ${mark[ticksFor(m, to, receipts, cfg.readReceipts !== false)]}` : ""));
       return;
     }
     case "groups": {
@@ -249,6 +255,7 @@ async function main(argv: string[]) {
     case "watch": {
       const w = new Watcher(bus, me);
       await w.start();
+      const recent = new Map<string, Message>(); // a small window so a reply can show what it quotes
       const every = Math.max(2, Number(f.interval?.[0] ?? 5)) * 1000;
       let beat = 0;
       // an admin's watch also lets invited people in (every 15 s)
@@ -263,9 +270,13 @@ async function main(argv: string[]) {
             for (const login of await processInvites(bus, me)) console.error(`watch: admitted ${login} (invitation)`);
           }
           const fresh = await w.tick();
+          for (const m of fresh) recent.set(m.id, m);
           for (const m of fresh) {
             if (m.from === me.id && !f.all) continue;
-            console.log(f.json ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me) }) : line(m, me, w.devices, w.groups));
+            const quoted = m.replyTo ? recent.get(m.replyTo) : undefined;
+            console.log(f.json
+              ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me), replyPreview: quoted ? { from: quoted.from, fromNick: quoted.fromNick, text: snippet(quoted) } : undefined })
+              : line(m, me, w.devices, w.groups, recent));
           }
           // what watch printed has reached this session: delivered, and read unless read receipts are off
           const others = fresh.filter((m) => m.from !== me.id);
