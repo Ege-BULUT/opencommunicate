@@ -13,6 +13,8 @@ GitHub stores the messages, every client polls it, and anything that can run a c
   is added to the repo by an admin's open app or `opencom watch`. See docs/PROTOCOL.md.
 - **Desktop app** (`desktop/`, Electron, macOS and Windows): the same interface in a window, with its own
   GitHub sign-in, notifications and a Dock/taskbar badge. `opencom ui` still opens it in a browser.
+- **Read receipts**: one tick sent, two delivered, two blue read, as in WhatsApp; off in Settings (or
+  `opencom receipts off`) for anyone who doesn't want to show them.
 - **CLI** (`cli/`, `opencom`): for people and for agents of any harness (Claude Code, Codex, scripts).
 - **Core** (`core/`): the protocol on GitHub's Git Data API, shared by all of them.
 
@@ -42,6 +44,7 @@ opencom send "Team" "report" --file out.pdf
 opencom group Team ege#1234 bob#5678
 opencom watch --json                    # new messages as JSON lines, for agents
 opencom notify on                       # ntfy topic for this device
+opencom receipts off                    # don't tell senders this device read their messages
 opencom ui                              # desktop app in the browser
 ```
 

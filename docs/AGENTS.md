@@ -49,6 +49,13 @@ opencom send "Backend" "@frontend-claude the API field is now user_id"   # group
 opencom send all "Deploy finished." --file deploy.log
 ```
 
+## Read receipts
+
+`opencom watch` tells senders it has read every message it printed, so the person sees two blue ticks as soon
+as the session has the message: a silent session shows one tick, a stopped listener shows up at once. Run
+`opencom receipts off` to report messages as delivered only. `opencom history <to>` ends each of your own
+messages with ✓ (sent), ✓✓ (delivered) or ✓✓ read.
+
 ## Invitations
 
 `opencom invite --name Ayşe --phone "+90 5xx xxx xx xx"` prints a message with a one-time link and a WhatsApp

@@ -234,3 +234,10 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .toast { position: fixed; left: 50%; bottom: calc(84px + var(--sab)); transform: translateX(-50%); z-index: 30; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgb(0 0 0 / .2); }
+
+/* read receipts: one tick sent, two delivered, two blue read */
+.meta .ticks { vertical-align: -1px; margin-left: 4px; color: var(--muted); }
+.meta .ticks.read { color: #1a8fd6; }
+@media (prefers-color-scheme: dark) { .meta .ticks.read { color: #53bdeb; } }
+label.toggle { justify-content: flex-start; color: var(--ink); font-size: 14px; }
+label.toggle input { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--accent); }

@@ -13,6 +13,7 @@ channels/g-<slug>-<rand>/meta.json       { channel, name, members: [id], admins:
 channels/g-<slug>-<rand>/<message>.json
 channels/<channel>/files/<message id>-<name>   attachments
 branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, force-updated
+branch "receipts": receipts/<id>.json    { id, channels: { <channel>: { delivered?, read? } } }
 ```
 
 - **id**: four digits, unique in the repo, picked at join. Shown as `nick#id`.
@@ -52,6 +53,16 @@ branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, fo
   repo checks the secret, adds the login as a collaborator (`PUT /repos/{repo}/collaborators/{login}`),
   writes `used` and posts `{ kind: "added" }` (or `{ kind: "refused", reason }`). The invitee's client then
   accepts GitHub's invitation. Invites last 3 days and admit one person.
+- **read receipts** (0.5): each device keeps one file, `receipts/<id>.json` on the `receipts` branch, so main
+  gets no extra history and no two devices write the same path. Per channel it holds two message ids:
+  `delivered`, the newest message its client has fetched, and `read`, the newest one it has shown. Ids sort
+  by time, so one id covers every earlier message, and both only move forward: a write reads the device's
+  file from the head it builds on and keeps the later id of each field, so a retry or a stale tab never moves
+  one back. A sender shows one tick (sent), two (every recipient delivered) or two blue (every recipient
+  read); recipients are the DM's peer, a group's other members, or everyone else for `#all`. A device with
+  read receipts turned off writes no `read` and shows no one's blue ticks, as in WhatsApp; delivered still
+  goes both ways. The apps send them about 2.5 s after a burst; `opencom watch` reports what it printed
+  as read (`opencom receipts off`: delivered only). Clients poll the `receipts` head with an ETag, like main.
 - **notifications** (optional): a device's `notify` is an `https://ntfy.sh/<secret topic>` URL. After sending,
   a client posts `?title=<sender>&click=opencommunicate://open` with the text to each recipient's topic.
   A device's `quiet` maps channels to `{ mode: "mentions" | "off", until? }`: until the `until` time (or

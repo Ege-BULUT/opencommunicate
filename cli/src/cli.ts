@@ -5,13 +5,13 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, PHOTO_MAX, Watcher, addressedTo, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, PHOTO_MAX, Watcher, addressedTo, newestByChannel, recipientsOf, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
 const CONFIG = path.join(CONFIG_DIR, "config.json");
-type Config = { repo: string; device: Device };
+type Config = { repo: string; device: Device; readReceipts?: boolean };
 
 const USAGE = `opencom — chat over a private GitHub repository
 
@@ -21,7 +21,7 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom contacts                 everyone connected (nick#id, last seen)
   opencom send <to> <text…> [--file <path>]…
                                    to: all | nick#1234 | 1234 | <group name>
-  opencom history <to> [-n 20]     recent messages
+  opencom history <to> [-n 20]     recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read
   opencom watch [--json] [--interval 5]
                                    print new messages as they arrive (JSON lines with --json;
                                    "toMe" is true for DMs and for @nick, nick#1234 or @all)
@@ -42,6 +42,8 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    "opencom invites" lists them. Whoever administers the repo lets the
                                    invitee in: the app, or "opencom watch", does it while running
   opencom notify on|off            phone notifications through ntfy for this device
+  opencom receipts on|off          read receipts: "watch" tells senders it read their messages
+                                   (blue ticks); off still reports them delivered (default: on)
   opencom ui [--port 4817]         open the desktop app in the browser
 `;
 
@@ -151,7 +153,10 @@ async function main(argv: string[]) {
     case "history": {
       const { devices, groups } = await load();
       const channel = resolveTarget(rest[0] ?? "all", me, devices, groups);
-      for (const m of await bus.history(channel, Number(f.n?.[0] ?? 20))) console.log(line(m, me, devices, groups));
+      const [list, receipts] = await Promise.all([bus.history(channel, Number(f.n?.[0] ?? 20)), bus.receipts()]);
+      const to = recipientsOf(channel, me.id, devices, groups);
+      const mark = { sent: "✓", delivered: "✓✓", read: "✓✓ read" };
+      for (const m of list) console.log(line(m, me, devices, groups) + (m.from === me.id && !m.system ? `  ${mark[ticksFor(m, to, receipts, cfg.readReceipts !== false)]}` : ""));
       return;
     }
     case "groups": {
@@ -235,6 +240,12 @@ async function main(argv: string[]) {
       console.log(on ? `Notifications on. Subscribe to this topic in the ntfy app: ${next.notify}` : "Notifications off.");
       return;
     }
+    case "receipts": {
+      if (rest[0] !== "on" && rest[0] !== "off") { console.log(`Read receipts are ${cfg.readReceipts === false ? "off" : "on"}.`); return; }
+      writeConfig({ ...cfg, readReceipts: rest[0] === "on" });
+      console.log(rest[0] === "on" ? "Read receipts on: senders see blue ticks once watch has printed their message." : "Read receipts off: senders only see that their message was delivered.");
+      return;
+    }
     case "watch": {
       const w = new Watcher(bus, me);
       await w.start();
@@ -251,9 +262,18 @@ async function main(argv: string[]) {
             invitesAt = Date.now();
             for (const login of await processInvites(bus, me)) console.error(`watch: admitted ${login} (invitation)`);
           }
-          for (const m of await w.tick()) {
+          const fresh = await w.tick();
+          for (const m of fresh) {
             if (m.from === me.id && !f.all) continue;
             console.log(f.json ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me) }) : line(m, me, w.devices, w.groups));
+          }
+          // what watch printed has reached this session: delivered, and read unless read receipts are off
+          const others = fresh.filter((m) => m.from !== me.id);
+          if (others.length) {
+            const newest = newestByChannel(others);
+            const read = cfg.readReceipts !== false;
+            bus.markReceipts(me, Object.fromEntries(Object.entries(newest).map(([ch, id]) => [ch, read ? { read: id } : { delivered: id }])))
+              .catch((e) => console.error(`watch: receipts: ${(e as Error).message}`));
           }
         } catch (e) {
           console.error(`watch: ${(e as Error).message}`);

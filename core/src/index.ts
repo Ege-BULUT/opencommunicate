@@ -14,6 +14,7 @@
  *   channels/g-<slug>-<rand>/meta.json   { name, members, admins, createdBy, createdAt } + messages
  *   channels/<ch>/files/<message id>-<name>   attachments
  *   branch "presence": presence/<id>.json   { id, lastSeen } — rewritten, never grows main's history
+ *   branch "receipts": receipts/<id>.json   { id, channels: { <ch>: { delivered?, read? } } } — see Receipt
  */
 
 import { paletteFor as defaultPalette } from "./art.ts";
@@ -38,6 +39,16 @@ export type GroupChange =
 export type FileRef = { name: string; path: string; size: number; type?: string; w?: number; h?: number; thumb?: string };
 export type Upload = { name: string; data: Uint8Array } & Pick<FileRef, "type" | "w" | "h" | "thumb">;
 export const PHOTO_MAX = 50 * 1024;
+/**
+ * How far a device has got in one channel, as message ids (which sort by time): `delivered` is the newest message
+ * its client has fetched, `read` the newest one it has shown. Both only move forward. Each device writes only its
+ * own file, receipts/<id>.json on the "receipts" branch, so two devices never edit the same path, and main keeps
+ * no history of them. A device that turns read receipts off writes no `read`.
+ */
+export type Receipt = { delivered?: string; read?: string };
+export type Receipts = Record<string, Record<string, Receipt>>; // device id -> channel -> receipt
+/** WhatsApp's ticks for one of my messages: sent (one), delivered to everyone (two), read by everyone (two blue). */
+export type Ticks = "sent" | "delivered" | "read";
 export type Message = {
   v: 1;
   id: string;
@@ -156,7 +167,7 @@ export class Bus {
   private token: string;
   private f: Fetch;
   private api: string;
-  private etag = "";
+  private etags = new Map<string, string>();
   private blobCache = new Map<string, unknown>();
 
   constructor(o: BusOptions) {
@@ -193,10 +204,13 @@ export class Bus {
   }
 
   /** Cheap change check: 304 (free) while nothing moved. Returns the new head or null if unchanged. */
-  async headIfChanged(): Promise<string | null> {
-    const res = await this.gh(this.r(`/git/ref/heads/${this.branch}`), { headers: this.etag ? { "If-None-Match": this.etag } : {} });
+  async headIfChanged(branch = this.branch): Promise<string | null> {
+    const etag = this.etags.get(branch);
+    let res;
+    try { res = await this.gh(this.r(`/git/ref/heads/${branch}`), { headers: etag ? { "If-None-Match": etag } : {} }); }
+    catch (e) { if (branch !== this.branch && e instanceof GitHubError && e.status === 404) return null; throw e; } // not created yet
     if (res.status === 304) return null;
-    this.etag = res.headers.get("etag") ?? "";
+    this.etags.set(branch, res.headers.get("etag") ?? "");
     return res.data.object.sha;
   }
 
@@ -465,6 +479,44 @@ export class Bus {
     await this.commit({ [`presence/${me.id}.json`]: JSON.stringify({ id: me.id, lastSeen: new Date().toISOString() }) }, `presence: ${handle(me)}`, { branch: "presence", orphan: true });
   }
 
+  /** Every device's receipts, as of the "receipts" branch head (or `at`). */
+  async receipts(at?: string | null): Promise<Receipts> {
+    const head = at ?? (await this.head("receipts"));
+    if (!head) return {};
+    const entries = (await this.tree(head)).filter((e) => /^receipts\/\d{4}\.json$/.test(e.path));
+    const all = await Promise.all(entries.map((e) => this.json<{ id: string; channels: Record<string, Receipt> }>(e.sha)));
+    return Object.fromEntries(all.map((r) => [r.id, r.channels ?? {}]));
+  }
+
+  /**
+   * Moves this device's receipts forward. Read from the head each try is built on and merged keeping the newer id
+   * of each field, so a retry after a race, or an older value from a slow tab, never moves a receipt back.
+   * Returns false when nothing would change (no commit).
+   */
+  async markReceipts(me: Pick<Device, "id" | "nick">, update: Record<string, Receipt>): Promise<boolean> {
+    const path = `receipts/${me.id}.json`;
+    let changed = false;
+    const later = (a?: string, b?: string) => (!a ? b : !b ? a : a > b ? a : b);
+    try {
+      await this.commit(async (parent) => {
+        const cur: Record<string, Receipt> = parent ? (await this.receipts(parent))[me.id] ?? {} : {};
+        const next: Record<string, Receipt> = { ...cur };
+        for (const [ch, r] of Object.entries(update)) {
+          const merged: Receipt = { ...cur[ch] };
+          const d = later(merged.delivered, later(r.delivered, r.read)); // read implies delivered
+          const rd = later(merged.read, r.read);
+          if (d) merged.delivered = d;
+          if (rd) merged.read = rd;
+          if (merged.delivered !== cur[ch]?.delivered || merged.read !== cur[ch]?.read) next[ch] = merged;
+        }
+        changed = JSON.stringify(next) !== JSON.stringify(cur);
+        if (!changed) throw new Unchanged();
+        return { [path]: JSON.stringify({ id: me.id, channels: next }) };
+      }, `receipts: ${handle(me)}`, { branch: "receipts" });
+    } catch (e) { if (!(e instanceof Unchanged)) throw e; }
+    return changed;
+  }
+
   async presence(): Promise<Record<string, string>> {
     const head = await this.head("presence");
     if (!head) return {};
@@ -472,6 +524,35 @@ export class Bus {
     const all = await Promise.all(entries.map(async (e) => JSON.parse(dec.decode(await this.blob(e.sha))) as { id: string; lastSeen: string }));
     return Object.fromEntries(all.map((p) => [p.id, p.lastSeen]));
   }
+}
+
+class Unchanged extends Error {}
+
+/**
+ * The ticks for my message `m`. `recipients` are the device ids it went to, without me: the peer of a DM, the
+ * other members of a group, everyone else for #all. Two ticks once every recipient's client has fetched it, blue
+ * once every recipient has shown it. With `showRead` false (this device turned read receipts off, as in WhatsApp,
+ * it sees no one's) blue never shows.
+ */
+export function ticksFor(m: Pick<Message, "id" | "channel">, recipients: string[], receipts: Receipts, showRead = true): Ticks {
+  if (!recipients.length) return "sent";
+  const got = (id: string, k: keyof Receipt) => { const v = receipts[id]?.[m.channel]?.[k]; return !!v && v >= m.id; };
+  if (showRead && recipients.every((id) => got(id, "read"))) return "read";
+  return recipients.every((id) => got(id, "delivered") || got(id, "read")) ? "delivered" : "sent";
+}
+
+/** Who a message in `channel` goes to, besides `me`. */
+export function recipientsOf(channel: string, me: string, devices: Pick<Device, "id">[], groups: Group[]): string[] {
+  if (isDm(channel)) return [dmPeer(channel, me)];
+  if (channel === "all") return devices.map((d) => d.id).filter((id) => id !== me);
+  return (groups.find((g) => g.channel === channel)?.members ?? []).filter((id) => id !== me);
+}
+
+/** The newest message id per channel in `list`, for a delivered or read receipt. */
+export function newestByChannel(list: Pick<Message, "id" | "channel">[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of list) if (!out[m.channel] || m.id > out[m.channel]) out[m.channel] = m.id;
+  return out;
 }
 
 export const msgPath = (m: Pick<Message, "channel" | "id">) => `channels/${m.channel}/${m.id}.json`;
@@ -502,6 +583,15 @@ export class Watcher {
       for (const e of await this.bus.tree(this.head)) if (isMessagePath(e.path) && mine.has(e.path.split("/")[1])) this.seen.add(e.path);
     }
     await this.bus.headIfChanged(); // prime the ETag
+  }
+
+  /** Everyone's receipts; `tickReceipts()` brings them up to date (free while the receipts branch has not moved). */
+  receipts: Receipts = {};
+  async tickReceipts(): Promise<boolean> {
+    const head = await this.bus.headIfChanged("receipts");
+    if (!head) return false;
+    this.receipts = await this.bus.receipts(head);
+    return true;
   }
 
   async refresh(): Promise<void> {

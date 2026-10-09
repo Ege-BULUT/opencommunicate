@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, PALETTES, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, pictureOf, quietFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type Picture, type Quiet } from "../../core/src/index.ts";
+import { Bus, PALETTES, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, quietFor, recipientsOf, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type Picture, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -63,6 +63,10 @@ function Sheet({ title, className = "", onClose, children }: { title: string; cl
 const BusContext = createContext<Bus | null>(null);
 const KIND: Record<string, string> = { agent: "ajan", phone: "telefon", desktop: "masaüstü", person: "kişi" };
 const READ_KEY = "oc.read";
+// Read receipts (blue ticks), on unless turned off in Settings. Off works as in WhatsApp: this device tells no one
+// it read their messages and sees no one's blue ticks; delivered (two grey ticks) still goes both ways.
+const RECEIPTS_KEY = "oc.readReceipts";
+const readReceiptsOn = () => { try { return localStorage.getItem(RECEIPTS_KEY) !== "off"; } catch { return true; } };
 
 /** What the address brought: an invitation (#invite=…) or a chat repo (?repo=…), on the web or through an
  *  Android link (opencommunicate://invite#invite=…, opencommunicate://join?repo=…). */
@@ -339,6 +343,39 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [status, setStatus] = useState("Yükleniyor…");
   const [account, setAccount] = useState<string | null>(null); // a GitHub problem only the person can fix
   const [read, setRead] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(READ_KEY) ?? "{}"); } catch { return {}; } });
+  const [receipts, setReceipts] = useState<Receipts>({});
+  const [showRead, setShowRead] = useState(readReceiptsOn);
+  const showReadRef = useRef(showRead);
+  showReadRef.current = showRead;
+  // receipts wait a moment and go out together: one commit for a burst of messages, not one per message
+  const queued = useRef<Record<string, Receipt>>({});
+  const flushAt = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const told = useRef<Record<string, Receipt>>({}); // what this session already sent: skip the round trip for it again
+  const queueReceipts = useCallback((update: Record<string, Receipt>) => {
+    let any = false;
+    for (const [ch, r] of Object.entries(update)) {
+      const was = told.current[ch] ?? {};
+      const fresh: Receipt = {};
+      if (r.delivered && !(was.delivered && was.delivered >= r.delivered)) fresh.delivered = r.delivered;
+      if (r.read && !(was.read && was.read >= r.read)) fresh.read = r.read;
+      if (!fresh.delivered && !fresh.read) continue;
+      told.current[ch] = { ...was, ...fresh };
+      queued.current[ch] = { ...queued.current[ch], ...fresh };
+      any = true;
+    }
+    if (!any || flushAt.current) return;
+    flushAt.current = setTimeout(() => {
+      flushAt.current = null;
+      const batch = queued.current;
+      queued.current = {};
+      // a failed write is forgotten, so the next message or visit sends it again
+      bus.markReceipts(meRef.current, batch).catch(() => { for (const ch of Object.keys(batch)) delete told.current[ch]; });
+    }, 2500);
+  }, [bus]);
+  const delivered = useCallback((list: Message[]) => {
+    const newest = newestByChannel(list.filter((m) => m.from !== session.device.id && !m.system));
+    if (Object.keys(newest).length) queueReceipts(Object.fromEntries(Object.entries(newest).map(([ch, id]) => [ch, { delivered: id }])));
+  }, [queueReceipts, session.device.id]);
   const activeRef = useRef(active);
   activeRef.current = active;
   const meRef = useRef(me);
@@ -380,6 +417,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           const hist = await bus.histories([...watcher.channels], 60, watcher.head ?? undefined);
           for (const list of Object.values(hist)) list.forEach((m) => watcher.seen.add(msgPath(m)));
           setMessages(hist);
+          delivered(Object.values(hist).flat());
+          watcher.tickReceipts().then(() => setReceipts(watcher.receipts)).catch(() => {});
           setStatus(""); setAccount(null);
           bus.presence().then(setPresence).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
@@ -401,6 +440,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           const fresh = await watcher.tick();
           setDevices([...watcher.devices]); setGroups([...watcher.groups]);
           add(fresh);
+          delivered(fresh);
+          if (await watcher.tickReceipts().catch(() => false)) setReceipts(watcher.receipts);
           for (const m of fresh) {
             if (m.from === session.device.id || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || "📎 dosya");
@@ -437,13 +478,20 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   }, [bus]);
 
   const markRead = useCallback((ch: string) => {
+    const lastIn = messages[ch]?.filter((m) => !m.pending && !m.failed && m.from !== me.id && !m.system).at(-1)?.id;
+    if (lastIn && showReadRef.current) queueReceipts({ [ch]: { read: lastIn } });
     const last = messages[ch]?.at(-1)?.id;
     if (!last || read[ch] === last) return;
     const next = { ...read, [ch]: last };
     setRead(next);
     localStorage.setItem(READ_KEY, JSON.stringify(next));
-  }, [messages, read]);
+  }, [messages, read, me.id, queueReceipts]);
   useEffect(() => { if (!document.hidden) markRead(active); }, [active, messages, markRead]);
+  useEffect(() => {
+    const onVisible = () => { if (!document.hidden) markRead(activeRef.current); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [markRead]);
 
   const others = devices.filter((d) => d.id !== me.id).sort((a, b) => a.nick.localeCompare(b.nick));
   const myGroups = groups.filter((g) => g.members.includes(me.id));
@@ -556,7 +604,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           <button className="icon info" title="Ayrıntılar" aria-label="Sohbet ayrıntıları" onClick={() => setDialog("channel")}><Info /></button>
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
-        <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === "Yükleniyor…"} />
+        <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === "Yükleniyor…"}
+          ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)} />
         <Composer onSend={send} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />
       </main>
 
@@ -569,7 +618,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
       {dialog === "invite" && <InviteDialog bus={bus} me={me} admin={admin} onClose={() => setDialog(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
-      {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut} />}
+      {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut}
+        showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }} />}
     </div>
     </BusContext.Provider>
   );
@@ -657,7 +707,17 @@ function systemText(m: Message, devices: Device[]): string {
   }
 }
 
-function MessageList({ list, me, bus, devices, authors, loading }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean }) {
+const TICK_LABEL: Record<Ticks, string> = { sent: "gönderildi", delivered: "iletildi", read: "görüldü" };
+function TickMark({ state }: { state: Ticks }) {
+  return (
+    <svg className={`ticks ${state}`} viewBox="0 0 18 11" width="17" height="11" role="img" aria-label={TICK_LABEL[state]}>
+      <title>{TICK_LABEL[state]}</title>
+      <path d={state === "sent" ? "M1.5 5.8 4.8 9 11 2" : "M1 5.8 4.3 9 10.5 2M6.8 7.6 8.3 9 14.5 2"} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MessageList({ list, me, bus, devices, authors, loading, ticks }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
   if (!list.length) return <div className="messages empty muted">{loading ? "Mesajlar yükleniyor…" : "Henüz mesaj yok. İlk mesajı siz yazın."}</div>;
@@ -682,7 +742,7 @@ function MessageList({ list, me, bus, devices, authors, loading }: { list: Pendi
               {authors && !mine && !run && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">ajan</span>}</div>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
-              <div className="meta">{m.failed ? "gönderilemedi" : m.pending ? "gönderiliyor…" : time(m.ts)}</div>
+              <div className="meta">{m.failed ? "gönderilemedi" : m.pending ? "gönderiliyor…" : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
             </div>
             </div>
           </div>
@@ -894,7 +954,7 @@ function GroupDialog({ others, onClose, onCreate }: { others: Device[]; onClose:
   );
 }
 
-function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignOut }: { session: Session; me: Device; bus: Bus; problem: string | null; onMe: (d: Device) => void; onSession: (s: Session) => void; onClose: () => void; onSignOut: () => void }) {
+function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignOut, showRead, onShowRead }: { session: Session; me: Device; bus: Bus; problem: string | null; onMe: (d: Device) => void; onSession: (s: Session) => void; onClose: () => void; onSignOut: () => void; showRead: boolean; onShowRead: (on: boolean) => void }) {
   const [busy, setBusy] = useState(false);
   const [login, setLogin] = useState<string | null>(null);
   const [trouble, setTrouble] = useState<string | null>(problem);
@@ -994,6 +1054,12 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
           </label>
         ))}
         {kept !== null && <div className="actions start"><span className="muted small">Cihazda saklanan: {size(kept)}</span>{kept > 0 && <button className="mini" onClick={async () => { await clearStored(); setKept(0); }}>Temizle</button>}</div>}
+        <h3>Görüldü bilgisi</h3>
+        <label className="inline toggle">
+          <input type="checkbox" checked={showRead} onChange={(e) => onShowRead(e.target.checked)} />
+          Mesajları okuduğumu göster (mavi tik)
+        </label>
+        <p className="muted small">Tek tik: gönderildi. Çift tik: karşı tarafa ulaştı. Mavi çift tik: okundu. Kapatırsanız kimse mesajlarını okuduğunuzu görmez, siz de başkalarının mavi tikini görmezsiniz; ulaştı bilgisi (gri çift tik) iki yönde de çalışmaya devam eder. Grupta tikler, herkese ulaşınca ve herkes okuyunca değişir.</p>
         <h3>Anlık bildirim (ntfy)</h3>
         <p className="small">Uygulama açıkken mesajlar anında gelir. Kapalıyken de haber almak için ücretsiz <b>ntfy</b> uygulamasını kurup aşağıdaki konuya abone olun; size mesaj atan cihaz bu konuya kısa bir bildirim gönderir, bildirime dokununca bu uygulama açılır.</p>
         {native() && <button className="ghost" onClick={() => openLink("https://play.google.com/store/apps/details?id=io.heckel.ntfy")}>ntfy'ı Play Store'dan kur</button>}
