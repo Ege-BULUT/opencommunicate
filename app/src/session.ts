@@ -2,7 +2,7 @@
    phone, a GitHub device-flow sign-in followed by joining a bus repository. */
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
-import { Bus, GitHubError, type Device } from "../../core/src/index.ts";
+import { Bus, GitHubError, type Device, type Kind } from "../../core/src/index.ts";
 
 export type Session = { repo: string; token: string; device: Device; source: "desktop" | "app" };
 const KEY = "oc.session";
@@ -121,14 +121,25 @@ export async function finishSignIn(code: DeviceCode, cancelled: () => boolean): 
   throw new Error("The code expired. Start again.");
 }
 
-/** Creates the bus repository if needed and joins it as this phone. */
+const kindHere = (): Kind => (native() ? "phone" : desktopApp() ? "desktop" : "person");
+
+/** Creates the bus repository if needed and joins it as a new device. */
 export async function join(token: string, repo: string, nick: string): Promise<Session> {
   await Bus.ensureRepo(token, repo);
   const bus = new Bus({ repo, token });
   const login = (await bus.gh("/user")).data.login;
-  const device = await bus.join({ nick, kind: native() ? "phone" : desktopApp() ? "desktop" : "person", login });
+  const device = await bus.join({ nick, kind: kindHere(), login });
   return { repo, token, device, source: "app" };
 }
+
+/** Signs in as an existing device (nick#id and its password); creates nothing. See Bus.claim. */
+export async function claim(token: string, repo: string, handle: string, password: string): Promise<{ session: Session; needsPassword: boolean }> {
+  const login = await checkAccount(token, repo); // a repository this account can't see reads as "no such device"
+  const { device, needsPassword } = await new Bus({ repo, token }).claim({ handle, password, login, kind: kindHere() });
+  return { session: { repo, token, device, source: "app" }, needsPassword };
+}
+
+export const setPassword = (s: Session, password: string) => new Bus({ repo: s.repo, token: s.token }).setPassword(s.device, password);
 
 export async function githubLogin(token: string): Promise<string> {
   const res = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${token}` } });

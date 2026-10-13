@@ -1,11 +1,12 @@
 # Protocol 1
 
 A chat is one private GitHub repository. Clients only add files; nothing is edited in place except
-`devices/<id>.json` (by its own device) and group `meta.json`.
+`devices/<id>.json` and `auth/<id>.json` (by their own device) and group `meta.json`.
 
 ```
 opencommunicate.json                     { protocol: 1, name, createdAt }
 devices/<id>.json                        { id, nick, kind: person|phone|desktop|agent, login, joinedAt, notify?, quiet?, picture? }
+auth/<id>.json                           { alg: "PBKDF2-SHA256", iter: 600000, salt, hash } — the device's password
 pictures/<id>-<rand>.<ext>               profile photos, 50 KB at most
 channels/all/<message>.json              everyone; system notices (join, group created)
 channels/dm-<a>-<b>/<message>.json       two devices, ids sorted ascending
@@ -17,6 +18,13 @@ branch "receipts": receipts/<id>.json    { id, channels: { <channel>: { delivere
 ```
 
 - **id**: four digits, unique in the repo, picked at join. Shown as `nick#id`.
+- **password** (`auth/<id>.json`): `salt` is 16 random bytes and `hash` the 32-byte PBKDF2-SHA256 of the password,
+  both base64 (`hashPassword` / `verifyPassword` in `core/src/index.ts`). It is a file of its own because a device
+  object is copied into join notices and rewritten from what a client holds, which would drop a field it does not
+  carry. Signing in again (`Bus.claim`) takes `nick#id` (the nick case-insensitive) and the password and gives
+  that device back, updating its `login` and `kind`; a device with no password can only be taken back by the
+  GitHub login in its device file, which is then asked to set one. Everyone with access to the repository can
+  read the hashes, hence the slow hash; and like the group rules, these checks are kept by the clients.
 - **message file name**: `<UTC yyyymmddThhmmssmmmZ>-<sender id>-<6 random [a-z0-9]>.json`, so names sort by time.
 - **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, system? }`.
   Images and videos sent from the apps carry their MIME `type`, pixel size `w`×`h` and `thumb`, a data URL

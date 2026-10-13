@@ -8,6 +8,7 @@
  * Repository layout (protocol 1, see docs/PROTOCOL.md):
  *   opencommunicate.json                 { protocol, name, createdAt }
  *   devices/<id>.json                    { id, nick, kind, login, joinedAt, notify?, quiet?, picture? }
+ *   auth/<id>.json                       { alg, iter, salt, hash } — the device's password, see hashPassword
  *   pictures/<id>-<rand>.<ext>           profile photos, 50 KB at most
  *   channels/all/<message>.json          everyone; also system notices (join, group created)
  *   channels/dm-<a>-<b>/<message>.json   two devices, ids sorted
@@ -150,6 +151,42 @@ export function fromBase64(b64: string): Uint8Array {
   const out = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
   return out;
+}
+
+// ---------- passwords ----------
+/**
+ * A device's password, stored hashed in auth/<id>.json, apart from devices/<id>.json: device objects travel in join
+ * notices and get rewritten from what a client holds, which would drop a field it does not carry. Everyone with
+ * access to the repository can read the record, so the hash is slow (PBKDF2, 600 000 rounds) and salted.
+ */
+export type PasswordRecord = { alg: "PBKDF2-SHA256"; iter: number; salt: string; hash: string };
+export const PASSWORD_MIN = 6;
+const ITER = 600_000;
+
+async function pbkdf2(password: string, salt: Uint8Array, iter: number): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: salt as BufferSource, iterations: iter }, key, 256));
+}
+
+export async function hashPassword(password: string, salt = crypto.getRandomValues(new Uint8Array(16))): Promise<PasswordRecord> {
+  return { alg: "PBKDF2-SHA256", iter: ITER, salt: toBase64(salt), hash: toBase64(await pbkdf2(password, salt, ITER)) };
+}
+
+/** Whether `password` matches `record`; the derived bytes are compared in constant time. */
+export async function verifyPassword(password: string, record: PasswordRecord): Promise<boolean> {
+  if (record?.alg !== "PBKDF2-SHA256" || !(record.iter > 0)) return false;
+  const want = fromBase64(record.hash);
+  const got = await pbkdf2(password, fromBase64(record.salt), record.iter);
+  let diff = want.length ^ got.length;
+  for (let i = 0; i < got.length; i++) diff |= got[i] ^ (want[i] ?? 0);
+  return diff === 0;
+}
+
+/** Why a claim failed: `format` (not nick#1234), `unknown` (no such device, or another nick), `password` (wrong),
+ *  `login` (the device has no password and the GitHub account is not its own). */
+export class ClaimError extends Error {
+  reason: "format" | "unknown" | "password" | "login";
+  constructor(reason: ClaimError["reason"], message: string) { super(message); this.reason = reason; }
 }
 
 type Fetch = typeof fetch;
@@ -295,7 +332,24 @@ export class Bus {
     return true;
   }
 
+  /** A JSON file as of `at` (the branch head by default), or null when there is none. */
+  private async readJson<T>(path: string, at?: string | null): Promise<T | null> {
+    const ref = at ?? (await this.head());
+    if (!ref) return null;
+    try {
+      const { data } = await this.gh(this.r(`/contents/${path}?ref=${ref}`));
+      return JSON.parse(dec.decode(fromBase64(data.content)));
+    } catch (e) {
+      if (e instanceof GitHubError && e.status === 404) return null;
+      throw e;
+    }
+  }
+
   // ---------- directory ----------
+  async device(id: string): Promise<Device | null> {
+    return /^\d{4}$/.test(id) ? this.readJson<Device>(`devices/${id}.json`) : null;
+  }
+
   async devices(at?: string): Promise<Device[]> {
     const head = at ?? (await this.head());
     if (!head) return [];
@@ -319,6 +373,42 @@ export class Bus {
     const msg = this.newMessage("all", device, `${handle(device)} joined`, { system: { type: "join", device } });
     await this.commit({ [`devices/${id}.json`]: JSON.stringify(device, null, 2) + "\n", [msgPath(msg)]: JSON.stringify(msg) }, `join: ${handle(device)}`);
     return device;
+  }
+
+  async passwordRecord(id: string): Promise<PasswordRecord | null> {
+    return /^\d{4}$/.test(id) ? this.readJson<PasswordRecord>(`auth/${id}.json`) : null;
+  }
+
+  /** Sets a device's password: one commit of auth/<id>.json; devices/<id>.json is left as it is. */
+  async setPassword(device: Pick<Device, "id" | "nick">, password: string): Promise<PasswordRecord> {
+    if (password.length < PASSWORD_MIN) throw new Error(`A password needs at least ${PASSWORD_MIN} characters.`);
+    const record = await hashPassword(password);
+    await this.commit({ [`auth/${device.id}.json`]: JSON.stringify(record, null, 2) + "\n" }, `password: ${handle(device)}`);
+    return record;
+  }
+
+  /**
+   * Signs in as an existing device: `handle` is nick#id (the nick case-insensitive). With a password on record it
+   * must match; a device without one can be taken back only by its own GitHub `login`, and `needsPassword` then
+   * says to set one. Records the new `login` and `kind` when they changed. These checks are kept by the clients:
+   * whoever can write to the repository could still edit auth/ by hand.
+   */
+  async claim(o: { handle: string; password: string; login: string; kind: Kind }): Promise<{ device: Device; needsPassword: boolean }> {
+    const m = o.handle.trim().replace(/^@/, "").match(/^(.+?)\s*#\s*(\d{4})$/);
+    if (!m) throw new ClaimError("format", "Write the handle as nick#1234.");
+    const [device, record] = await Promise.all([this.device(m[2]), this.passwordRecord(m[2])]);
+    if (!device || device.nick.toLowerCase() !== m[1].trim().toLowerCase()) throw new ClaimError("unknown", `No device ${m[1].trim()}#${m[2]}.`);
+    if (record) {
+      if (!(await verifyPassword(o.password, record))) throw new ClaimError("password", "Wrong password.");
+    } else if (!device.login || device.login.toLowerCase() !== o.login.toLowerCase()) {
+      throw new ClaimError("login", `${handle(device)} has no password yet; only its own GitHub account can sign in to it.`);
+    }
+    let out = device;
+    if (device.login !== o.login || device.kind !== o.kind) {
+      out = { ...device, login: o.login, kind: o.kind };
+      await this.updateDevice(out);
+    }
+    return { device: out, needsPassword: !record };
   }
 
   async updateDevice(device: Device): Promise<void> {
@@ -399,14 +489,9 @@ export class Bus {
 
   /** A group as of a commit (the branch head by default). */
   async group(channel: string, at?: string | null): Promise<Group> {
-    const ref = at ?? (await this.head());
-    try {
-      const { data } = await this.gh(this.r(`/contents/channels/${channel}/meta.json${ref ? `?ref=${ref}` : ""}`));
-      return JSON.parse(dec.decode(fromBase64(data.content)));
-    } catch (e) {
-      if (e instanceof GitHubError && e.status === 404) throw new Error(`No group ${channel}.`);
-      throw e;
-    }
+    const g = await this.readJson<Group>(`channels/${channel}/meta.json`, at);
+    if (!g) throw new Error(`No group ${channel}.`);
+    return g;
   }
 
   /** Adds, removes, promotes, renames or leaves, with a notice in the group; see applyGroupChange for who may. */

@@ -5,7 +5,9 @@
 Chat between people and agents over one private GitHub repository. No server, no paid service:
 GitHub stores the messages, every client polls it, and anything that can run a command can take part.
 
-- **Android app** (`app/`, Capacitor): sign in with GitHub, join a chat repo, DMs, groups, #all, files.
+- **Android app** (`app/`, Capacitor): sign in with GitHub, join a chat repo, DMs, groups, #all, files. Each
+  person sets a password, so after Sign out (or on another device) `nick#id` and the password bring the same
+  account back instead of a new one.
 - **Web app** (`https://opencommunicate.vercel.app/app/`): the same app in any browser; on an iPhone, "Add to
   Home Screen" makes it an app (no App Store). Its GitHub sign-in goes through `site/api/github-login.js`, which
   forwards only the two device-flow calls for this app's OAuth client.

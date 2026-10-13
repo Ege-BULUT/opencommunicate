@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, PALETTES, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type Picture, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, PALETTES, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
-import { accountProblem, canSignIn, checkAccount, clearSession, desktopApp, finishSignIn, githubLogin, hosted, join, loadSession, native, saveSession, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, canSignIn, checkAccount, claim, clearSession, desktopApp, finishSignIn, githubLogin, hosted, join, loadSession, native, saveSession, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 
@@ -123,14 +123,14 @@ function NextSteps({ session, onContinue }: { session: Session; onContinue: () =
       {p === "ios" && !standalone && (
         <ol className="steps">
           <li>Safari'de alttaki <b>Paylaş</b> düğmesine (kareden çıkan ok) bas, <b>Ana Ekrana Ekle</b>'yi seç. OpenCommunicate ana ekranında uygulama gibi açılır.</li>
-          <li>Ana ekrandaki simgeden açınca bir kez daha <b>GitHub ile giriş yap</b>; sohbet hazır gelir.</li>
+          <li>Ana ekrandaki simgeden açınca bir kez daha <b>GitHub ile giriş yap</b>, sonra <b>Hesabım var</b> ile <b>{handle(session.device)}</b> ve şifrenle gir.</li>
           <li>Uygulama kapalıyken bildirim için ücretsiz <a href={NTFY_IOS} target="_blank" rel="noreferrer">ntfy</a> uygulamasını kur, sonra OpenCommunicate'te Ayarlar → <b>Bildirim konusu oluştur</b>.</li>
         </ol>
       )}
       {p === "android" && (
         <ol className="steps">
           <li><a href={SITE} target="_blank" rel="noreferrer">Android uygulamasını indir</a> ve kur (Android "bilinmeyen kaynak" izni isterse ver).</li>
-          <li>Kurduktan sonra: <a href={`opencommunicate://join?repo=${encodeURIComponent(session.repo)}`}>Uygulamada aç</a>. GitHub ile giriş yapınca sohbet hazır gelir.</li>
+          <li>Kurduktan sonra: <a href={`opencommunicate://join?repo=${encodeURIComponent(session.repo)}`}>Uygulamada aç</a>. GitHub ile giriş yap, sonra <b>Hesabım var</b> ile <b>{handle(session.device)}</b> ve şifrenle gir.</li>
         </ol>
       )}
       {p === "desktop" && <p>İstersen <a href={SITE} target="_blank" rel="noreferrer">Mac ya da Windows uygulamasını indir</a>; ya da bu tarayıcıda devam et.</p>}
@@ -221,6 +221,45 @@ function GitHubSignIn({ label, primary = true, onToken }: { label: string; prima
   </>;
 }
 
+/** A new password twice, and the current one first when `current` is a record; `onSave` stores the new one. */
+function PasswordForm({ current, label, onSave }: { current?: PasswordRecord | null; label: string; onSave: (password: string) => Promise<void> }) {
+  const [old, setOld] = useState("");
+  const [pw, setPw] = useState("");
+  const [again, setAgain] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const save = async () => {
+    setBusy(true); setError(""); setDone(false);
+    try {
+      if (current && !(await verifyPassword(old, current))) throw new Error("Mevcut şifre hatalı.");
+      await onSave(pw);
+      setOld(""); setPw(""); setAgain(""); setDone(true);
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  return <>
+    {current && <label>Mevcut şifre<input type="password" autoComplete="current-password" value={old} onChange={(e) => setOld(e.target.value)} /></label>}
+    <label>{current ? "Yeni şifre" : "Şifre"}<input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+    <label>{current ? "Yeni şifre (tekrar)" : "Şifre (tekrar)"}<input type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></label>
+    {pw && pw.length < PASSWORD_MIN && <p className="muted small">En az {PASSWORD_MIN} karakter.</p>}
+    {again && again !== pw && <p className="error small">Şifreler aynı değil.</p>}
+    <div className="actions start">
+      <button className="primary" disabled={busy || pw.length < PASSWORD_MIN || pw !== again || (!!current && !old)} onClick={save}>{busy ? "Kaydediliyor…" : label}</button>
+    </div>
+    {done && <p className="small">Şifre kaydedildi.</p>}
+    {error && <p className="error small">{error}</p>}
+  </>;
+}
+
+/** A failed claim in words; wrong handle and wrong password read the same. */
+function claimProblem(e: unknown, repo: string): string {
+  if (e instanceof ClaimError) return e.reason === "format" ? "Hesabı ad#1234 biçiminde yazın."
+    : e.reason === "login" ? "Bu hesabın henüz şifresi yok; ilk girişi, hesabı açan GitHub hesabıyla yapılmalı."
+    : "Hesap adı ya da şifre hatalı.";
+  return accountProblem(e, repo) ?? (e as Error).message;
+}
+
 // ---------------- sign-in + join (phone) ----------------
 function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session) => void }) {
   const invite = arrival.invite;
@@ -228,9 +267,13 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
   const [login, setLogin] = useState("");
   const [repo, setRepo] = useState(invite?.r ?? arrival.repo ?? "");
   const [nick, setNick] = useState("");
+  // an invited person is new to the chat, so "Yeni hesap" comes first for them; everyone else most likely returns
+  const [mode, setMode] = useState<"have" | "new">(invite ? "new" : "have");
+  const [account, setAccount] = useState("");
+  const [password, setPasswordText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [stage, setStage] = useState<"signin" | "admit" | "join" | "next">("signin");
+  const [stage, setStage] = useState<"signin" | "admit" | "join" | "password" | "next">("signin");
   const [note, setNote] = useState("");
   const [joined, setJoined] = useState<Session | null>(null);
 
@@ -276,17 +319,28 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
     setStage(invite ? "admit" : "join");
   };
 
+  const finish = (s: Session) => {
+    // on the web the next step depends on the device: install the app, or add this page to the home screen
+    if (hosted()) {
+      history.replaceState(null, "", `${location.pathname}?repo=${encodeURIComponent(s.repo)}`);
+      setJoined(s); setStage("next");
+    } else onDone(s);
+  };
+
   const doJoin = async () => {
     setError(""); setBusy(true);
-    try {
-      const s = await join(token, repo.trim(), nick.trim());
-      // on the web the next step depends on the device: install the app, or add this page to the home screen
-      if (hosted()) {
-        history.replaceState(null, "", `${location.pathname}?repo=${encodeURIComponent(s.repo)}`);
-        setJoined(s); setStage("next");
-      } else onDone(s);
-    }
+    try { setJoined(await join(token, repo.trim(), nick.trim())); setStage("password"); }
     catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const doClaim = async () => {
+    setError(""); setBusy(true);
+    try {
+      const { session: s, needsPassword } = await claim(token, repo.trim(), account, password);
+      if (needsPassword) { setJoined(s); setStage("password"); } else finish(s);
+    }
+    catch (e) { setError(claimProblem(e, repo.trim())); }
     finally { setBusy(false); }
   };
 
@@ -312,11 +366,27 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
       )}
       {stage === "join" && (
         <>
-          <p>Giriş yapıldı: <b>{login}</b>. {invite ? "Sohbete eklendin. Bir takma ad seç:" : "Hangi sohbete katılıyorsunuz?"}</p>
+          <p>Giriş yapıldı: <b>{login}</b>. {invite ? "Sohbete eklendin." : "Hangi sohbete katılıyorsunuz?"}</p>
+          <div className="actions start" role="radiogroup" aria-label="Hesap">
+            <button role="radio" aria-checked={mode === "have"} className={mode === "have" ? "primary" : "ghost"} onClick={() => { setMode("have"); setError(""); }}>Hesabım var</button>
+            <button role="radio" aria-checked={mode === "new"} className={mode === "new" ? "primary" : "ghost"} onClick={() => { setMode("new"); setError(""); }}>Yeni hesap</button>
+          </div>
           {!invite && <label>Sohbet reposu<input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="sahip/repo" /></label>}
-          <label>Takma ad<input value={nick} maxLength={24} onChange={(e) => setNick(e.target.value)} /></label>
-          <p className="muted">{invite ? "" : "Repo yoksa private olarak oluşturulur. "}Size ad#1234 biçiminde bir kimlik verilir.</p>
-          <button className="primary" disabled={busy || !repo.includes("/") || !nick.trim()} onClick={doJoin}>{busy ? "Bağlanıyor…" : "Katıl"}</button>
+          {mode === "have" ? <>
+            <label>Hesap (ad#1234)<input value={account} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="ad#1234" onChange={(e) => setAccount(e.target.value)} /></label>
+            <label>Şifre<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPasswordText(e.target.value)} /></label>
+            <button className="primary" disabled={busy || !repo.includes("/") || !account.includes("#")} onClick={doClaim}>{busy ? "Bağlanıyor…" : "Giriş yap"}</button>
+          </> : <>
+            <label>Takma ad<input value={nick} maxLength={24} onChange={(e) => setNick(e.target.value)} /></label>
+            <p className="muted">{invite ? "" : "Repo yoksa private olarak oluşturulur. "}Size ad#1234 biçiminde bir kimlik verilir, sonra bir şifre belirlersiniz.</p>
+            <button className="primary" disabled={busy || !repo.includes("/") || !nick.trim()} onClick={doJoin}>{busy ? "Bağlanıyor…" : "Katıl"}</button>
+          </>}
+        </>
+      )}
+      {stage === "password" && joined && (
+        <>
+          <p>Hesabın: <b>{handle(joined.device)}</b>. Bir şifre belirle; çıkış yapınca ya da başka bir cihazdan bu hesapla <b>{handle(joined.device)}</b> ve şifreyle girersin.</p>
+          <PasswordForm label="Şifreyi kaydet" onSave={async (pw) => { await setPassword(joined, pw); finish(joined); }} />
         </>
       )}
       {error && <p className="error">{error}</p>}
@@ -1106,6 +1176,11 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
     if (me.login !== l) await new Bus({ repo: session.repo, token }).updateDevice(device);
     onSession({ ...session, token, device });
   };
+  // the password on record: undefined while it loads; signing in again takes nick#id and this password
+  const [record, setRecord] = useState<PasswordRecord | null | undefined>(undefined);
+  const [recordError, setRecordError] = useState("");
+  useEffect(() => { bus.passwordRecord(me.id).then(setRecord, (e) => setRecordError(`Şifre bilgisi okunamadı: ${(e as Error).message}`)); }, [bus, me.id]);
+  const [leaving, setLeaving] = useState(false);
   const [picture, setPicture] = useState<Picture | null | undefined>(undefined); // undefined: unchanged
   const [photo, setPhoto] = useState<{ data: Uint8Array; ext: string; url: string } | null>(null);
   const [picError, setPicError] = useState("");
@@ -1171,11 +1246,25 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         {session.source === "app" ? (
           <div className="actions start">
             <GitHubSignIn label={trouble ? "Yeniden giriş yap" : "Farklı hesapla giriş yap"} primary={!!trouble} onToken={adoptToken} />
-            <button className="ghost danger" onClick={onSignOut}>Çıkış yap</button>
+            {!leaving && <button className="ghost danger" onClick={() => setLeaving(true)}>Çıkış yap</button>}
           </div>
         ) : (
           <p className="muted small">Masaüstünde hesap komut satırından yönetilir: <code>gh auth login</code> (ya da <code>OPENCOM_TOKEN</code>), sonra <code>opencom ui</code>'yi yeniden açın.</p>
         )}
+        {leaving && (
+          <div className="alert" role="alert">
+            <span>Bu cihazda yeniden girmek için hesabın <b>{handle(me)}</b> ve şifren gerekecek.{record === null && " Henüz şifren yok: önce aşağıdan bir şifre belirle; yoksa yalnızca bu GitHub hesabıyla geri dönebilirsin."}</span>
+            <span className="actions start">
+              <button className="ghost danger" onClick={onSignOut}>Çıkış yap</button>
+              <button className="ghost" onClick={() => setLeaving(false)}>Vazgeç</button>
+            </span>
+          </div>
+        )}
+        <h3>{record ? "Şifreyi değiştir" : "Şifre"}</h3>
+        <p className="muted small">Çıkış yaptıktan sonra ya da başka bir cihazdan GitHub ile girip <b>Hesabım var</b> deyin, <b>{handle(me)}</b> ve bu şifreyi yazın.</p>
+        {recordError ? <p className="error small">{recordError}</p>
+          : record === undefined ? <p className="muted small">Kontrol ediliyor…</p>
+          : <PasswordForm current={record} label={record ? "Şifreyi değiştir" : "Şifreyi kaydet"} onSave={async (pw) => setRecord(await bus.setPassword(me, pw))} />}
         <h3>Medya</h3>
         <p className="small">İndirilen görseller ve videolar: <b>Cihaza kaydet</b> onları bu cihazda saklar, sonra internetsiz de açılır. <b>GitHub'dan aktar</b> her açılışta GitHub'dan getirir, cihazda yer kaplamaz.</p>
         {(["image", "video"] as const).map((k) => (
