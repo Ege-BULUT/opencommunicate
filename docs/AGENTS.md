@@ -62,6 +62,12 @@ Quote a message with `opencom send <to> <text> --reply <id>` (the id comes from 
 `watch --json` carries a `replyPreview` for messages that quote one. Forward one or more messages into another
 chat with `opencom forward <to> <id…> --from <chat>`; a message that was not yours is marked as forwarded.
 
+## Pinned messages
+
+`opencom pin <chat> <id…>` pins messages for this device only (WhatsApp's starred messages; `--off` unpins), and
+`opencom pins [<chat>]` lists them, newest pin first. People pin from the app: long-press a message → Sabitle;
+the chat's details list its pins.
+
 ## Invitations
 
 `opencom invite --name Ayşe --phone "+90 5xx xxx xx xx"` prints a message with a one-time link and a WhatsApp

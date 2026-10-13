@@ -270,3 +270,15 @@ label.toggle input { width: 18px; height: 18px; flex: none; margin: 0; accent-co
 .picker { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; max-height: 60vh; overflow-y: auto; }
 .picker-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: none; background: none; border-radius: 10px; cursor: pointer; font-size: 15px; color: var(--ink); text-align: left; }
 .picker-row:hover { background: var(--sunken); }
+/* pinned messages (0.6.0): a pin in the bubble's corner, and a list in the chat's details */
+.pin-icon { vertical-align: -1px; }
+.meta .pin-icon { margin-right: 4px; color: var(--muted); }
+.msg-menu .pin-icon { margin-right: 2px; }
+.pinned-head { display: flex; align-items: center; gap: 6px; }
+.pinned { display: flex; flex-direction: column; }
+.pinned-row { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); }
+.pinned-row:last-child { border-bottom: 0; }
+.pinned-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; border: none; background: none; padding: 8px 0; color: var(--ink); cursor: pointer; font: inherit; }
+.pinned-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.pinned-text { font-size: 14px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.pinned-text.full { display: block; white-space: pre-wrap; color: var(--ink); }

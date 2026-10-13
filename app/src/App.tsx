@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, PALETTES, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, PALETTES, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -414,6 +414,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [account, setAccount] = useState<string | null>(null); // a GitHub problem only the person can fix
   const [read, setRead] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(READ_KEY) ?? "{}"); } catch { return {}; } });
   const [receipts, setReceipts] = useState<Receipts>({});
+  const [pins, setPins] = useState<Pin[]>([]); // this device's pinned messages, newest first
   const [showRead, setShowRead] = useState(readReceiptsOn);
   const showReadRef = useRef(showRead);
   showReadRef.current = showRead;
@@ -489,6 +490,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           setMessages(hist);
           delivered(Object.values(hist).flat());
           watcher.tickReceipts().then(() => setReceipts(watcher.receipts)).catch(() => {});
+          bus.pins(session.device.id).then(setPins).catch(() => {});
           setStatus(""); setAccount(null);
           bus.presence().then(setPresence).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
@@ -603,6 +605,15 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     const el = document.getElementById(`m-${id}`);
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); }
   }, []);
+  const pinKey = (m: Pick<Pin, "channel" | "id">) => `${m.channel}/${m.id}`;
+  const pinned = useMemo(() => new Set(pins.map(pinKey)), [pins]);
+  // shown at once, then replaced by what the pins branch holds; a failed write puts the old list back
+  const pin = async (msgs: Pick<Message, "channel" | "id">[], on: boolean) => {
+    const before = pins;
+    setPins(on ? [...msgs.filter((m) => !pinned.has(pinKey(m))).map((m) => ({ channel: m.channel, id: m.id, at: new Date().toISOString() })), ...pins] : pins.filter((p) => !msgs.some((m) => pinKey(m) === pinKey(p))));
+    try { setPins(await bus.setPins(me, msgs, on)); }
+    catch (e) { setPins(before); setToast(`${on ? "Sabitlenemedi" : "Sabitleme kaldırılamadı"}: ${(e as Error).message}`); setTimeout(() => setToast(""), 6000); }
+  };
   const last = (ch: string) => messages[ch]?.at(-1);
   const recent = (a: string, b: string) => (last(b)?.id ?? "").localeCompare(last(a)?.id ?? "");
   const shown = (label: string) => label.toLocaleLowerCase("tr-TR").includes(filter.trim().toLocaleLowerCase("tr-TR"));
@@ -698,13 +709,20 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === "Yükleniyor…"}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
-          quoted={byId} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
+          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
           selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} />
         {selected !== null
           ? <div className="select-bar">
               <button className="ghost" onClick={() => setSelected(null)}>Vazgeç</button>
               <span className="muted">{selected.size} seçildi</span>
-              <button className="primary" disabled={!selected.size} onClick={() => { const msgs = (messages[active] ?? []).filter((m) => selected.has(m.id) && !m.pending && !m.failed && !m.system); if (msgs.length) setForwarding(msgs); }}>İlet</button>
+              {(() => {
+                const msgs = (messages[active] ?? []).filter((m) => selected.has(m.id) && !m.pending && !m.failed && !m.system);
+                const all = msgs.length > 0 && msgs.every((m) => pinned.has(pinKey(m)));
+                return <span className="actions">
+                  <button className="ghost" disabled={!msgs.length} onClick={() => { pin(msgs, !all); setSelected(null); }}>{all ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
+                  <button className="primary" disabled={!msgs.length} onClick={() => setForwarding(msgs)}>İlet</button>
+                </span>;
+              })()}
             </div>
           : <Composer onSend={send} reply={reply} onCancelReply={() => setReply(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />}
       </main>
@@ -715,9 +733,12 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         await watcher.refresh();
       }} />}
       {dialog === "channel" && <ChannelDialog key={active} channel={active} title={title} group={activeGroup} me={me} devices={devices} quiet={quiet(active)}
+        pins={pins.filter((p) => p.channel === active)} loaded={byId} bus={bus} onUnpin={(m) => pin([m], false)}
+        onOpen={(id) => { setDialog(null); setTimeout(() => jumpTo(id), 60); }}
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
       {dialog === "invite" && <InviteDialog bus={bus} me={me} admin={admin} onClose={() => setDialog(null)} />}
       {menu && <MessageMenu m={menu.m} x={menu.x} y={menu.y} mine={menu.m.from === me.id}
+        pinned={pinned.has(pinKey(menu.m))} onPin={() => { pin([menu.m], !pinned.has(pinKey(menu.m))); setMenu(null); }}
         onReply={() => { setReply(menu.m); setMenu(null); }}
         onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }}
         onForward={() => { setForwarding([menu.m]); setMenu(null); }}
@@ -769,6 +790,7 @@ const Gear = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" s
 const PersonPlus = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6" /></svg>;
 const Info = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>;
 const Clip = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.5 12.5 21a6 6 0 0 1-8.5-8.5L13 3.5a4 4 0 0 1 5.7 5.7L9.7 18.2a2 2 0 0 1-2.8-2.8L15 7.3" /></svg>;
+const PinIcon = ({ size = 12 }: { size?: number }) => <svg className="pin-icon" viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true"><path d="M15.5 2.5 21.5 8.5l-1.4 1.4-1.1-.4-3.6 3.6.3 3.9-1.4 1.4-4.2-4.2-5.4 5.4H3v-1.3l5.4-5.4-4.2-4.2 1.4-1.4 3.9.3 3.6-3.6-.4-1.1z" /></svg>;
 const Plane = () => <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6v6.4l12 2-12 2z" /></svg>;
 
 /** Today: the time; earlier: the day. */
@@ -858,18 +880,19 @@ function Swipeable({ className, children, onSwipe, onHold }: { className: string
   );
 }
 
-/** The menu a long-press or right-click opens on a message: reply, copy (and, from 0.5.2, forward). */
-function MessageMenu({ m, x, y, mine, onReply, onCopy, onClose, onForward, onSelect }: { m: Message; x: number; y: number; mine: boolean; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void }) {
+/** The menu a long-press or right-click opens on a message: reply, forward, pin, select, copy. */
+function MessageMenu({ m, x, y, mine, pinned, onPin, onReply, onCopy, onClose, onForward, onSelect }: { m: Message; x: number; y: number; mine: boolean; pinned: boolean; onPin: () => void; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void }) {
   useEffect(() => {
     const close = () => onClose();
     document.addEventListener("click", close); document.addEventListener("keydown", close); document.addEventListener("scroll", close, true);
     return () => { document.removeEventListener("click", close); document.removeEventListener("keydown", close); document.removeEventListener("scroll", close, true); };
   }, [onClose]);
-  const style: CSSProperties = { left: Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 400) - 180), top: Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 600) - 150) };
+  const style: CSSProperties = { left: Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 400) - 180), top: Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 600) - 200) };
   return (
     <div className="msg-menu" style={style} role="menu" onClick={(e) => e.stopPropagation()}>
       <button role="menuitem" onClick={onReply}>↩ Alıntıla</button>
       {onForward && <button role="menuitem" onClick={onForward}>↪ İlet</button>}
+      <button role="menuitem" onClick={onPin}><PinIcon size={13} /> {pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
       {onSelect && <button role="menuitem" onClick={onSelect}>☑ Seç</button>}
       {m.text && <button role="menuitem" onClick={onCopy}>⧉ Kopyala</button>}
     </div>
@@ -886,7 +909,7 @@ function TickMark({ state }: { state: Ticks }) {
   );
 }
 
-function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, onReply, onJump, onMenu, selecting, selected, onToggle }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void }) {
+function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, onReply, onJump, onMenu, selecting, selected, onToggle }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
   if (!list.length) return <div className="messages empty muted">{loading ? "Mesajlar yükleniyor…" : "Henüz mesaj yok. İlk mesajı siz yazın."}</div>;
@@ -919,7 +942,7 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? "Siz" : q.fromNick}</span><span className="quote-text">{snippet(q, 90)}</span></> : <span className="quote-text muted">mesaj</span>}</button>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
-              <div className="meta">{m.failed ? "gönderilemedi" : m.pending ? "gönderiliyor…" : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
+              <div className="meta">{isPinned(m) && <span title="Sabitlendi"><PinIcon /></span>}{m.failed ? "gönderilemedi" : m.pending ? "gönderiliyor…" : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
             </Swipeable>
             </div>
           </div>
@@ -1024,8 +1047,9 @@ function Composer({ onSend, people, reply, onCancelReply }: { onSend: (text: str
 
 const QUIET_FOR: [string, number | null][] = [["Süresiz", null], ["1 saat", 3600e3], ["8 saat", 8 * 3600e3], ["1 hafta", 7 * 86400e3]];
 
-function ChannelDialog({ channel, title, group, me, devices, quiet, onQuiet, onChange, onClose }: {
+function ChannelDialog({ channel, title, group, me, devices, quiet, pins, loaded, bus, onUnpin, onOpen, onQuiet, onChange, onClose }: {
   channel: string; title: string; group?: Group; me: Device; devices: Device[]; quiet: Quiet | null;
+  pins: Pin[]; loaded: (id: string) => Message | undefined; bus: Bus; onUnpin: (m: Pick<Message, "channel" | "id">) => void; onOpen: (id: string) => void;
   onQuiet: (q: Quiet | null) => Promise<void>; onChange: (c: GroupChange) => Promise<void>; onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -1047,6 +1071,8 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, onQuiet, onC
   return (
     <Sheet title={title} className="channel-card" onClose={onClose}>
         {group && <p className="muted small">{group.members.length} üye · {admin ? "Bu grubun yöneticisisiniz." : "Üyeleri yalnız yöneticiler değiştirebilir."}</p>}
+
+        <Pinned pins={pins} loaded={loaded} bus={bus} me={me} onUnpin={onUnpin} onOpen={onOpen} />
 
         <h3>Bildirimler</h3>
         <div className="seg" role="radiogroup" aria-label="Bildirimler">
@@ -1111,6 +1137,42 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, onQuiet, onC
         <div className="actions"><button className="ghost" onClick={onClose}>Kapat</button></div>
     </Sheet>
   );
+}
+
+/**
+ * A chat's pinned messages in its details, newest pin first, as WhatsApp lists starred ones. A message still in
+ * the loaded history opens there; an older one is fetched and opens in place, in full.
+ */
+function Pinned({ pins, loaded, bus, me, onUnpin, onOpen }: { pins: Pin[]; loaded: (id: string) => Message | undefined; bus: Bus; me: Device; onUnpin: (m: Pick<Message, "channel" | "id">) => void; onOpen: (id: string) => void }) {
+  const [fetched, setFetched] = useState<Record<string, Message | null>>({});
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => {
+    for (const p of pins) {
+      if (loaded(p.id) || p.id in fetched) continue;
+      bus.message(p.channel, p.id).then((m) => setFetched((f) => ({ ...f, [p.id]: m })), () => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pins]);
+  return <>
+    <h3 className="pinned-head"><PinIcon size={14} /> Sabitlenmiş mesajlar{pins.length ? ` · ${pins.length}` : ""}</h3>
+    {!pins.length && <p className="muted small">Bir mesaja uzun basıp <b>Sabitle</b>'ye dokun; burada listelenir. Sabitlediklerini yalnız sen görürsün.</p>}
+    <div className="pinned">
+      {pins.map((p) => {
+        const here = loaded(p.id);
+        const m = here ?? fetched[p.id];
+        const full = open === p.id;
+        return (
+          <div key={p.id} className="pinned-row">
+            <button className="pinned-body" onClick={() => (here ? onOpen(p.id) : setOpen(full ? null : p.id))} disabled={!m}>
+              <span className="pinned-top"><b>{!m ? "" : m.from === me.id ? "Siz" : m.forwarded ? "iletildi" : `${m.fromNick}#${m.from}`}</b>{m && <span className="muted">{when(m.ts)}</span>}</span>
+              <span className={`pinned-text ${full ? "full" : ""}`}>{m === undefined ? "Yükleniyor…" : m === null ? "Bu mesaj artık yok." : full ? m.text || snippet(m) : snippet(m, 160)}</span>
+            </button>
+            <button className="mini" onClick={() => onUnpin(p)} title="Sabitlemeyi kaldır" aria-label="Sabitlemeyi kaldır">×</button>
+          </div>
+        );
+      })}
+    </div>
+  </>;
 }
 
 /** Pick a chat to forward the selected messages into: #all, a group, or a person/agent. */

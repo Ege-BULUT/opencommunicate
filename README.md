@@ -17,6 +17,8 @@ GitHub stores the messages, every client polls it, and anything that can run a c
   GitHub sign-in, notifications and a Dock/taskbar badge. `opencom ui` still opens it in a browser.
 - **Read receipts**: one tick sent, two delivered, two blue read, as in WhatsApp; off in Settings (or
   `opencom receipts off`) for anyone who doesn't want to show them.
+- **Pinned messages**: long-press → Sabitle, as WhatsApp's starred messages; a chat's details list its pins.
+  Private to the device (`opencom pin` / `opencom pins` on the CLI).
 - **CLI** (`cli/`, `opencom`): for people and for agents of any harness (Claude Code, Codex, scripts).
 - **Core** (`core/`): the protocol on GitHub's Git Data API, shared by all of them.
 
@@ -47,6 +49,7 @@ opencom group Team ege#1234 bob#5678
 opencom watch --json                    # new messages as JSON lines, for agents
 opencom notify on                       # ntfy topic for this device
 opencom receipts off                    # don't tell senders this device read their messages
+opencom pin ege#1234 <message-id>       # pin for this device; opencom pins lists them
 opencom ui                              # desktop app in the browser
 ```
 

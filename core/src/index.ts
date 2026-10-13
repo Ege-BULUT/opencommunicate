@@ -16,6 +16,7 @@
  *   channels/<ch>/files/<message id>-<name>   attachments
  *   branch "presence": presence/<id>.json   { id, lastSeen } — rewritten, never grows main's history
  *   branch "receipts": receipts/<id>.json   { id, channels: { <ch>: { delivered?, read? } } } — see Receipt
+ *   branch "pins": pins/<id>.json           { id, pins: [{ channel, id, at }] }, see Pin
  */
 
 import { paletteFor as defaultPalette } from "./art.ts";
@@ -48,6 +49,11 @@ export const PHOTO_MAX = 50 * 1024;
  */
 export type Receipt = { delivered?: string; read?: string };
 export type Receipts = Record<string, Record<string, Receipt>>; // device id -> channel -> receipt
+/**
+ * A message a device pinned (WhatsApp's starred messages): `id` in `channel`, pinned at `at`. Pins are private to
+ * the device that made them, kept in pins/<id>.json on the "pins" branch like receipts, newest first.
+ */
+export type Pin = { channel: string; id: string; at: string };
 /** WhatsApp's ticks for one of my messages: sent (one), delivered to everyone (two), read by everyone (two blue). */
 export type Ticks = "sent" | "delivered" | "read";
 export type Message = {
@@ -623,6 +629,42 @@ export class Bus {
       }, `receipts: ${handle(me)}`, { branch: "receipts" });
     } catch (e) { if (!(e instanceof Unchanged)) throw e; }
     return changed;
+  }
+
+  /** A device's pins, newest first, as of the "pins" branch head (or `at`). */
+  async pins(me: string, at?: string | null): Promise<Pin[]> {
+    const head = at ?? (await this.head("pins"));
+    if (!head) return [];
+    const entry = (await this.tree(head)).find((e) => e.path === `pins/${me}.json`);
+    return entry ? (await this.json<{ pins?: Pin[] }>(entry.sha)).pins ?? [] : [];
+  }
+
+  /**
+   * Pins (`on`) or unpins messages for this device, one commit; read from the head each try is built on, so a pin
+   * made meanwhile on another tab survives. Returns the pins after the change, and makes no commit when nothing
+   * would change (pinning a pinned message, unpinning one that is not).
+   */
+  async setPins(me: Pick<Device, "id" | "nick">, messages: Pick<Message, "channel" | "id">[], on: boolean): Promise<Pin[]> {
+    let result: Pin[] = [];
+    try {
+      await this.commit(async (parent) => {
+        const cur = parent ? await this.pins(me.id, parent) : [];
+        const key = (p: Pick<Pin, "channel" | "id">) => `${p.channel}/${p.id}`;
+        const want = new Set(messages.map(key));
+        const at = new Date().toISOString();
+        result = on
+          ? [...messages.filter((m, i) => !cur.some((p) => key(p) === key(m)) && messages.findIndex((x) => key(x) === key(m)) === i).map((m) => ({ channel: m.channel, id: m.id, at })), ...cur]
+          : cur.filter((p) => !want.has(key(p)));
+        if (result.length === cur.length) throw new Unchanged();
+        return { [`pins/${me.id}.json`]: JSON.stringify({ id: me.id, pins: result }) };
+      }, `pins: ${handle(me)}`, { branch: "pins" });
+    } catch (e) { if (!(e instanceof Unchanged)) throw e; }
+    return result;
+  }
+
+  /** One message by channel and id (a pinned one older than the loaded history), or null when it is gone. */
+  async message(channel: string, id: string): Promise<Message | null> {
+    return /^[a-z0-9-]+$/.test(channel) && /^[\w-]+$/.test(id) ? this.readJson<Message>(msgPath({ channel, id })) : null;
   }
 
   async presence(): Promise<Record<string, string>> {
