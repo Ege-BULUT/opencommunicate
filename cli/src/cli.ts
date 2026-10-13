@@ -26,6 +26,9 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom forward <to> <id…> --from <chat>
                                    forward one or more messages (by id, from --from's recent
                                    history) into another chat; someone else's is marked "forwarded"
+  opencom pin <chat> <id…> [--off] pin messages (by id, from the chat's recent history) for this device
+                                   only, like WhatsApp's starred messages (--off: unpin)
+  opencom pins [<chat>]            this device's pinned messages, newest pin first
   opencom watch [--json] [--interval 5]
                                    print new messages as they arrive (JSON lines with --json;
                                    "toMe" is true for DMs and for @nick, nick#1234 or @all)
@@ -266,6 +269,26 @@ async function main(argv: string[]) {
       const sent = await bus.forward(dest, me, pick);
       await Promise.all(sent.map((m) => notifyRecipients(m, me, devices, groups).catch(() => {})));
       console.log(`forwarded ${sent.length} to ${label(dest, me, devices, groups)}`);
+      return;
+    }
+    case "pin": {
+      const [to, ...ids] = rest;
+      if (!to || !ids.length) throw new Error("Usage: opencom pin <chat> <message-id…> [--off]");
+      const { devices, groups } = await load();
+      const channel = resolveTarget(to, me, devices, groups);
+      const hist = await bus.history(channel, 200);
+      const pick = ids.map((id) => { const m = hist.find((x) => x.id === id || x.id.endsWith(id)); if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`); return m; });
+      const pins = await bus.setPins(me, pick, !f.off);
+      console.log(`${f.off ? "unpinned" : "pinned"} ${pick.length} in ${label(channel, me, devices, groups)}; ${pins.length} pinned in all`);
+      return;
+    }
+    case "pins": {
+      const { devices, groups } = await load();
+      const only = rest[0] ? resolveTarget(rest[0], me, devices, groups) : null;
+      const pins = (await bus.pins(me.id)).filter((p) => !only || p.channel === only);
+      if (!pins.length) console.log("No pinned messages. Pin one: opencom pin <chat> <message-id>");
+      const found = await Promise.all(pins.map((p) => bus.message(p.channel, p.id)));
+      pins.forEach((p, i) => console.log(found[i] ? line(found[i], me, devices, groups) : `${label(p.channel, me, devices, groups)}  (deleted message ${p.id.slice(-6)})`));
       return;
     }
     case "watch": {
