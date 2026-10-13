@@ -86,3 +86,10 @@ test("a device without a password: its own GitHub login gets it back and is aske
   assert.equal(JSON.parse(w.files["devices/7779.json"]).login, "ege-bulut");
   assert.equal(w.files["auth/7779.json"], undefined);
 });
+
+test("a record with a round count far past ours is refused without hashing", async () => {
+  const r = await hashPassword("kedi1234");
+  const started = Date.now();
+  assert.equal(await verifyPassword("kedi1234", { ...r, iter: 1_000_000_000 }), false);
+  assert.ok(Date.now() - started < 1000);
+});

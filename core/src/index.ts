@@ -174,7 +174,8 @@ export async function hashPassword(password: string, salt = crypto.getRandomValu
 
 /** Whether `password` matches `record`; the derived bytes are compared in constant time. */
 export async function verifyPassword(password: string, record: PasswordRecord): Promise<boolean> {
-  if (record?.alg !== "PBKDF2-SHA256" || !(record.iter > 0)) return false;
+  // A record can be edited by hand in the repo; a huge round count would freeze whoever signs in.
+  if (record?.alg !== "PBKDF2-SHA256" || !(record.iter > 0) || record.iter > ITER * 4) return false;
   const want = fromBase64(record.hash);
   const got = await pbkdf2(password, fromBase64(record.salt), record.iter);
   let diff = want.length ^ got.length;
