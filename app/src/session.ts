@@ -1,6 +1,7 @@
 /* Where a session comes from: the desktop CLI (`opencom ui` hands this page its config once), or, on the
    phone, a GitHub device-flow sign-in followed by joining a bus repository. */
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Bus, GitHubError, type Device } from "../../core/src/index.ts";
 
 export type Session = { repo: string; token: string; device: Device; source: "desktop" | "app" };
@@ -18,20 +19,51 @@ export const hosted = () => !native() && !desktopApp() && location.protocol === 
 /** Can sign in to GitHub by itself: the phone app, the desktop app or the web app. */
 export const canSignIn = () => native() || !!desktopApp() || hosted();
 
+/* On the phone the session is also kept in a file in the app's own data folder. The WebView's
+   localStorage is not durable storage: Android can drop it, and so does anything that resets the
+   WebView's data, which signed the person out with no Sign out pressed. The file is what keeps a
+   sign-in until "Çıkış yap"; localStorage stays as the fast copy, and the only one on the web. */
+const FILE = "oc-session.json";
+const usable = (s: any): Session | null => (s?.token && s?.device ? s : null);
+const readStored = () => { try { return usable(JSON.parse(localStorage.getItem(KEY) ?? "null")); } catch { return null; } };
+const writeStored = (text: string) => { try { localStorage.setItem(KEY, text); } catch { /* private mode: the file still holds it */ } };
+// Writes and deletes run one after another, so a sign-out followed by a sign-in can't land out of order.
+let fileQueue: Promise<unknown> = Promise.resolve();
+const queued = (op: () => Promise<unknown>) => (fileQueue = fileQueue.then(op).catch(() => {}));
+const writeFile = (text: string) =>
+  queued(() => Filesystem.writeFile({ path: FILE, data: text, directory: Directory.Data, encoding: Encoding.UTF8 }));
+
+async function readFile(): Promise<Session | null> {
+  try {
+    const { data } = await Filesystem.readFile({ path: FILE, directory: Directory.Data, encoding: Encoding.UTF8 });
+    return usable(JSON.parse(typeof data === "string" ? data : await data.text()));
+  } catch { return null; }
+}
+
 export async function loadSession(): Promise<Session | null> {
   const k = new URLSearchParams(location.hash.slice(1)).get("k");
   if (k) {
     const res = await fetch(`/opencom-config.json?k=${encodeURIComponent(k)}`);
     if (res.ok) return { ...(await res.json()), source: "desktop" };
   }
-  try {
-    const s = JSON.parse(localStorage.getItem(KEY) ?? "null");
-    return s?.token && s?.device ? s : null;
-  } catch { return null; }
+  const stored = readStored();
+  if (!native()) return stored;
+  if (stored) { await writeFile(JSON.stringify(stored)); return stored; }   // also moves a session saved before 0.5.3
+  const kept = await readFile();
+  if (kept) writeStored(JSON.stringify(kept));
+  return kept;
 }
 
-export const saveSession = (s: Session) => { if (s.source === "app") localStorage.setItem(KEY, JSON.stringify(s)); };
-export const clearSession = () => localStorage.removeItem(KEY);
+export const saveSession = (s: Session) => {
+  if (s.source !== "app") return;
+  const text = JSON.stringify(s);
+  writeStored(text);
+  if (native()) void writeFile(text);
+};
+export const clearSession = () => {
+  try { localStorage.removeItem(KEY); } catch { /* nothing stored */ }
+  if (native()) void queued(() => Filesystem.deleteFile({ path: FILE, directory: Directory.Data }));
+};
 
 const form = (o: Record<string, string>) => new URLSearchParams(o).toString();
 
@@ -56,8 +88,16 @@ async function signInPost(url: string, body: Record<string, string>): Promise<an
 
 export type DeviceCode = { device_code: string; user_code: string; verification_uri: string; interval: number; expires_in: number };
 
+/* GitHub keeps at most ten tokens per user, app and scope set, and a new sign-in past that revokes the
+   least recently used one. The phone, the desktop app, the web app and WeTaskExporter all sign in to
+   this one OAuth app, and the phone, closed most of the day, is the least recently used: every sign-in
+   elsewhere could cost the phone its token, so it opened with a 401 asking to sign in again. Asking for
+   one more scope gives the phone a scope set of its own, so only phone sign-ins share its ten.
+   (docs.github.com, "Authorizing OAuth apps", creating multiple tokens for OAuth apps) */
+const SCOPE = native() ? "repo read:user" : "repo";
+
 export async function startSignIn(): Promise<DeviceCode> {
-  const data = await signInPost("https://github.com/login/device/code", { client_id: CLIENT_ID, scope: "repo" });
+  const data = await signInPost("https://github.com/login/device/code", { client_id: CLIENT_ID, scope: SCOPE });
   if (!data.device_code) throw new Error(data.error_description ?? "GitHub did not start the sign-in.");
   return data;
 }
