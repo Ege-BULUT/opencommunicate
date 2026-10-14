@@ -5,7 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
@@ -25,6 +25,9 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom history <to> [-n 20] [--edits]
                                    recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read;
                                    an edited one says (edited), --edits lists what it said before
+  opencom search <text…> [--chat <to>] [-n 20]
+                                   messages (and attachment names) containing the text, newest first,
+                                   in all your chats or one; reads the whole history, so it takes a while
   opencom edit <chat> <id> <text…> change the text of one of your messages; everyone gets a notice
                                    ("… edited a message: <new text>") at the end of the chat
   opencom delete <chat> <id>       delete one of your messages for everyone (text and files go;
@@ -300,6 +303,17 @@ async function main(argv: string[]) {
       const pick = ids.map((id) => { const m = hist.find((x) => x.id === id || x.id.endsWith(id)); if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`); return m; });
       const pins = await bus.setPins(me, pick, !f.off);
       console.log(`${f.off ? "unpinned" : "pinned"} ${pick.length} in ${label(channel, me, devices, groups)}; ${pins.length} pinned in all`);
+      return;
+    }
+    case "search": {
+      const text = rest.join(" ");
+      if (!text.trim()) throw new Error("Usage: opencom search <text…> [--chat <to>] [-n 20]");
+      const { devices, groups } = await load();
+      const channels = f.chat ? [resolveTarget(f.chat[0], me, devices, groups)] : bus.channelsFor(me.id, devices, groups);
+      const { messages } = await bus.older(channels, new Set(), Infinity);
+      const found = searchMessages(messages, text).slice(0, Number(f.n?.[0] ?? 20));
+      if (!found.length) console.log(`Nothing found for "${text}" in ${messages.length} messages.`);
+      for (const m of found.reverse()) console.log(`${line(m, me, devices, groups)}  (id ${m.id})`);
       return;
     }
     case "edit":

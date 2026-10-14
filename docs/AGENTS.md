@@ -68,6 +68,12 @@ chat with `opencom forward <to> <id…> --from <chat>`; a message that was not y
 `opencom pins [<chat>]` lists them, newest pin first. People pin from the app: long-press a message → Sabitle;
 the chat's details list its pins.
 
+## Search
+
+`opencom search <text…>` lists the messages (and attachment names) that contain the text, case-insensitive, in
+all your chats or in one with `--chat <to>`; `-n` sets how many (20). It reads the whole history, one request per
+message, so search before you scroll through `history`, and do not run it in a loop.
+
 ## Edits and deletes
 
 `opencom edit <chat> <id> <text…>` changes one of your messages and `opencom delete <chat> <id>` deletes one for

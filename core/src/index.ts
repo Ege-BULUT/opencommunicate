@@ -582,6 +582,19 @@ export class Bus {
     return Promise.all(entries.slice(-limit).map((e) => this.json<Message>(e.sha)));
   }
 
+  /**
+   * Up to `limit` messages of `channels` that are not in `have` (message paths), newest first, from one tree
+   * listing at `at`: the next older page for a search. `left` says how many more there are.
+   */
+  async older(channels: string[], have: Set<string>, limit = 300, at?: string | null): Promise<{ messages: Message[]; left: number }> {
+    const head = at ?? (await this.head());
+    if (!head) return { messages: [], left: 0 };
+    const mine = new Set(channels);
+    const rest = (await this.tree(head)).filter((e) => isMessagePath(e.path) && mine.has(e.path.split("/")[1]) && !have.has(e.path)).sort((a, b) => b.path.split("/")[2].localeCompare(a.path.split("/")[2]));
+    const page = rest.slice(0, limit);
+    return { messages: await Promise.all(page.map((e) => this.json<Message>(e.sha))), left: rest.length - page.length };
+  }
+
   /** Newest `limit` messages of several channels from one tree listing (app start-up). */
   async histories(channels: string[], limit = 50, at?: string): Promise<Record<string, Message[]>> {
     const head = at ?? (await this.head());
@@ -852,6 +865,17 @@ export function snippet(m: Pick<Message, "text" | "files"> | undefined, max = 80
   const t = (m.text ?? "").replace(/\s+/g, " ").trim();
   if (t) return t.length > max ? t.slice(0, max - 1) + "…" : t;
   return m.files?.length ? `📎 ${m.files[0].name}` : "";
+}
+
+/**
+ * Messages whose text or attachment names contain `query` (case-insensitive in `locale`, so Turkish İ/ı match),
+ * newest first. Notices and deleted messages are left out; an edited message matches by what it says now.
+ */
+export function searchMessages(list: Message[], query: string, locale?: string): Message[] {
+  const q = query.trim().toLocaleLowerCase(locale);
+  if (!q) return [];
+  const has = (s?: string) => !!s && s.toLocaleLowerCase(locale).includes(q);
+  return list.filter((m) => !m.system && !m.deleted && (has(m.text) || m.files?.some((f) => has(f.name)))).sort((a, b) => b.id.localeCompare(a.id));
 }
 
 export const msgPath = (m: Pick<Message, "channel" | "id">) => `channels/${m.channel}/${m.id}.json`;

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, PALETTES, REACTIONS, isEditNotice, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, PALETTES, REACTIONS, isEditNotice, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -736,6 +736,23 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     const el = document.getElementById(`m-${id}`);
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); }
   }, []);
+  // search: the loaded messages at once; older ones a page at a time, on request (each is a GitHub call)
+  const [olderLeft, setOlderLeft] = useState<number | null>(null); // null until asked; 0 when everything is loaded
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadOlder = async () => {
+    setLoadingOlder(true);
+    try {
+      const have = new Set(Object.values(messages).flat().filter((m) => !m.pending && !m.failed).map(msgPath));
+      const { messages: older, left } = await bus.older([...watcher.channels], have, 300, watcher.head);
+      older.forEach((m) => watcher.seen.add(msgPath(m)));
+      add(older);
+      setOlderLeft(left);
+    } catch (e) { setToast(S.cantSearch((e as Error).message)); setTimeout(() => setToast(""), 6000); }
+    finally { setLoadingOlder(false); }
+  };
+  const chatName = (ch: string) => ch === "all" ? "#all" : isDm(ch) ? handle(devices.find((d) => d.id === dmPeer(ch, me.id)) ?? { nick: "?", id: dmPeer(ch, me.id) }) : `#${groups.find((g) => g.channel === ch)?.name ?? ch}`;
+  const query = filter.trim();
+  const found = query.length >= 2 ? searchMessages(Object.values(messages).flat(), query, LOCALE) : [];
   const pinKey = (m: Pick<Pin, "channel" | "id">) => `${m.channel}/${m.id}`;
   const pinned = useMemo(() => new Set(pins.map(pinKey)), [pins]);
   // shown at once, then replaced by what the pins branch holds; a failed write puts the old list back
@@ -855,7 +872,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} picture={pictureOf(me)} />
           <span className="me-text"><b>{handle(me)}</b><span className="muted">{session.repo.split("/")[1]}</span></span>
         </div>
-        <div className="filter"><input type="search" value={filter} placeholder={S.searchChats} aria-label={S.search} onChange={(e) => setFilter(e.target.value)} /></div>
+        <div className="filter"><input type="search" value={filter} placeholder={S.searchAll} aria-label={S.search} onChange={(e) => setFilter(e.target.value)} /></div>
         <nav>
           {shown(`#all ${S.everyone}`) && <ChannelRow avatar={<Avatar name="all" seed="all" shape="group" />} label="#all" preview={preview("all") || S.everyone} time={last("all")?.ts} quiet={quiet("all")} count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />}
           <div className="section">{S.groups} <button className="mini" onClick={() => setDialog("group")}>{S.newGroupButton}</button></div>
@@ -870,6 +887,19 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
             return <ChannelRow key={d.id} avatar={<Avatar name={d.nick} seed={d.id} shape={d.kind === "agent" ? "agent" : "person"} online={online(d.id)} picture={pictureOf(d)} />} label={handle(d)}
               preview={preview(ch) || [KIND[d.kind] ?? d.kind, seen(d.id)].filter(Boolean).join(" · ")} time={last(ch)?.ts} quiet={quiet(ch)} count={unread(ch)} activeCh={active === ch} onClick={() => open(ch)} />;
           })}
+          {query.length >= 2 && <>
+            <div className="section">{S.messagesFound(found.length)}</div>
+            {found.slice(0, 100).map((m) => (
+              <button key={`${m.channel}/${m.id}`} className="row result" onClick={() => { open(m.channel); setTimeout(() => jumpTo(m.id), 150); }}>
+                <span className="row-text">
+                  <span className="row-top"><span className="row-label">{chatName(m.channel)}</span><span className="row-time">{when(m.ts)}</span></span>
+                  <span className="row-sub"><b>{m.from === me.id ? S.you : m.forwarded ? S.forwarded : m.fromNick}:</b> {highlight(m, query)}</span>
+                </span>
+              </button>
+            ))}
+            {found.length > 100 && <p className="muted small">{S.firstResults(100)}</p>}
+            <div className="older"><button className="mini" disabled={loadingOlder || olderLeft === 0} onClick={loadOlder}>{loadingOlder ? S.loading : olderLeft === 0 ? S.allSearched : S.searchOlder}</button></div>
+          </>}
         </nav>
       </aside>
 
@@ -994,6 +1024,16 @@ function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, 
       </span>
     </button>
   );
+}
+
+/** A line around the first match of `q` in a message, the match marked. */
+function highlight(m: Message, q: string): ReactNode {
+  const text = (m.text || m.files?.map((f) => `📎 ${f.name}`).join(" ") || "").replace(/\s+/g, " ");
+  const low = text.toLocaleLowerCase(LOCALE);
+  const i = low.indexOf(q.toLocaleLowerCase(LOCALE));
+  if (i < 0 || low.length !== text.length) return snippet({ text, files: undefined }, 90); // a case change that changed the length: no mark
+  const from = Math.max(0, i - 30);
+  return <>{from > 0 && "…"}{text.slice(from, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length, i + q.length + 80)}</>;
 }
 
 const linkify = (text: string) => text.split(/(https?:\/\/\S+)/g).map((part, i) => (/^https?:\/\//.test(part) ? <a key={i} href={part} onClick={(e) => { e.preventDefault(); openLink(part); }}>{part}</a> : part));

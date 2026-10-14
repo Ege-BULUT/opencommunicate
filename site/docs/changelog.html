@@ -55,10 +55,23 @@
   <main class="doc">
 <div lang="en">
 <h1>Changelog</h1>
-<p class="lede">What changed in each version. The newest is open; tap a version to see what it brought.</p>
+<p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.7.4" open>
-  <summary><span class="v">0.7.4</span><span class="h">Drafts <span class="tag">Latest</span></span><time datetime="2026-10-14">14 October 2026</time></summary>
+<details class="rel" id="en-0.7.5" open>
+  <summary><span class="v">0.7.5</span><span class="h">Search messages <span class="tag">Latest</span></span><time datetime="2026-10-14">14 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Search messages.</b> The search box above the chat list now finds messages too, in every chat: type two letters or more and a <b>Messages</b> list shows each match with its chat, the matching words marked. Tap one to jump to it.</li>
+  <li>It searches what is loaded at once. <b>Search older messages</b> loads 300 older ones at a time from GitHub, until it says all messages were searched. Attachment names count, letter case does not (Turkish İ/ı included), deleted messages and notices are left out.</li>
+  <li>Command line: <code>opencom search &lt;text…&gt; [--chat &lt;to&gt;] [-n 20]</code> searches the whole history, with each message's id.</li>
+  <li>The site's downloads link <b>previous versions</b>, and every entry in these notes links its GitHub release.</li>
+  <li>0.7.1–0.7.5 together: reactions, sending a failed message again, editing and deleting, drafts, and search.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.7.5">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.7.4">
+  <summary><span class="v">0.7.4</span><span class="h">Drafts</span><time datetime="2026-10-14">14 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Drafts</b>, as in WhatsApp: what you type in a chat and do not send stays in its message box when you go to another chat, close the app or reload the page.</li>
@@ -115,6 +128,7 @@
   <li><b>No second sign-in.</b> Closing the tab after approving on GitHub no longer means signing in again: the app carries on where it was.</li>
   <li>A refused invitation is explained in the invitee's language. Command line: <code>opencom invite --lang en|tr</code> picks the invitation message's language (the system language otherwise).</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.7.0">Release and downloads on GitHub ↗</a></p>
   </div>
 </details>
 <details class="rel" id="en-0.6.0">
@@ -127,6 +141,7 @@
   <li>Pins belong to the account: a phone and a computer signed in as the same nick#id see one list, and a pin made on one shows on the other within seconds. No one else sees them; they are kept on a separate <code>pins</code> branch of the repository, one file per account.</li>
   <li>Command line: <code>opencom pin &lt;chat&gt; &lt;id…&gt;</code> (<code>--off</code> unpins) and <code>opencom pins</code>.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.6.0">Release and downloads on GitHub ↗</a></p>
   </div>
 </details>
 <details class="rel" id="en-0.5.4">
@@ -139,6 +154,7 @@
   <li>The password is stored in the repository only as a salted hash (PBKDF2-SHA256), in the <code>auth/</code> folder.</li>
   <li>Settings → <b>Şifreyi değiştir</b> (change password). <b>Çıkış yap</b> (sign out) now asks first and reminds you of your account name.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.4">Release and downloads on GitHub ↗</a></p>
   </div>
 </details>
 <details class="rel" id="en-0.5.3">
@@ -149,6 +165,7 @@
   <li>The session is also kept in the app's own data folder, so it comes back even if the WebView's storage is cleared.</li>
   <li>After updating, sign out once on the phone and sign in again; the new session opens with the phone's own scopes.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.3">Release and downloads on GitHub ↗</a></p>
   </div>
 </details>
 <details class="rel" id="en-0.5.2">
@@ -160,6 +177,7 @@
   <li>Forwarding makes no new copy in the repository: the text and file references are reused, files are not uploaded again.</li>
   <li>Agents: <code>opencom forward &lt;to&gt; &lt;message-id…&gt; --from &lt;chat&gt;</code>.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.2">Release and downloads on GitHub ↗</a></p>
   </div>
 </details>
 <details class="rel" id="en-0.5.1">
@@ -170,6 +188,7 @@
   <li>To keep the repository small, a message stores only the id of the one it quotes; the preview is drawn from that id.</li>
   <li>Agents: <code>opencom send &lt;to&gt; &lt;text&gt; --reply &lt;message-id&gt;</code>. <code>opencom history</code> and <code>opencom watch</code> show the quote; <code>watch --json</code> adds <code>replyPreview</code>.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.1">Release and downloads on GitHub ↗</a></p>
   </div>
 </details>
 <details class="rel" id="en-0.5.0">
@@ -181,6 +200,7 @@
   <li>Agents: <code>opencom watch</code> reports the messages it printed as read, so a blue tick means the agent has your message. <code>opencom receipts off</code> reports delivered only; <code>opencom history</code> shows the ticks of your own messages.</li>
 </ul>
 <p>Receipts live on a separate branch of the chat repository (<code>receipts</code>), one file per device, so two devices never write the same file. Apps older than 0.5 send no receipts; messages to them stay at one tick.</p>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.0">Release and downloads on GitHub ↗</a></p>
   </div>
 </details>
 <details class="rel" id="en-0.4.0">
@@ -289,10 +309,23 @@
 </div>
 <div lang="tr">
 <h1>Sürüm notları</h1>
-<p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun.</p>
+<p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.7.4" open>
-  <summary><span class="v">0.7.4</span><span class="h">Taslaklar <span class="tag">Son sürüm</span></span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.7.5" open>
+  <summary><span class="v">0.7.5</span><span class="h">Mesajlarda arama <span class="tag">Son sürüm</span></span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Mesajlarda arama.</b> Sohbet listesinin üstündeki arama kutusu artık tüm sohbetlerde mesaj da bulur: iki ya da daha fazla harf yazınca <b>Mesajlar</b> listesi her eşleşmeyi sohbetiyle ve eşleşen kelimeler işaretli olarak gösterir. Dokununca mesaja gider.</li>
+  <li>Önce yüklü mesajlarda anında arar. <b>Eski mesajlarda ara</b> GitHub'dan her seferinde 300 eski mesaj yükler, tüm mesajlarda arandı diyene kadar. Ek adları da aranır, büyük/küçük harf fark etmez (Türkçe İ/ı dahil); silinen mesajlar ve bilgi satırları aranmaz.</li>
+  <li>Komut satırı: <code>opencom search &lt;metin…&gt; [--chat &lt;kime&gt;] [-n 20]</code> tüm geçmişte arar ve her mesajın id'sini verir.</li>
+  <li>Sitedeki indirmelerde <b>önceki sürümler</b> linki var; bu notlardaki her sürüm GitHub'daki sürümüne bağlanır.</li>
+  <li>0.7.1–0.7.5 birlikte: tepkiler, gönderilemeyen mesajı tekrar gönderme, düzenleme ve silme, taslaklar ve arama.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.7.5">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.7.4">
+  <summary><span class="v">0.7.4</span><span class="h">Taslaklar</span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li>WhatsApp'taki gibi <b>taslaklar</b>: bir sohbette yazıp göndermediğiniz metin, başka sohbete geçince, uygulamayı kapatınca ya da sayfayı yenileyince yazma kutusunda kalır.</li>
@@ -349,6 +382,7 @@
   <li><b>İkinci giriş yok.</b> GitHub'da onayladıktan sonra sekmeyi kapatmak artık yeniden giriş gerektirmez: uygulama kaldığı yerden devam eder.</li>
   <li>Reddedilen bir davetin nedeni davetlinin dilinde gösterilir. Komut satırı: <code>opencom invite --lang en|tr</code> davet mesajının dilini seçer (yoksa sistem dili).</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.7.0">GitHub'daki sürüm ve indirmeler ↗</a></p>
   </div>
 </details>
 <details class="rel" id="tr-0.6.0">
@@ -361,6 +395,7 @@
   <li>Sabitlemeler hesaba bağlıdır: aynı nick#id ile girilen telefon ve bilgisayar aynı listeyi görür, birinde sabitlenen birkaç saniye içinde diğerinde de görünür. Başkaları görmez; repoda ayrı bir <code>pins</code> dalında, hesap başına bir dosyada saklanır.</li>
   <li>Komut satırı: <code>opencom pin &lt;sohbet&gt; &lt;id…&gt;</code> (<code>--off</code> kaldırır) ve <code>opencom pins</code>.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.6.0">GitHub'daki sürüm ve indirmeler ↗</a></p>
   </div>
 </details>
 <details class="rel" id="tr-0.5.4">
@@ -373,6 +408,7 @@
   <li>Şifre repoda yalnızca tuzlu bir özet (PBKDF2-SHA256) olarak, <code>auth/</code> klasöründe saklanır.</li>
   <li>Ayarlar → <b>Şifreyi değiştir</b>. <b>Çıkış yap</b> artık önce sorar ve yeniden girmek için hesap adınızı hatırlatır.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.4">GitHub'daki sürüm ve indirmeler ↗</a></p>
   </div>
 </details>
 <details class="rel" id="tr-0.5.3">
@@ -383,6 +419,7 @@
   <li>Oturum, uygulamanın kendi veri klasöründe de saklanır; WebView'in depolaması silinse bile geri gelir.</li>
   <li>Güncelledikten sonra telefonda bir kez <b>Çıkış yap</b> ve yeniden giriş yapın; yeni oturum telefonun kendi izin setiyle açılır.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.3">GitHub'daki sürüm ve indirmeler ↗</a></p>
   </div>
 </details>
 <details class="rel" id="tr-0.5.2">
@@ -394,6 +431,7 @@
   <li>İletme repoda yeni bir kopya oluşturmaz: mesajın metni ve dosya referansları olduğu gibi kullanılır, dosyalar yeniden yüklenmez.</li>
   <li>Ajanlar: <code>opencom forward &lt;kime&gt; &lt;mesaj-id…&gt; --from &lt;sohbet&gt;</code>.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.2">GitHub'daki sürüm ve indirmeler ↗</a></p>
   </div>
 </details>
 <details class="rel" id="tr-0.5.1">
@@ -404,6 +442,7 @@
   <li>Repoda yer kaplamasın diye mesaj yalnızca alıntıladığı mesajın kimliğini tutar; önizleme bu kimlikten çizilir.</li>
   <li>Ajanlar: <code>opencom send &lt;kime&gt; &lt;metin&gt; --reply &lt;mesaj-id&gt;</code>. <code>opencom history</code> ve <code>opencom watch</code> alıntıyı gösterir; <code>watch --json</code> çıktısına <code>replyPreview</code> eklenir.</li>
 </ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.1">GitHub'daki sürüm ve indirmeler ↗</a></p>
   </div>
 </details>
 <details class="rel" id="tr-0.5.0">
@@ -415,6 +454,7 @@
   <li>Ajanlar: <code>opencom watch</code> yazdırdığı mesajları okundu olarak bildirir; mesajınız mavi tik aldıysa ajan onu almıştır. <code>opencom receipts off</code> yalnızca ulaştı bildirir, <code>opencom history</code> kendi mesajlarınızın tikini gösterir.</li>
 </ul>
 <p>Bilgiler sohbet reposunun ayrı bir dalında (<code>receipts</code>), her cihaz için tek bir dosyada tutulur; iki cihaz aynı dosyayı yazmadığı için çakışma olmaz. 0.5'ten eski uygulamalar bilgi göndermez, onlara giden mesajlar tek tikte kalır.</p>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.5.0">GitHub'daki sürüm ve indirmeler ↗</a></p>
   </div>
 </details>
 <details class="rel" id="tr-0.4.0">
