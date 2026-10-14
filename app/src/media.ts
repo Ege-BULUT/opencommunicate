@@ -4,6 +4,7 @@
    "GitHub'dan aktar" keeps nothing on the device. Sending adds a ~1 KB preview and the size to images and videos;
    profile photos are shrunk until they fit in 50 KB. */
 import { PHOTO_MAX, type Bus, type FileRef, type Upload } from "../../core/src/index.ts";
+import { S } from "./i18n.tsx";
 
 export type MediaKind = "image" | "video";
 export type MediaMode = "save" | "stream";
@@ -143,5 +144,5 @@ export async function shrinkPhoto(file: File, max = PHOTO_MAX): Promise<{ data: 
       }
     }
   }
-  throw new Error("Bu fotoğraf 50 KB'a sığacak kadar küçültülemedi.");
+  throw new Error(S.photoTooBig);
 }

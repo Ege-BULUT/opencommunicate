@@ -3,6 +3,7 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Bus, GitHubError, type Device, type Kind } from "../../core/src/index.ts";
+import { S } from "./i18n.tsx";
 
 export type Session = { repo: string; token: string; device: Device; source: "desktop" | "app" };
 const KEY = "oc.session";
@@ -99,7 +100,7 @@ const SCOPE = native() ? "repo read:user" : "repo";
 
 export async function startSignIn(): Promise<DeviceCode> {
   const data = await signInPost("https://github.com/login/device/code", { client_id: CLIENT_ID, scope: SCOPE });
-  if (!data.device_code) throw new Error(data.error_description ?? "GitHub did not start the sign-in.");
+  if (!data.device_code) throw new Error(data.error_description ?? S.signInNotStarted);
   return data;
 }
 
@@ -117,9 +118,9 @@ export async function finishSignIn(code: DeviceCode, cancelled: () => boolean): 
     }
     if (data.access_token) return data.access_token;
     if (data.error === "slow_down") wait += 5000;
-    else if (data.error !== "authorization_pending") throw new Error(data.error_description ?? data.error ?? "Sign-in failed.");
+    else if (data.error !== "authorization_pending") throw new Error(data.error_description ?? data.error ?? S.signInFailed);
   }
-  throw new Error("The code expired. Start again.");
+  throw new Error(S.codeExpired);
 }
 
 const kindHere = (): Kind => (native() ? "phone" : desktopApp() ? "desktop" : "person");
@@ -190,9 +191,9 @@ export async function checkAccount(token: string, repo: string): Promise<string>
 /** A GitHub problem only the person can fix (sign in again, get access), in words; null for passing trouble. */
 export function accountProblem(e: unknown, repo: string): string | null {
   if (!(e instanceof GitHubError)) return null;
-  if (e.status === 401) return "GitHub oturumu geçersiz ya da iptal edilmiş (401). Yeniden giriş yapın.";
-  if (e.status === 403 && !/rate limit/i.test(e.message)) return `Bu GitHub hesabının ${repo} reposuna erişimi yok (403). Repo sahibi sizi collaborator olarak eklemeli.`;
+  if (e.status === 401) return S.bad401;
+  if (e.status === 403 && !/rate limit/i.test(e.message)) return S.bad403(repo);
   // GitHub answers 404 for a private repository the account can't see
-  if (e.status === 404 && e.message.startsWith(`GitHub 404 /repos/${repo}:`)) return `${repo} reposu bulunamadı ya da bu hesap onu göremiyor (404). Repo sahibi sizi collaborator olarak eklemeli.`;
+  if (e.status === 404 && e.message.startsWith(`GitHub 404 /repos/${repo}:`)) return S.bad404(repo);
   return null;
 }

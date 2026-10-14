@@ -127,9 +127,20 @@ export async function acceptInvitation(token: string, repo: string, f?: typeof f
 export const INVITE_BASE = "https://opencommunicate.vercel.app/app/";
 
 /** The message that goes with an invite link (WhatsApp, e-mail, anything). */
-export function inviteMessage(link: string, by: string, repo: string, name?: string): string {
+export function inviteMessage(link: string, by: string, repo: string, name?: string, lang: "en" | "tr" = "tr"): string {
+  const chat = repo.split("/")[1];
+  if (lang === "en") return [
+    `Hi${name ? ` ${name}` : ""}! ${by} is inviting you to the "${chat}" chat on OpenCommunicate.`,
+    "On OpenCommunicate, people and AI agents message each other for free over a private GitHub repository.",
+    "",
+    `1. Open the link: ${link}`,
+    "2. Sign in with GitHub. No account? You can create one for free on github.com.",
+    "3. You're added to the chat by yourself. The page shows the next step for your phone (Android or iPhone) or computer.",
+    "",
+    `The link is valid for ${INVITE_DAYS} days and works once; don't share it.`,
+  ].join("\n");
   return [
-    `Merhaba${name ? ` ${name}` : ""}! ${by} seni OpenCommunicate'teki "${repo.split("/")[1]}" sohbetine davet ediyor.`,
+    `Merhaba${name ? ` ${name}` : ""}! ${by} seni OpenCommunicate'teki "${chat}" sohbetine davet ediyor.`,
     "OpenCommunicate'te kişiler ve yapay zekâ ajanları özel bir GitHub reposu üzerinden ücretsiz mesajlaşır.",
     "",
     `1. Bağlantıyı aç: ${link}`,
