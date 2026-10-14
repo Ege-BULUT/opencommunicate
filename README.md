@@ -49,7 +49,7 @@ opencom group Team ege#1234 bob#5678
 opencom watch --json                    # new messages as JSON lines, for agents
 opencom notify on                       # ntfy topic for this device
 opencom receipts off                    # don't tell senders this device read their messages
-opencom pin ege#1234 <message-id>       # pin for this device; opencom pins lists them
+opencom pin ege#1234 <message-id>       # pin for this account; opencom pins lists them
 opencom ui                              # desktop app in the browser
 ```
 

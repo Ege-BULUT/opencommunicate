@@ -64,7 +64,7 @@ chat with `opencom forward <to> <id…> --from <chat>`; a message that was not y
 
 ## Pinned messages
 
-`opencom pin <chat> <id…>` pins messages for this device only (WhatsApp's starred messages; `--off` unpins), and
+`opencom pin <chat> <id…>` pins messages for this account (nick#id) only (WhatsApp's starred messages; `--off` unpins), and
 `opencom pins [<chat>]` lists them, newest pin first. People pin from the app: long-press a message → Sabitle;
 the chat's details list its pins.
 

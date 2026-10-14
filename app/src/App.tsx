@@ -414,7 +414,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [account, setAccount] = useState<string | null>(null); // a GitHub problem only the person can fix
   const [read, setRead] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(READ_KEY) ?? "{}"); } catch { return {}; } });
   const [receipts, setReceipts] = useState<Receipts>({});
-  const [pins, setPins] = useState<Pin[]>([]); // this device's pinned messages, newest first
+  const [pins, setPins] = useState<Pin[]>([]); // this account's pinned messages (shared by every device signed in as it), newest first
   const [showRead, setShowRead] = useState(readReceiptsOn);
   const showReadRef = useRef(showRead);
   showReadRef.current = showRead;
@@ -490,7 +490,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           setMessages(hist);
           delivered(Object.values(hist).flat());
           watcher.tickReceipts().then(() => setReceipts(watcher.receipts)).catch(() => {});
-          bus.pins(session.device.id).then(setPins).catch(() => {});
+          watcher.tickPins().then(() => setPins(watcher.pins)).catch(() => {});
           setStatus(""); setAccount(null);
           bus.presence().then(setPresence).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
@@ -514,6 +514,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           add(fresh);
           delivered(fresh);
           if (await watcher.tickReceipts().catch(() => false)) setReceipts(watcher.receipts);
+          if (await watcher.tickPins().catch(() => false)) setPins(watcher.pins);
           for (const m of fresh) {
             if (m.from === session.device.id || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || "📎 dosya");
@@ -1155,7 +1156,7 @@ function Pinned({ pins, loaded, bus, me, onUnpin, onOpen }: { pins: Pin[]; loade
   }, [pins]);
   return <>
     <h3 className="pinned-head"><PinIcon size={14} /> Sabitlenmiş mesajlar{pins.length ? ` · ${pins.length}` : ""}</h3>
-    {!pins.length && <p className="muted small">Bir mesaja uzun basıp <b>Sabitle</b>'ye dokun; burada listelenir. Sabitlediklerini yalnız sen görürsün.</p>}
+    {!pins.length && <p className="muted small">Bir mesaja uzun basıp <b>Sabitle</b>'ye dokun; burada listelenir. Sabitlediklerini yalnız sen görürsün, bu hesapla girdiğin her cihazda.</p>}
     <div className="pinned">
       {pins.map((p) => {
         const here = loaded(p.id);

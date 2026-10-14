@@ -26,9 +26,9 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom forward <to> <id…> --from <chat>
                                    forward one or more messages (by id, from --from's recent
                                    history) into another chat; someone else's is marked "forwarded"
-  opencom pin <chat> <id…> [--off] pin messages (by id, from the chat's recent history) for this device
+  opencom pin <chat> <id…> [--off] pin messages (by id, from the chat's recent history) for this account
                                    only, like WhatsApp's starred messages (--off: unpin)
-  opencom pins [<chat>]            this device's pinned messages, newest pin first
+  opencom pins [<chat>]            this account's pinned messages, newest pin first
   opencom watch [--json] [--interval 5]
                                    print new messages as they arrive (JSON lines with --json;
                                    "toMe" is true for DMs and for @nick, nick#1234 or @all)
