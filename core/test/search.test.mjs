@@ -2,7 +2,15 @@
 // older() pages through what is not loaded yet, newest first.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Bus, msgPath, searchMessages } from "../src/index.ts";
+import { Bus, msgPath, newerVersion, searchMessages } from "../src/index.ts";
+
+test("newerVersion compares part by part as numbers", () => {
+  assert.equal(newerVersion("0.7.10", "0.7.9"), true);
+  assert.equal(newerVersion("v0.8.0", "0.7.6"), true);
+  assert.equal(newerVersion("0.7.6", "0.7.6"), false);
+  assert.equal(newerVersion("0.7.5", "0.7.6"), false);
+  assert.equal(newerVersion("1.0", "0.9.9"), true);
+});
 
 const msg = (id, text, extra = {}) => ({ v: 1, id: `20261014T0${id}0000000Z-1111-aaaaaa`, channel: "all", from: "1111", fromNick: "me", ts: "", text, ...extra });
 

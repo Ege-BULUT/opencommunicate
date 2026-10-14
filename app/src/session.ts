@@ -13,7 +13,13 @@ const CLIENT_ID = "Ov23liPuqrEbse9N4sDQ";
 export const native = () => Capacitor.isNativePlatform();
 
 /** The Electron shell (desktop/): it signs in to GitHub for the page and keeps the Dock/taskbar badge. */
-type DesktopShell = { signInPost: (url: string, body: Record<string, string>) => Promise<any>; badge: (n: number) => void; focus: () => void };
+type DesktopShell = {
+  signInPost: (url: string, body: Record<string, string>) => Promise<any>; badge: (n: number) => void; focus: () => void;
+  // since 0.7.6; older shells lack them
+  info?: () => Promise<{ version: string; platform: string; arch: string; selfUpdates: boolean; updateReady: string | null }>;
+  onUpdateReady?: (cb: (version: string) => void) => void;
+  installUpdate?: () => Promise<void>;
+};
 export const desktopApp = (): DesktopShell | undefined => (window as { opencomDesktop?: DesktopShell }).opencomDesktop;
 /** The web app on the site (https): signs in through the site's /api/github-login. `opencom ui` pages are http. */
 export const hosted = () => !native() && !desktopApp() && location.protocol === "https:";

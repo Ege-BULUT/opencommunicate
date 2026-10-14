@@ -878,6 +878,14 @@ export function searchMessages(list: Message[], query: string, locale?: string):
   return list.filter((m) => !m.system && !m.deleted && (has(m.text) || m.files?.some((f) => has(f.name)))).sort((a, b) => b.id.localeCompare(a.id));
 }
 
+/** Whether version `a` ("0.7.6", "v0.8.0") is newer than `b`, part by part as numbers. */
+export function newerVersion(a: string, b: string): boolean {
+  const parts = (v: string) => v.replace(/^v/, "").split(/[.-]/).map((x) => Number.parseInt(x, 10) || 0);
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  return false;
+}
+
 export const msgPath = (m: Pick<Message, "channel" | "id">) => `channels/${m.channel}/${m.id}.json`;
 export const isMessagePath = (p: string) => /^channels\/[a-z0-9-]+\/\d{8}T\d{9}Z-\d{4}-[a-z0-9]{6}\.json$/.test(p);
 

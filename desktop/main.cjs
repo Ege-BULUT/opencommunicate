@@ -51,6 +51,24 @@ app.whenReady().then(() => {
   createWindow();
 });
 
+/* Updates. Windows updates itself: electron-updater reads latest.yml from the newest GitHub release, downloads
+   the installer in the background and the page offers a restart (or it installs on quit). macOS can't do that
+   without a paid Apple signature (Squirrel.Mac refuses unsigned apps), so there the page shows a download link
+   for the new dmg instead, as the Android app does for its APK. */
+let updateReady = null; // the version downloaded and waiting for a restart
+let updater = null;
+if (app.isPackaged && process.platform === "win32") {
+  ({ autoUpdater: updater } = require("electron-updater"));
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  updater.on("update-downloaded", (info) => { updateReady = info.version; win?.webContents.send("update-ready", info.version); });
+  updater.on("error", () => {}); // offline, rate-limited: the next check tries again
+  const check = () => updater.checkForUpdates().catch(() => {});
+  app.whenReady().then(() => { setTimeout(check, 15_000); setInterval(check, 6 * 3600_000); });
+}
+ipcMain.handle("app-info", () => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, selfUpdates: !!updater, updateReady }));
+ipcMain.handle("update-install", () => { if (updateReady) { quitting = true; updater.quitAndInstall(true, true); } });
+
 // github.com's sign-in endpoints refuse browser (CORS) requests, so the main process makes those two calls
 const SIGN_IN = /^https:\/\/github\.com\/login\/(device\/code|oauth\/access_token)$/;
 ipcMain.handle("signin-post", async (_e, url, body) => {

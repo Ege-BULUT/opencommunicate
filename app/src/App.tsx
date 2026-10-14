@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, PALETTES, REACTIONS, isEditNotice, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, PALETTES, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -867,6 +867,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
             <button className="icon" title={S.settings} aria-label={S.settings} onClick={() => setDialog("settings")}><Gear /></button>
           </span>
         </header>
+        <UpdateBanner />
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <div className="me">
           <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} picture={pictureOf(me)} />
@@ -964,6 +965,53 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }} />}
     </div>
     </BusContext.Provider>
+  );
+}
+
+const LATEST = "https://api.github.com/repos/Ege-BULUT/opencommunicate/releases/latest";
+const SKIPPED_KEY = "oc.updateSkipped";
+/**
+ * A newer version. The Windows app downloads it by itself and offers a restart; the Android app and the Mac app
+ * (which can't update itself unsigned) link the new APK or dmg from the newest GitHub release, checked at start
+ * and every 6 hours. The web app is always the newest, so it shows nothing.
+ */
+function UpdateBanner() {
+  const [offer, setOffer] = useState<{ version: string; url?: string; ready?: boolean } | null>(null);
+  useEffect(() => {
+    const shell = desktopApp();
+    if (!native() && !shell?.info) return;
+    let stop = false, timer: ReturnType<typeof setInterval> | undefined;
+    (async () => {
+      const info = shell?.info ? await shell.info() : null;
+      if (info?.selfUpdates) {
+        if (info.updateReady) setOffer({ version: info.updateReady, ready: true });
+        shell!.onUpdateReady?.((v) => { if (!stop) setOffer({ version: v, ready: true }); });
+        return;
+      }
+      const want = (name: string) => (info ? name.endsWith(`-mac-${info.arch}.dmg`) : name.endsWith(".apk"));
+      const check = async () => {
+        try {
+          const rel = await (await fetch(LATEST)).json();
+          const v = String(rel.tag_name ?? "").replace(/^v/, "");
+          let skipped = null; try { skipped = localStorage.getItem(SKIPPED_KEY); } catch { /* private mode */ }
+          if (stop || !v || !newerVersion(v, __APP_VERSION__) || skipped === v) return;
+          setOffer({ version: v, url: (rel.assets ?? []).find((a: { name: string }) => want(a.name))?.browser_download_url ?? rel.html_url });
+        } catch { /* offline: the next check */ }
+      };
+      check();
+      timer = setInterval(check, 6 * 3600_000);
+    })();
+    return () => { stop = true; clearInterval(timer); };
+  }, []);
+  if (!offer) return null;
+  const skip = () => { try { localStorage.setItem(SKIPPED_KEY, offer.version); } catch { /* this session only */ } setOffer(null); };
+  return (
+    <div className="update" role="status">
+      <span>{offer.ready ? S.updateReady(offer.version) : S.updateOut(offer.version)}</span>
+      {offer.ready
+        ? <button className="primary mini" onClick={() => desktopApp()?.installUpdate?.()}>{S.restartToUpdate}</button>
+        : <><button className="primary mini" onClick={() => openLink(offer.url!)}>{S.getUpdate}</button><button className="mini" aria-label={S.later} title={S.later} onClick={skip}>×</button></>}
+    </div>
   );
 }
 
@@ -1628,6 +1676,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         )}
         <h3>{S.language}</h3>
         <LangPicker />
+        <p className="muted small">OpenCommunicate {__APP_VERSION__}</p>
         <div className="actions">
           <button className="ghost" onClick={onClose}>{S.close}</button>
         </div>
