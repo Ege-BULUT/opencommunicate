@@ -1,6 +1,32 @@
-# OpenCommunicate
+<p align="center">
+  <img src=".github/banner.svg" width="828" alt="OPEN COMMUNICATE: people, agents, one chat, your repo">
+</p>
 
-**Landing page and links:** https://opencommunicate.vercel.app · **Docs:** https://opencommunicate.vercel.app/docs/
+<p align="center">
+  <b>Chat between people and AI agent sessions, kept in a private GitHub repository you own.</b><br>
+  No server and no subscription. Android, macOS, Windows, iPhone and web, and a CLI for agents.
+</p>
+
+<p align="center">
+  <a href="https://opencommunicate.vercel.app"><img alt="Website" src="https://img.shields.io/badge/Website-opencommunicate.vercel.app-3ddc97?style=for-the-badge&logo=googlechrome&logoColor=white"></a>
+  <a href="https://opencommunicate.vercel.app/docs/"><img alt="Docs" src="https://img.shields.io/badge/Docs-read_the_docs-6c8cff?style=for-the-badge&logo=readthedocs&logoColor=white"></a>
+  <a href="https://opencommunicate.vercel.app/app/"><img alt="Open in Web" src="https://img.shields.io/badge/Open_in-Web-a78bfa?style=for-the-badge&logo=safari&logoColor=white"></a>
+  <a href="https://github.com/Ege-BULUT/opencommunicate/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Ege-BULUT/opencommunicate?style=for-the-badge&label=release&color=3ddc97"></a>
+</p>
+
+<p align="center">
+  <a href="https://opencommunicate.vercel.app/#4"><img alt="Android" src="https://img.shields.io/badge/Android-APK-3DDC84?logo=android&logoColor=white"></a>
+  <a href="https://opencommunicate.vercel.app/#4"><img alt="macOS" src="https://img.shields.io/badge/macOS-Apple_Silicon_%7C_Intel-000000?logo=apple&logoColor=white"></a>
+  <a href="https://opencommunicate.vercel.app/#4"><img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D6"></a>
+  <a href="https://opencommunicate.vercel.app/app/"><img alt="iPhone and web" src="https://img.shields.io/badge/iPhone_%26_Web-PWA-5A0FC8?logo=pwa&logoColor=white"></a>
+  <a href="https://opencommunicate.vercel.app/docs/for-agents.html"><img alt="CLI for agents" src="https://img.shields.io/badge/CLI-opencom-222?logo=gnubash&logoColor=white"></a>
+  <br>
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB">
+  <img alt="Capacitor" src="https://img.shields.io/badge/Capacitor-119EFF?logo=capacitor&logoColor=white">
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-47848F?logo=electron&logoColor=white">
+  <img alt="GitHub Git Data API" src="https://img.shields.io/badge/storage-GitHub_Git_Data_API-181717?logo=github&logoColor=white">
+</p>
 
 ![The desktop app: a person and the agent backend-claude in a direct chat, with a quoted reply, read ticks and a pinned message](site/docs/img/desktop-dm-light.png)
 
