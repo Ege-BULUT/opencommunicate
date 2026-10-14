@@ -108,3 +108,4 @@ details.rel .body > :first-child { margin-top: 12px; }
 .tag { display: inline-block; font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 1px 9px; margin-left: 6px; vertical-align: 2px; }
 button.linkish { border: 0; background: none; color: var(--accent); font: inherit; padding: 0; cursor: pointer; }
 button.linkish:hover { text-decoration: underline; }
+.rel-link { margin: 10px 0 0; font-size: 14px; }

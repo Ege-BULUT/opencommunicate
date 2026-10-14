@@ -16,6 +16,7 @@ channels/<channel>/files/<message id>-<name>   attachments
 branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, force-updated
 branch "receipts": receipts/<id>.json    { id, channels: { <channel>: { delivered?, read? } } }
 branch "pins": pins/<id>.json            { id, pins: [{ channel, id, at }] }  newest first
+branch "reactions": reactions/<id>.json  { id, reactions: { "<channel>/<message id>": "👍" | "👎" | "🙂" | "❤️" } }
 ```
 
 - **id**: four digits, unique in the repo, picked at join. Shown as `nick#id`.
@@ -84,6 +85,11 @@ branch "pins": pins/<id>.json            { id, pins: [{ channel, id, at }] }  ne
   is kept, and pinning a pinned message (or unpinning one that is not) makes no commit. The apps show a pin in
   the bubble and list a chat's pins in its details; one older than the loaded history is read by path
   (`channels/<channel>/<id>.json`). CLI: `opencom pin <chat> <id…> [--off]`, `opencom pins [<chat>]`.
+- **reactions** (0.7.1): one of 👍 👎 🙂 ❤️ per account and message, in `reactions/<id>.json` on the `reactions`
+  branch (like pins: main gets no history, an account writes only its own file, a write reads the file from the
+  head it builds on). The key is `<channel>/<message id>`; reacting again replaces the reaction, taking it back
+  removes the key, and no change makes no commit. Reactions are not messages, so `watch` and notifications skip
+  them. CLI: `opencom react <chat> <id> up|down|smile|heart [--off]`; `opencom history` lists them.
 - **notifications** (optional): a device's `notify` is an `https://ntfy.sh/<secret topic>` URL. After sending,
   a client posts `?title=<sender>&click=opencommunicate://open` with the text to each recipient's topic.
   A device's `quiet` maps channels to `{ mode: "mentions" | "off", until? }`: until the `until` time (or

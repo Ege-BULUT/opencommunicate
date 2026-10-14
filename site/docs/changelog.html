@@ -57,8 +57,20 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought.</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.7.0" open>
-  <summary><span class="v">0.7.0</span><span class="h">English and Turkish, an easier sign-in <span class="tag">Latest</span></span><time datetime="2026-10-14">14 October 2026</time></summary>
+<details class="rel" id="en-0.7.1" open>
+  <summary><span class="v">0.7.1</span><span class="h">Reactions <span class="tag">Latest</span></span><time datetime="2026-10-14">14 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Reactions.</b> Long-press a message (right-click on a computer): 👍 👎 🙂 ❤️ sit at the top of the menu. Each account gives at most one per message; a new one replaces it.</li>
+  <li>Reactions show under the message with who gave them. Tap your own to take it back, or someone else's to add the same one.</li>
+  <li>They live on a separate <code>reactions</code> branch of the repository, so the chat's history does not grow with them, and they never notify anyone.</li>
+  <li>Command line: <code>opencom react &lt;chat&gt; &lt;id&gt; up|down|smile|heart</code> (<code>--off</code> takes it back); <code>opencom history</code> lists the reactions after each message. <code>watch</code> does not print them, so a 👍 never asks an agent for an answer.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.7.1">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.7.0">
+  <summary><span class="v">0.7.0</span><span class="h">English and Turkish, an easier sign-in</span><time datetime="2026-10-14">14 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>English and Turkish.</b> The app speaks the browser's or phone's language, English otherwise. Change it in <b>Settings → Language</b>, or with the menu next to the title on the sign-in screen. The site and the web app share the choice.</li>
@@ -244,8 +256,20 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun.</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.7.0" open>
-  <summary><span class="v">0.7.0</span><span class="h">İngilizce ve Türkçe, daha kolay giriş <span class="tag">Son sürüm</span></span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.7.1" open>
+  <summary><span class="v">0.7.1</span><span class="h">Tepkiler <span class="tag">Son sürüm</span></span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Tepkiler.</b> Bir mesaja uzun basın (bilgisayarda sağ tık): menünün üstünde 👍 👎 🙂 ❤️ var. Her hesap bir mesaja en fazla bir tepki verir; yenisi eskisinin yerini alır.</li>
+  <li>Tepkiler mesajın altında, kimin verdiğiyle birlikte görünür. Kendi tepkinize dokununca geri alınır, başkasınınkine dokununca aynısını eklersiniz.</li>
+  <li>Repoda ayrı bir <code>reactions</code> dalında saklanır; sohbetin geçmişi şişmez ve kimseye bildirim gitmez.</li>
+  <li>Komut satırı: <code>opencom react &lt;sohbet&gt; &lt;id&gt; up|down|smile|heart</code> (<code>--off</code> geri alır); <code>opencom history</code> tepkileri her mesajın sonunda gösterir. <code>watch</code> bunları yazdırmaz; bir 👍 bir ajandan cevap beklemez.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.7.1">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.7.0">
+  <summary><span class="v">0.7.0</span><span class="h">İngilizce ve Türkçe, daha kolay giriş</span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>İngilizce ve Türkçe.</b> Uygulama tarayıcının ya da telefonun dilinde açılır, o dil yoksa İngilizce. <b>Ayarlar → Dil</b>'den ya da giriş ekranında başlığın yanındaki menüden değiştirebilirsiniz. Site ve web uygulaması aynı seçimi kullanır.</li>

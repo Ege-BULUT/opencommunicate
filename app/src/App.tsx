@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, PALETTES, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, PALETTES, REACTIONS, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -503,6 +503,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [read, setRead] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(READ_KEY) ?? "{}"); } catch { return {}; } });
   const [receipts, setReceipts] = useState<Receipts>({});
   const [pins, setPins] = useState<Pin[]>([]); // this account's pinned messages (shared by every device signed in as it), newest first
+  const [reactions, setReactions] = useState<Reactions>({});
   const [showRead, setShowRead] = useState(readReceiptsOn);
   const showReadRef = useRef(showRead);
   showReadRef.current = showRead;
@@ -579,6 +580,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           delivered(Object.values(hist).flat());
           watcher.tickReceipts().then(() => setReceipts(watcher.receipts)).catch(() => {});
           watcher.tickPins().then(() => setPins(watcher.pins)).catch(() => {});
+          watcher.tickReactions().then(() => setReactions(watcher.reactions)).catch(() => {});
           setStatus(""); setAccount(null);
           bus.presence().then(setPresence).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
@@ -603,6 +605,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           delivered(fresh);
           if (await watcher.tickReceipts().catch(() => false)) setReceipts(watcher.receipts);
           if (await watcher.tickPins().catch(() => false)) setPins(watcher.pins);
+          if (await watcher.tickReactions().catch(() => false)) setReactions(watcher.reactions);
           for (const m of fresh) {
             if (m.from === session.device.id || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
@@ -703,6 +706,16 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     try { setPins(await bus.setPins(me, msgs, on)); }
     catch (e) { setPins(before); setToast(S.cantPin(on, (e as Error).message)); setTimeout(() => setToast(""), 6000); }
   };
+  // shown at once; a failed write puts the old reactions back
+  const react = async (m: Message, emoji: Reaction | null) => {
+    const before = reactions;
+    const mine = { ...reactions[me.id] };
+    if (emoji) mine[reactionKey(m)] = emoji; else delete mine[reactionKey(m)];
+    setReactions({ ...reactions, [me.id]: mine });
+    try { await bus.react(me, m, emoji); }
+    catch (e) { setReactions(before); setToast(S.cantReact((e as Error).message)); setTimeout(() => setToast(""), 6000); }
+  };
+  const myReaction = (m: Message) => reactions[me.id]?.[reactionKey(m)] ?? null;
   const last = (ch: string) => messages[ch]?.at(-1);
   const recent = (a: string, b: string) => (last(b)?.id ?? "").localeCompare(last(a)?.id ?? "");
   const shown = (label: string) => label.toLocaleLowerCase(LOCALE).includes(filter.trim().toLocaleLowerCase(LOCALE));
@@ -798,7 +811,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
-          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
+          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
           selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} />
         {selected !== null
           ? <div className="select-bar">
@@ -827,6 +840,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
       {dialog === "invite" && <InviteDialog bus={bus} me={me} admin={admin} onClose={() => setDialog(null)} />}
       {menu && <MessageMenu m={menu.m} x={menu.x} y={menu.y} mine={menu.m.from === me.id}
+        reaction={myReaction(menu.m)} onReact={(e) => { react(menu.m, myReaction(menu.m) === e ? null : e); setMenu(null); }}
         pinned={pinned.has(pinKey(menu.m))} onPin={() => { pin([menu.m], !pinned.has(pinKey(menu.m))); setMenu(null); }}
         onReply={() => { setReply(menu.m); setMenu(null); }}
         onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }}
@@ -970,7 +984,7 @@ function Swipeable({ className, children, onSwipe, onHold }: { className: string
 }
 
 /** The menu a long-press or right-click opens on a message: reply, forward, pin, select, copy. */
-function MessageMenu({ m, x, y, mine, pinned, onPin, onReply, onCopy, onClose, onForward, onSelect }: { m: Message; x: number; y: number; mine: boolean; pinned: boolean; onPin: () => void; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void }) {
+function MessageMenu({ m, x, y, mine, pinned, reaction, onReact, onPin, onReply, onCopy, onClose, onForward, onSelect }: { m: Message; x: number; y: number; mine: boolean; pinned: boolean; reaction: Reaction | null; onReact: (e: Reaction) => void; onPin: () => void; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void }) {
   useEffect(() => {
     const close = () => onClose();
     document.addEventListener("click", close); document.addEventListener("keydown", close); document.addEventListener("scroll", close, true);
@@ -979,6 +993,9 @@ function MessageMenu({ m, x, y, mine, pinned, onPin, onReply, onCopy, onClose, o
   const style: CSSProperties = { left: Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 400) - 180), top: Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 600) - 200) };
   return (
     <div className="msg-menu" style={style} role="menu" onClick={(e) => e.stopPropagation()}>
+      <div className="react-row" role="group" aria-label={S.react}>
+        {REACTIONS.map((e) => <button key={e} role="menuitemradio" aria-checked={reaction === e} className={reaction === e ? "on" : ""} onClick={() => onReact(e)}>{e}</button>)}
+      </div>
       <button role="menuitem" onClick={onReply}>{S.reply}</button>
       {onForward && <button role="menuitem" onClick={onForward}>{S.forwardItem}</button>}
       <button role="menuitem" onClick={onPin}><PinIcon size={13} /> {pinned ? S.unpin : S.pin}</button>
@@ -998,7 +1015,7 @@ function TickMark({ state }: { state: Ticks }) {
   );
 }
 
-function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, onReply, onJump, onMenu, selecting, selected, onToggle }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void }) {
+function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, reactions, onReact, onReply, onJump, onMenu, selecting, selected, onToggle }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; reactions: (m: Message) => { emoji: Reaction; ids: string[] }[]; onReact: (m: Message, e: Reaction) => void; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
   if (!list.length) return <div className="messages empty muted">{loading ? S.loadingMessages : S.noMessages}</div>;
@@ -1032,6 +1049,14 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
               <div className="meta">{isPinned(m) && <span title={S.pinned}><PinIcon /></span>}{m.failed ? S.notSent : m.pending ? S.sending : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
+              {(() => {
+                const rs = m.pending || m.failed ? [] : reactions(m);
+                const name = (id: string) => (id === me.id ? S.you : handle(devices.find((d) => d.id === id) ?? { nick: "?", id }));
+                return rs.length > 0 && <div className="reacts">{rs.map((r) => (
+                  <button key={r.emoji} className={`react ${r.ids.includes(me.id) ? "mine" : ""}`} title={r.ids.map(name).join(", ")} aria-label={`${r.emoji} ${r.ids.map(name).join(", ")}`}
+                    onClick={(e) => { e.stopPropagation(); if (!selecting) onReact(m, r.emoji); }}>{r.emoji}{r.ids.length > 1 && <span>{r.ids.length}</span>}</button>
+                ))}</div>;
+              })()}
             </Swipeable>
             </div>
           </div>

@@ -17,6 +17,7 @@
  *   branch "presence": presence/<id>.json   { id, lastSeen } — rewritten, never grows main's history
  *   branch "receipts": receipts/<id>.json   { id, channels: { <ch>: { delivered?, read? } } } — see Receipt
  *   branch "pins": pins/<id>.json           { id, pins: [{ channel, id, at }] }, see Pin
+ *   branch "reactions": reactions/<id>.json { id, reactions: { "<channel>/<message id>": emoji } }, see Reaction
  */
 
 import { paletteFor as defaultPalette } from "./art.ts";
@@ -55,6 +56,24 @@ export type Receipts = Record<string, Record<string, Receipt>>; // device id -> 
  * "pins" branch like receipts, newest first.
  */
 export type Pin = { channel: string; id: string; at: string };
+/**
+ * A reaction to a message: one of four, so a person and an agent read them the same way. An account (nick#id) has
+ * at most one per message; reacting again replaces it. Kept in reactions/<id>.json on the "reactions" branch, like
+ * receipts and pins, so main gets no history of them and two accounts never write the same file.
+ */
+export const REACTIONS = ["👍", "👎", "🙂", "❤️"] as const;
+export type Reaction = (typeof REACTIONS)[number];
+/** Plain words for the reactions, for the command line: `opencom react <chat> <id> up`. */
+export const REACTION_NAMES: Record<string, Reaction> = { up: "👍", down: "👎", smile: "🙂", heart: "❤️" };
+export type Reactions = Record<string, Record<string, Reaction>>; // device id -> "<channel>/<message id>" -> reaction
+export const reactionKey = (m: Pick<Message, "channel" | "id">) => `${m.channel}/${m.id}`;
+
+/** The reactions on one message, in REACTIONS order, each with who gave it. */
+export function reactionsOn(m: Pick<Message, "channel" | "id">, all: Reactions): { emoji: Reaction; ids: string[] }[] {
+  const key = reactionKey(m);
+  return REACTIONS.map((emoji) => ({ emoji, ids: Object.keys(all).filter((id) => all[id][key] === emoji).sort() })).filter((r) => r.ids.length);
+}
+
 /** WhatsApp's ticks for one of my messages: sent (one), delivered to everyone (two), read by everyone (two blue). */
 export type Ticks = "sent" | "delivered" | "read";
 export type Message = {
@@ -671,6 +690,37 @@ export class Bus {
     return result;
   }
 
+  /** Every account's reactions, as of the "reactions" branch head (or `at`). */
+  async reactions(at?: string | null): Promise<Reactions> {
+    const head = at ?? (await this.head("reactions"));
+    if (!head) return {};
+    const entries = (await this.tree(head)).filter((e) => /^reactions\/\d{4}\.json$/.test(e.path));
+    const all = await Promise.all(entries.map((e) => this.json<{ id: string; reactions?: Record<string, Reaction> }>(e.sha)));
+    return Object.fromEntries(all.map((r) => [r.id, r.reactions ?? {}]));
+  }
+
+  /**
+   * Sets this account's reaction to a message, or with null takes it away; one commit, read from the head it builds
+   * on, so a reaction given meanwhile on another device signed in as it survives. Returns false when nothing would
+   * change (no commit).
+   */
+  async react(me: Pick<Device, "id" | "nick">, m: Pick<Message, "channel" | "id">, emoji: Reaction | null): Promise<boolean> {
+    if (emoji && !REACTIONS.includes(emoji)) throw new Error(`A reaction is one of ${REACTIONS.join(" ")}.`);
+    const key = reactionKey(m);
+    let changed = false;
+    try {
+      await this.commit(async (parent) => {
+        const cur = parent ? (await this.reactions(parent))[me.id] ?? {} : {};
+        if ((cur[key] ?? null) === emoji) throw new Unchanged();
+        const next = { ...cur };
+        if (emoji) next[key] = emoji; else delete next[key];
+        changed = true;
+        return { [`reactions/${me.id}.json`]: JSON.stringify({ id: me.id, reactions: next }) };
+      }, `reaction: ${handle(me)}`, { branch: "reactions" });
+    } catch (e) { if (!(e instanceof Unchanged)) throw e; }
+    return changed;
+  }
+
   /** One message by channel and id (a pinned one older than the loaded history), or null when it is gone. */
   async message(channel: string, id: string): Promise<Message | null> {
     return /^[a-z0-9-]+$/.test(channel) && /^[\w-]+$/.test(id) ? this.readJson<Message>(msgPath({ channel, id })) : null;
@@ -767,6 +817,15 @@ export class Watcher {
     const head = await this.bus.headIfChanged("pins");
     if (!head) return false;
     this.pins = await this.bus.pins(this.me.id, head);
+    return true;
+  }
+
+  /** Everyone's reactions; `tickReactions()` brings them up to date (free while the branch has not moved). */
+  reactions: Reactions = {};
+  async tickReactions(): Promise<boolean> {
+    const head = await this.bus.headIfChanged("reactions");
+    if (!head) return false;
+    this.reactions = await this.bus.reactions(head);
     return true;
   }
 
