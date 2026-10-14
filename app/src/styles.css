@@ -285,3 +285,5 @@ label.toggle input { width: 18px; height: 18px; flex: none; margin: 0; accent-co
 form.contents { display: contents; }
 a.ghost { display: inline-flex; align-items: center; color: inherit; text-decoration: none; }
 .card select { width: 100%; border-radius: 12px; padding: 11px 13px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.card-head .lang-pick { width: auto; padding: 6px 10px; font-size: 14px; }

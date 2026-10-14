@@ -136,6 +136,8 @@ const en = {
   join: "Join",
   yourAccount: (h: string) => <>Your account: <b>{h}</b>. Set a password; after signing out, or on another device, you sign in to this account with <b>{h}</b> and the password.</>,
   savePassword: "Save password",
+  refused: (why: "link" | "user" | "github", login: string, status?: number) =>
+    why === "link" ? "The invitation link is not valid." : why === "user" ? `GitHub has no user named ${login}.` : `GitHub refused to add you (${status}).`,
 
   // chat
   removedDevice: "This device was removed from the chat. Sign out in Settings and join again.",
@@ -391,6 +393,8 @@ const tr: typeof en = {
   join: "Katıl",
   yourAccount: (h) => <>Hesabın: <b>{h}</b>. Bir şifre belirle; çıkış yapınca ya da başka bir cihazdan bu hesapla <b>{h}</b> ve şifreyle girersin.</>,
   savePassword: "Şifreyi kaydet",
+  refused: (why, login, status) =>
+    why === "link" ? "Davet bağlantısı geçersiz." : why === "user" ? `GitHub'da ${login} diye bir kullanıcı yok.` : `GitHub eklemeyi reddetti (${status}).`,
 
   removedDevice: "Bu cihaz sohbetten çıkarılmış. Ayarlar → Çıkış yapıp yeniden katılın.",
   cantConnect: (e) => `Bağlanılamadı, yeniden deneniyor: ${e}`,

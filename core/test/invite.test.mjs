@@ -64,7 +64,7 @@ test("the owner claiming an invite counts as admitted without asking GitHub; an 
   await claim("Ege");
   assert.deepEqual(await processInvites(w.bus, me, w.ntfy), ["Ege"]);
   assert.ok(!w.calls.some((c) => /collaborators\/Ege$/.test(c)), "no PUT for the owner");
-  assert.ok(w.topics[code.t].map((m) => JSON.parse(m)).some((n) => n.kind === "refused" && n.login === "nobody-here" && /kullanıcı yok/.test(n.reason)));
+  assert.ok(w.topics[code.t].map((m) => JSON.parse(m)).some((n) => n.kind === "refused" && n.login === "nobody-here" && n.why === "user"));
 });
 
 test("the invitee accepts GitHub's pending invitation for that repo", async () => {

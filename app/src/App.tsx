@@ -119,7 +119,7 @@ function NextSteps({ session, onContinue }: { session: Session; onContinue: () =
   const standalone = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone;
   return (
     <div className="center"><div className="card">
-      <h1 className="brand">{S.ready}</h1>
+      <div className="card-head"><h1 className="brand">{S.ready}</h1><LangPicker /></div>
       <p>{S.joinedAs(handle(session.device), session.repo.split("/")[1])}</p>
       {p === "ios" && !standalone && (
         <ol className="steps">
@@ -186,6 +186,15 @@ function InviteDialog({ bus, me, admin, onClose }: { bus: Bus; me: Device; admin
       {done && <p className="small">{done}</p>}
       {error && <p className="error small">{error}</p>}
     </Sheet>
+  );
+}
+
+/** The language menu: Settings, and the top of the sign-in screens so it can be changed before signing in. */
+function LangPicker() {
+  return (
+    <select className="lang-pick" aria-label={S.language} title={S.language} value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+      {Object.entries(LANGS).map(([k, name]) => <option key={k} value={k}>{name}</option>)}
+    </select>
   );
 }
 
@@ -339,7 +348,7 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
           if (await acceptInvitation(token, invite.r)) { if (!stop) setStage("join"); return; }
           if (Date.now() - claimed > 60_000) { await post(invite.t, { kind: "claim", id: invite.i, secret: invite.s, login }); claimed = Date.now(); }
           const refused = (await read(invite.t, since)).find((n) => n.kind === "refused" && n.login === login);
-          if (refused && "reason" in refused) { setError(refused.reason); return; }
+          if (refused?.kind === "refused") { setError(refused.why ? S.refused(refused.why, login, refused.status) : refused.reason); return; }
           setNote(Date.now() - started < 20_000 ? S.admitting : S.admitWait(invite.n));
         } catch (e) { setNote(S.retrying((e as Error).message)); }
         await new Promise((r) => setTimeout(r, 4000));
@@ -352,7 +361,7 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
   if (!canSignIn() && !token) {
     return (
       <div className="center"><div className="card">
-        <h1 className="brand">OpenCommunicate</h1>
+        <div className="card-head"><h1 className="brand">OpenCommunicate</h1><LangPicker /></div>
         <p>{S.cliOpen}</p>
         <pre>opencom ui</pre>
         <p className="muted">{S.firstSetup} <code>opencom init {S.cliArgs}</code></p>
@@ -406,7 +415,7 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
 
   return (
     <div className="center"><div className="card">
-      <h1 className="brand">OpenCommunicate</h1>
+      <div className="card-head"><h1 className="brand">OpenCommunicate</h1><LangPicker /></div>
       {invite && <p className="invite-note">{S.invitedTo(invite.n, invite.r.split("/")[1])}</p>}
       {stage === "signin" && (
         <>
@@ -1440,9 +1449,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
           <button className="primary" disabled={busy} onClick={toggleNotify}>{S.createTopic}</button>
         )}
         <h3>{S.language}</h3>
-        <select aria-label={S.language} value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
-          {Object.entries(LANGS).map(([k, name]) => <option key={k} value={k}>{name}</option>)}
-        </select>
+        <LangPicker />
         <div className="actions">
           <button className="ghost" onClick={onClose}>{S.close}</button>
         </div>
