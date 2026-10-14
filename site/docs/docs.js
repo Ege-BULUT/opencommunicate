@@ -12,3 +12,15 @@ function openFromHash() {
 }
 openFromHash();
 window.addEventListener("hashchange", openFromHash);
+
+// Phones: the page list is a drawer. The menu button opens it; the shade, Escape, or a link closes it.
+const menu = document.getElementById("menuBtn");
+if (menu) {
+  const scrim = document.body.appendChild(Object.assign(document.createElement("div"), { className: "scrim" }));
+  const set = (open) => { document.body.classList.toggle("nav-open", open); menu.setAttribute("aria-expanded", String(open)); };
+  menu.addEventListener("click", () => set(!document.body.classList.contains("nav-open")));
+  scrim.addEventListener("click", () => set(false));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") set(false); });
+  document.getElementById("docsNav")?.addEventListener("click", (e) => { if (e.target.closest("a")) set(false); });
+  matchMedia("(min-width: 821px)").addEventListener("change", (e) => { if (e.matches) set(false); });
+}

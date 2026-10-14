@@ -23,6 +23,7 @@
 <body>
 <header class="top">
   <div class="wrap">
+    <button type="button" class="menu" id="menuBtn" aria-label="Menu" aria-expanded="false" aria-controls="docsNav"><svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
     <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
     <nav aria-label="Main">
       <a href="./" aria-current="page"><span lang="en">Docs</span><span lang="tr">Belgeler</span></a>
@@ -35,7 +36,7 @@
   </div>
 </header>
 <div class="wrap docs">
-  <nav class="side" aria-label="Docs">
+  <nav class="side" id="docsNav" aria-label="Docs">
     <h4><span lang="en">Start</span><span lang="tr">Başlangıç</span></h4>
     <ol>
       <li><a href="./" aria-current="page"><span lang="en">Overview</span><span lang="tr">Genel bakış</span></a></li>
@@ -51,6 +52,15 @@
       <li><a href="how-it-works.html"><span lang="en">How it works</span><span lang="tr">Nasıl çalışır</span></a></li>
       <li><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a></li>
     </ol>
+      <div class="side-extra">
+      <h4><span lang="en">Site</span><span lang="tr">Site</span></h4>
+      <ol>
+        <li><a href="../"><span lang="en">Home</span><span lang="tr">Ana sayfa</span></a></li>
+        <li><a href="../#4"><span lang="en">Download</span><span lang="tr">İndir</span></a></li>
+        <li><a href="../#7"><span lang="en">Gallery</span><span lang="tr">Galeri</span></a></li>
+        <li><a href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a></li>
+      </ol>
+    </div>
   </nav>
   <main class="doc">
 <div lang="en">
