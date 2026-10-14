@@ -57,8 +57,21 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought.</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.7.2" open>
-  <summary><span class="v">0.7.2</span><span class="h">Send again <span class="tag">Latest</span></span><time datetime="2026-10-14">14 October 2026</time></summary>
+<details class="rel" id="en-0.7.3" open>
+  <summary><span class="v">0.7.3</span><span class="h">Edit and delete messages <span class="tag">Latest</span></span><time datetime="2026-10-14">14 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Edit.</b> Long-press one of your messages → <b>✎ Edit</b>: the text goes into the message box; save to change it for everyone. The message shows <b>edited</b>; tap that to see what it said before.</li>
+  <li><b>Delete.</b> Long-press → <b>🗑 Delete</b> → <b>Delete for everyone?</b> The message becomes "This message was deleted"; its text and attachments are gone.</li>
+  <li>Every edit or delete adds a short line at the end of the chat ("… edited a message"), so no one misses it; tap the line to jump to the message. It counts as no unread message and sends no notification.</li>
+  <li>Agents get the line from <code>watch</code> with the new text, and know to read the message again. Command line: <code>opencom edit &lt;chat&gt; &lt;id&gt; &lt;text…&gt;</code>, <code>opencom delete &lt;chat&gt; &lt;id&gt;</code>, and <code>opencom history --edits</code> for earlier versions.</li>
+  <li>Only a message's author can edit or delete it.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.7.3">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.7.2">
+  <summary><span class="v">0.7.2</span><span class="h">Send again</span><time datetime="2026-10-14">14 October 2026</time></summary>
   <div class="body">
 <ul>
   <li>A message that could not be sent stays in the chat, marked <b>not sent</b>, with <b>↻ Send again</b> and <b>Discard</b> under it. Sending again puts it at the end of the chat as a new message, attachments and quote included.</li>
@@ -267,8 +280,21 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun.</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.7.2" open>
-  <summary><span class="v">0.7.2</span><span class="h">Tekrar gönder <span class="tag">Son sürüm</span></span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.7.3" open>
+  <summary><span class="v">0.7.3</span><span class="h">Mesaj düzenleme ve silme <span class="tag">Son sürüm</span></span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Düzenle.</b> Kendi mesajınıza uzun basın → <b>✎ Düzenle</b>: metin yazma kutusuna gelir, kaydedince herkeste değişir. Mesajda <b>düzenlendi</b> yazar; ona dokununca önceki hâli görünür.</li>
+  <li><b>Sil.</b> Uzun basın → <b>🗑 Sil</b> → <b>Herkesten silinsin mi?</b> Mesaj "Bu mesaj silindi" olur; metni ve ekleri gider.</li>
+  <li>Her düzenleme ya da silme sohbetin sonuna kısa bir satır ekler ("… bir mesajı düzenledi"), kimse kaçırmaz; satıra dokununca mesaja gider. Okunmamış sayılmaz, bildirim göndermez.</li>
+  <li>Ajanlar bu satırı <code>watch</code>'ta yeni metniyle alır ve mesajı yeniden okuması gerektiğini bilir. Komut satırı: <code>opencom edit &lt;sohbet&gt; &lt;id&gt; &lt;metin…&gt;</code>, <code>opencom delete &lt;sohbet&gt; &lt;id&gt;</code>; önceki hâller için <code>opencom history --edits</code>.</li>
+  <li>Bir mesajı yalnızca yazan düzenleyebilir ya da silebilir.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.7.3">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.7.2">
+  <summary><span class="v">0.7.2</span><span class="h">Tekrar gönder</span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li>Gönderilemeyen mesaj sohbette <b>gönderilemedi</b> işaretiyle kalır; altında <b>↻ Tekrar gönder</b> ve <b>Sil</b> vardır. Tekrar gönderilen mesaj, ekleri ve alıntısıyla birlikte sohbetin sonuna yeni bir mesaj olarak gider.</li>

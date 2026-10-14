@@ -296,3 +296,12 @@ a.ghost { display: inline-flex; align-items: center; color: inherit; text-decora
 .react span { font-size: 11px; color: var(--muted); }
 .react.mine { border-color: var(--accent); }
 .unsent { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }
+/* edits and deletes */
+.text.deleted { font-style: italic; color: var(--muted); }
+.meta .edited { font: inherit; color: var(--muted); margin-right: 6px; text-decoration: underline dotted; padding: 0; }
+.edits { margin: 6px 0 2px; padding: 6px 8px; border-left: 3px solid var(--line); background: color-mix(in srgb, var(--sunken) 70%, transparent); border-radius: 6px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.system.notice { font-family: inherit; font-size: 13px; color: var(--muted); display: block; margin: 0 auto; cursor: pointer; }
+.system.notice:hover { text-decoration: underline; }
+.msg-menu button.danger { color: var(--danger); }
+.msg-menu .confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 8px; font-size: 13px; color: var(--muted); }
+.msg-menu .confirm span { flex-basis: 100%; }
