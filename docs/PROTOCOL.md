@@ -18,6 +18,7 @@ branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, fo
 branch "receipts": receipts/<id>.json    { id, channels: { <channel>: { delivered?, read? } } }
 branch "pins": pins/<id>.json            { id, pins: [{ channel, id, at }] }  newest first
 branch "reactions": reactions/<id>.json  { id, reactions: { "<channel>/<message id>": "👍" | "👎" | "🙂" | "❤️" } }
+branch "drafts": drafts/<id>.json        { id, drafts: { <channel>: { text, at } } } — orphan commits, force-updated
 ```
 
 - **id**: four digits, unique in the repo, picked at join. Shown as `nick#id`.
@@ -98,6 +99,11 @@ branch "reactions": reactions/<id>.json  { id, reactions: { "<channel>/<message 
   head it builds on). The key is `<channel>/<message id>`; reacting again replaces the reaction, taking it back
   removes the key, and no change makes no commit. Reactions are not messages, so `watch` and notifications skip
   them. CLI: `opencom react <chat> <id> up|down|smile|heart [--off]`; `opencom history` lists them.
+- **drafts** (0.7.4): what an account typed in a chat and has not sent, in `drafts/<id>.json` on the `drafts`
+  branch, so it is there again after the app closes and on every app signed in as the account. Orphan commits
+  (like presence): the branch keeps no history. A write reads the file from the head it builds on and changes
+  only the chats it names, so a draft in another chat survives; an empty text removes a chat's draft (sending
+  does). The apps write a second or two after typing stops, and at once when the chat changes or the app hides.
 - **notifications** (optional): a device's `notify` is an `https://ntfy.sh/<secret topic>` URL. After sending,
   a client posts `?title=<sender>&click=opencommunicate://open` with the text to each recipient's topic.
   A device's `quiet` maps channels to `{ mode: "mentions" | "off", until? }`: until the `until` time (or

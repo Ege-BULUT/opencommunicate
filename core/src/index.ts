@@ -20,6 +20,7 @@
  *   branch "receipts": receipts/<id>.json   { id, channels: { <ch>: { delivered?, read? } } } — see Receipt
  *   branch "pins": pins/<id>.json           { id, pins: [{ channel, id, at }] }, see Pin
  *   branch "reactions": reactions/<id>.json { id, reactions: { "<channel>/<message id>": emoji } }, see Reaction
+ *   branch "drafts": drafts/<id>.json       { id, drafts: { <channel>: { text, at } } } — orphan commits, see Draft
  */
 
 import { paletteFor as defaultPalette } from "./art.ts";
@@ -75,6 +76,14 @@ export function reactionsOn(m: Pick<Message, "channel" | "id">, all: Reactions):
   const key = reactionKey(m);
   return REACTIONS.map((emoji) => ({ emoji, ids: Object.keys(all).filter((id) => all[id][key] === emoji).sort() })).filter((r) => r.ids.length);
 }
+
+/**
+ * What an account has typed in a chat and not sent yet, so it is there again after the app closes and on every
+ * device signed in as it. Kept in drafts/<id>.json on the "drafts" branch with orphan commits, like presence: a
+ * draft changes often, and its old versions are worth nothing.
+ */
+export type Draft = { text: string; at: string };
+export type Drafts = Record<string, Draft>; // channel -> draft
 
 /** WhatsApp's ticks for one of my messages: sent (one), delivered to everyone (two), read by everyone (two blue). */
 export type Ticks = "sent" | "delivered" | "read";
@@ -764,6 +773,36 @@ export class Bus {
     return out;
   }
 
+  /** An account's drafts, as of the "drafts" branch head (or `at`). */
+  async drafts(me: string, at?: string | null): Promise<Drafts> {
+    const head = at ?? (await this.head("drafts"));
+    if (!head) return {};
+    const entry = (await this.tree(head)).find((e) => e.path === `drafts/${me}.json`);
+    return entry ? (await this.json<{ drafts?: Drafts }>(entry.sha)).drafts ?? {} : {};
+  }
+
+  /**
+   * Saves drafts for several chats at once (an empty text clears one). Read from the head it builds on, so the
+   * account's drafts in other chats stay; returns them all after the change, and makes no commit when nothing
+   * would change. Orphan commits: the branch keeps no history of drafts.
+   */
+  async setDrafts(me: Pick<Device, "id" | "nick">, update: Record<string, string>): Promise<Drafts> {
+    let result: Drafts = {};
+    try {
+      await this.commit(async (parent) => {
+        const cur = parent ? await this.drafts(me.id, parent) : {};
+        const next = { ...cur };
+        const at = new Date().toISOString();
+        for (const [ch, text] of Object.entries(update)) { if (text.trim()) next[ch] = { text, at }; else delete next[ch]; }
+        result = next;
+        const same = (a: Drafts, b: Drafts) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => b[k]?.text === a[k].text);
+        if (same(next, cur)) { result = cur; throw new Unchanged(); }
+        return { [`drafts/${me.id}.json`]: JSON.stringify({ id: me.id, drafts: next }) };
+      }, `drafts: ${handle(me)}`, { branch: "drafts", orphan: true });
+    } catch (e) { if (!(e instanceof Unchanged)) throw e; }
+    return result;
+  }
+
   /** One message by channel and id (a pinned one older than the loaded history), or null when it is gone. */
   async message(channel: string, id: string): Promise<Message | null> {
     return /^[a-z0-9-]+$/.test(channel) && /^[\w-]+$/.test(id) ? this.readJson<Message>(msgPath({ channel, id })) : null;
@@ -860,6 +899,15 @@ export class Watcher {
     const head = await this.bus.headIfChanged("pins");
     if (!head) return false;
     this.pins = await this.bus.pins(this.me.id, head);
+    return true;
+  }
+
+  /** This account's drafts; `tickDrafts()` picks up one typed on another device signed in as it. */
+  drafts: Drafts = {};
+  async tickDrafts(): Promise<boolean> {
+    const head = await this.bus.headIfChanged("drafts");
+    if (!head) return false;
+    this.drafts = await this.bus.drafts(this.me.id, head);
     return true;
   }
 

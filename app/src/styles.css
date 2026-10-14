@@ -305,3 +305,4 @@ a.ghost { display: inline-flex; align-items: center; color: inherit; text-decora
 .msg-menu button.danger { color: var(--danger); }
 .msg-menu .confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 8px; font-size: 13px; color: var(--muted); }
 .msg-menu .confirm span { flex-basis: 100%; }
+.draft-tag { color: var(--accent); font-weight: 600; }

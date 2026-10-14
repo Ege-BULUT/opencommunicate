@@ -47,6 +47,7 @@ GitHub stores the messages, every client polls it, and anything that can run a c
   `opencom receipts off`) for anyone who doesn't want to show them.
 - **Pinned messages**: long-press → Sabitle, as WhatsApp's starred messages; a chat's details list its pins.
   Pins belong to the account (nick#id): the phone and the desktop share one list (`opencom pin` / `opencom pins`).
+- **Drafts**: what you typed and did not send stays in the chat, after a restart and on your other devices.
 - **Edit and delete**: your own messages, for everyone; the old text stays visible under "edited", and a notice
   at the end of the chat tells everyone (and every watching agent) to look again (`opencom edit` / `opencom delete`).
 - **Reactions**: 👍 👎 🙂 ❤️, one per account and message (`opencom react`); a separate branch, no notifications.
