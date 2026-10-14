@@ -6,6 +6,7 @@ import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
+import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
 import { accountProblem, canSignIn, checkAccount, claim, clearSession, clearSignIn, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, loadSession, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
@@ -54,14 +55,14 @@ function Sheet({ title, className = "", onClose, children }: { title: string; cl
   return (
     <div className="dialog" onClick={onClose}>
       <div className={`card sheet ${className}`} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h2>{title}</h2><button className="icon close" aria-label="Kapat" title="Kapat" onClick={onClose}>×</button></div>
+        <div className="sheet-head"><h2>{title}</h2><button className="icon close" aria-label={S.close} title={S.close} onClick={onClose}>×</button></div>
         {children}
       </div>
     </div>
   );
 }
 const BusContext = createContext<Bus | null>(null);
-const KIND: Record<string, string> = { agent: "ajan", phone: "telefon", desktop: "masaüstü", person: "kişi" };
+const KIND = S.kind;
 const READ_KEY = "oc.read";
 // Read receipts (blue ticks), on unless turned off in Settings. Off works as in WhatsApp: this device tells no one
 // it read their messages and sees no one's blue ticks; delivered (two grey ticks) still goes both ways.
@@ -84,19 +85,19 @@ export default function App() {
     const l = NativeApp.addListener("appUrlOpen", ({ url }) => setArrival(arrivalFrom(url)));
     return () => { l.then((h) => h.remove()); };
   }, []);
-  if (session === undefined) return <div className="center muted">Açılıyor…</div>;
+  if (session === undefined) return <div className="center muted">{S.opening}</div>;
   const use = (s: Session) => { saveSession(s); setSession(s); };
   const forget = () => { setArrival(noArrival); if (location.hash.includes("invite=")) history.replaceState(null, "", location.pathname + location.search); };
   if (!session) return <Onboarding arrival={arrival} onDone={(s) => { forget(); use(s); }} />;
   // an invitation to another chat while signed in to one: this device can be in one chat at a time
   if (arrival.invite && arrival.invite.r.toLowerCase() !== session.repo.toLowerCase()) return (
     <div className="center"><div className="card">
-      <h1 className="brand">Davet</h1>
-      <p><b>{arrival.invite.n}</b> seni <b>{arrival.invite.r.split("/")[1]}</b> sohbetine davet ediyor. Bu cihaz şu an <b>{session.repo.split("/")[1]}</b> sohbetinde.</p>
-      <p className="muted small">Katılırsan bu cihaz şu anki sohbetten çıkar; mesajlar repoda kalır, sonra geri dönebilirsin.</p>
+      <h1 className="brand">{S.invitation}</h1>
+      <p>{S.inviteToOther(arrival.invite.n, arrival.invite.r.split("/")[1], session.repo.split("/")[1])}</p>
+      <p className="muted small">{S.inviteLeaves}</p>
       <div className="actions start">
-        <button className="primary" onClick={() => { clearSession(); setSession(null); }}>Davete katıl</button>
-        <button className="ghost" onClick={forget}>Vazgeç</button>
+        <button className="primary" onClick={() => { clearSession(); setSession(null); }}>{S.joinInvite}</button>
+        <button className="ghost" onClick={forget}>{S.cancel}</button>
       </div>
     </div></div>
   );
@@ -118,23 +119,23 @@ function NextSteps({ session, onContinue }: { session: Session; onContinue: () =
   const standalone = matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone;
   return (
     <div className="center"><div className="card">
-      <h1 className="brand">Hazırsın 🎉</h1>
-      <p><b>{handle(session.device)}</b> olarak <b>{session.repo.split("/")[1]}</b> sohbetine katıldın.</p>
+      <h1 className="brand">{S.ready}</h1>
+      <p>{S.joinedAs(handle(session.device), session.repo.split("/")[1])}</p>
       {p === "ios" && !standalone && (
         <ol className="steps">
-          <li>Safari'de alttaki <b>Paylaş</b> düğmesine (kareden çıkan ok) bas, <b>Ana Ekrana Ekle</b>'yi seç. OpenCommunicate ana ekranında uygulama gibi açılır.</li>
-          <li>Ana ekrandaki simgeden açınca bir kez daha <b>GitHub ile giriş yap</b>, sonra <b>Hesabım var</b> ile <b>{handle(session.device)}</b> ve şifrenle gir.</li>
-          <li>Uygulama kapalıyken bildirim için ücretsiz <a href={NTFY_IOS} target="_blank" rel="noreferrer">ntfy</a> uygulamasını kur, sonra OpenCommunicate'te Ayarlar → <b>Bildirim konusu oluştur</b>.</li>
+          <li>{S.iosStep1}</li>
+          <li>{S.iosStep2(handle(session.device))}</li>
+          <li>{S.iosStep3(NTFY_IOS)}</li>
         </ol>
       )}
       {p === "android" && (
         <ol className="steps">
-          <li><a href={SITE} target="_blank" rel="noreferrer">Android uygulamasını indir</a> ve kur (Android "bilinmeyen kaynak" izni isterse ver).</li>
-          <li>Kurduktan sonra: <a href={`opencommunicate://join?repo=${encodeURIComponent(session.repo)}`}>Uygulamada aç</a>. GitHub ile giriş yap, sonra <b>Hesabım var</b> ile <b>{handle(session.device)}</b> ve şifrenle gir.</li>
+          <li>{S.androidStep1(SITE)}</li>
+          <li>{S.androidStep2(`opencommunicate://join?repo=${encodeURIComponent(session.repo)}`, handle(session.device))}</li>
         </ol>
       )}
-      {p === "desktop" && <p>İstersen <a href={SITE} target="_blank" rel="noreferrer">Mac ya da Windows uygulamasını indir</a>; ya da bu tarayıcıda devam et.</p>}
-      <button className="primary" onClick={onContinue}>{p === "ios" && !standalone ? "Şimdilik tarayıcıda devam et" : "Sohbete geç"}</button>
+      {p === "desktop" && <p>{S.desktopNext(SITE)}</p>}
+      <button className="primary" onClick={onContinue}>{p === "ios" && !standalone ? S.browserForNow : S.toChat}</button>
     </div></div>
   );
 }
@@ -145,10 +146,10 @@ function PasteInvite({ onInvite }: { onInvite: (c: InviteCode) => void }) {
   const code = decodeInvite(text);
   return (
     <details className="paste">
-      <summary>Davet bağlantım var</summary>
-      <input value={text} placeholder="Davet bağlantısını yapıştırın" onChange={(e) => setText(e.target.value)} />
-      {text && !code && <p className="error small">Bu bir davet bağlantısı değil.</p>}
-      {code && <button className="ghost" onClick={() => onInvite(code)}>{code.n} davetiyle devam et</button>}
+      <summary>{S.haveInvite}</summary>
+      <input value={text} placeholder={S.pasteInvite} onChange={(e) => setText(e.target.value)} />
+      {text && !code && <p className="error small">{S.notInvite}</p>}
+      {code && <button className="ghost" onClick={() => onInvite(code)}>{S.continueInvite(code.n)}</button>}
     </details>
   );
 }
@@ -164,24 +165,24 @@ function InviteDialog({ bus, me, admin, onClose }: { bus: Bus; me: Device; admin
   const message = async () => {
     let l = link;
     if (!l) { l = (await createInvite(bus, me, { name: name.trim() || undefined, base: INVITE_BASE })).link; setLink(l); }
-    return inviteMessage(l, handle(me), bus.repo, name.trim() || undefined);
+    return inviteMessage(l, handle(me), bus.repo, name.trim() || undefined, lang);
   };
   const run = (f: (text: string) => Promise<void> | void) => async () => {
     setBusy(true); setError(""); setDone("");
     try { await f(await message()); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   return (
-    <Sheet title="Kişi davet et" onClose={onClose}>
-      <p className="small">Tek kullanımlık bir bağlantı oluşturulur. Davetli bağlantıyı açıp GitHub ile giriş yapınca sohbete eklenir; Android, iPhone ve bilgisayarda çalışır. Bağlantı 3 gün geçerli.</p>
-      {!admin && <p className="muted small">Davetleri repo yöneticisinin açık uygulaması onaylar. Senin hesabın bu reponun yöneticisi değil; davetli, yöneticinin uygulaması açıkken eklenir.</p>}
-      <label>Adı (isteğe bağlı)<input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder="Ayşe" /></label>
-      <label>Telefon numarası<input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+90 5xx xxx xx xx" /></label>
+    <Sheet title={S.inviteSomeone} onClose={onClose}>
+      <p className="small">{S.inviteIntro}</p>
+      {!admin && <p className="muted small">{S.inviteNotAdmin}</p>}
+      <label>{S.nameOptional}<input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder={S.namePlaceholder} /></label>
+      <label>{S.phone}<input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={S.phonePlaceholder} /></label>
       <div className="actions start">
-        <button className="primary" disabled={busy || phone.replace(/\D/g, "").length < 10} onClick={run((t) => openLink(whatsappLink(phone, t)))}>WhatsApp'ta gönder</button>
-        <button className="ghost" disabled={busy} onClick={run(async (t) => { await navigator.clipboard.writeText(t); setDone("Mesaj kopyalandı; istediğin yerden gönderebilirsin."); })}>Mesajı kopyala</button>
-        {(native() || "share" in navigator) && <button className="ghost" disabled={busy} onClick={run(async (t) => { if (native()) await Share.share({ text: t }); else await navigator.share({ text: t }); })}>Paylaş</button>}
+        <button className="primary" disabled={busy || phone.replace(/\D/g, "").length < 10} onClick={run((t) => openLink(whatsappLink(phone, t)))}>{S.sendWhatsApp}</button>
+        <button className="ghost" disabled={busy} onClick={run(async (t) => { await navigator.clipboard.writeText(t); setDone(S.messageCopied); })}>{S.copyMessage}</button>
+        {(native() || "share" in navigator) && <button className="ghost" disabled={busy} onClick={run(async (t) => { if (native()) await Share.share({ text: t }); else await navigator.share({ text: t }); })}>{S.share}</button>}
       </div>
-      {link && <p className="muted small">Bağlantı oluşturuldu. Aynı pencereden tekrar gönderirsen aynı bağlantı gider.</p>}
+      {link && <p className="muted small">{S.linkCreated}</p>}
       {done && <p className="small">{done}</p>}
       {error && <p className="error small">{error}</p>}
     </Sheet>
@@ -223,17 +224,17 @@ function GitHubSignIn({ label, primary = true, onToken }: { label: string; prima
   };
   if (code) return (
     <div className="code">
-      <p>github.com/login/device sayfasına bu kodu {copied ? "yapıştırın" : "girin"}:</p>
-      <button type="button" className="usercode" title="Kopyala" onClick={async () => setCopied(await copyText(code.user_code))}>{code.user_code}</button>
-      <p className="muted small" aria-live="polite">{copied ? "Kod kopyalandı ✓ Yeniden kopyalamak için koda dokunun." : "Kopyalamak için koda dokunun."}</p>
+      <p>{S.enterCode(copied)}</p>
+      <button type="button" className="usercode" title={S.copy} onClick={async () => setCopied(await copyText(code.user_code))}>{code.user_code}</button>
+      <p className="muted small" aria-live="polite">{copied ? S.codeCopied : S.tapToCopy}</p>
       {/* a real link: a browser opens it on the click itself, where a window.open after an await is a blocked popup */}
       <a className="ghost" href={code.verification_uri} target="_blank" rel="noopener"
-        onClick={native() ? (e) => { e.preventDefault(); openLink(code.verification_uri).catch(() => {}); } : undefined}>GitHub'ı aç</a>
-      <p className="muted small">Onayladıktan sonra burada kendiliğinden devam eder. Başka bir hesap için GitHub sayfasında önce o hesaba geçin.</p>
+        onClick={native() ? (e) => { e.preventDefault(); openLink(code.verification_uri).catch(() => {}); } : undefined}>{S.openGitHub}</a>
+      <p className="muted small">{S.afterApprove}</p>
     </div>
   );
   return <>
-    <button className={primary ? "primary" : "ghost"} disabled={busy} onClick={go}>{busy ? "Bekleniyor…" : label}</button>
+    <button className={primary ? "primary" : "ghost"} disabled={busy} onClick={go}>{busy ? S.waiting : label}</button>
     {error && <p className="error">{error}</p>}
   </>;
 }
@@ -249,7 +250,7 @@ function PasswordForm({ current, username, label, onSave }: { current?: Password
   const save = async () => {
     setBusy(true); setError(""); setDone(false);
     try {
-      if (current && !(await verifyPassword(old, current))) throw new Error("Mevcut şifre hatalı.");
+      if (current && !(await verifyPassword(old, current))) throw new Error(S.wrongCurrent);
       await onSave(pw);
       setOld(""); setPw(""); setAgain(""); setDone(true);
     } catch (e) { setError((e as Error).message); }
@@ -258,24 +259,24 @@ function PasswordForm({ current, username, label, onSave }: { current?: Password
   // a form with the account in a hidden username field, so the browser's password manager offers to save both
   return <form className="contents" onSubmit={(e) => { e.preventDefault(); save(); }}>
     <input hidden readOnly name="username" autoComplete="username" value={username} />
-    {current && <label>Mevcut şifre<input type="password" autoComplete="current-password" value={old} onChange={(e) => setOld(e.target.value)} /></label>}
-    <label>{current ? "Yeni şifre" : "Şifre"}<input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
-    <label>{current ? "Yeni şifre (tekrar)" : "Şifre (tekrar)"}<input type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></label>
-    {pw && pw.length < PASSWORD_MIN && <p className="muted small">En az {PASSWORD_MIN} karakter.</p>}
-    {again && again !== pw && <p className="error small">Şifreler aynı değil.</p>}
+    {current && <label>{S.currentPassword}<input type="password" autoComplete="current-password" value={old} onChange={(e) => setOld(e.target.value)} /></label>}
+    <label>{current ? S.newPassword : S.password}<input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+    <label>{current ? S.newPasswordAgain : S.passwordAgain}<input type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></label>
+    {pw && pw.length < PASSWORD_MIN && <p className="muted small">{S.minChars(PASSWORD_MIN)}</p>}
+    {again && again !== pw && <p className="error small">{S.mismatch}</p>}
     <div className="actions start">
-      <button type="submit" className="primary" disabled={busy || pw.length < PASSWORD_MIN || pw !== again || (!!current && !old)}>{busy ? "Kaydediliyor…" : label}</button>
+      <button type="submit" className="primary" disabled={busy || pw.length < PASSWORD_MIN || pw !== again || (!!current && !old)}>{busy ? S.saving : label}</button>
     </div>
-    {done && <p className="small">Şifre kaydedildi.</p>}
+    {done && <p className="small">{S.passwordSaved}</p>}
     {error && <p className="error small">{error}</p>}
   </form>;
 }
 
 /** A failed claim in words; wrong handle and wrong password read the same. */
 function claimProblem(e: unknown, repo: string): string {
-  if (e instanceof ClaimError) return e.reason === "format" ? "Hesabı ad#1234 biçiminde yazın."
-    : e.reason === "login" ? "Bu hesabın henüz şifresi yok; ilk girişi, hesabı açan GitHub hesabıyla yapılmalı."
-    : "Hesap adı ya da şifre hatalı.";
+  if (e instanceof ClaimError) return e.reason === "format" ? S.claimFormat
+    : e.reason === "login" ? S.claimNoPassword
+    : S.claimWrong;
   return accountProblem(e, repo) ?? (e as Error).message;
 }
 
@@ -284,7 +285,7 @@ const NEW_REPO = "+new"; // the "create a chat repository" choice; no "owner/nam
 /** The repository list in two groups, with a repository from a link at the top even when the list lacks it. */
 function repoGroups(repos: string[], picked: string): [string, string[]][] {
   const all = picked && picked !== NEW_REPO && !repos.some((r) => r.toLowerCase() === picked.toLowerCase()) ? [picked, ...repos] : repos;
-  return [["Sohbet repoları", all.filter(looksLikeChat)], ["Diğer repolar", all.filter((r) => !looksLikeChat(r))]];
+  return [[S.chatRepos, all.filter(looksLikeChat)], [S.otherRepos, all.filter((r) => !looksLikeChat(r))]];
 }
 
 // ---------------- sign-in + join (phone) ----------------
@@ -339,9 +340,8 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
           if (Date.now() - claimed > 60_000) { await post(invite.t, { kind: "claim", id: invite.i, secret: invite.s, login }); claimed = Date.now(); }
           const refused = (await read(invite.t, since)).find((n) => n.kind === "refused" && n.login === login);
           if (refused && "reason" in refused) { setError(refused.reason); return; }
-          setNote(Date.now() - started < 20_000 ? "Davet onaylanıyor…"
-            : `${invite.n} ya da sohbetteki bir yöneticinin uygulaması açık olduğunda onaylanır. Bu sayfayı açık bırak; onaylanınca kendiliğinden devam eder.`);
-        } catch (e) { setNote(`Bağlantı sorunu, yeniden deneniyor: ${(e as Error).message}`); }
+          setNote(Date.now() - started < 20_000 ? S.admitting : S.admitWait(invite.n));
+        } catch (e) { setNote(S.retrying((e as Error).message)); }
         await new Promise((r) => setTimeout(r, 4000));
       }
     })();
@@ -353,9 +353,9 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
     return (
       <div className="center"><div className="card">
         <h1 className="brand">OpenCommunicate</h1>
-        <p>Masaüstünde uygulamayı komut satırından açın:</p>
+        <p>{S.cliOpen}</p>
         <pre>opencom ui</pre>
-        <p className="muted">İlk kurulum: <code>opencom init &lt;sahip/repo&gt; --nick &lt;ad&gt;</code></p>
+        <p className="muted">{S.firstSetup} <code>opencom init {S.cliArgs}</code></p>
       </div></div>
     );
   }
@@ -407,30 +407,30 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
   return (
     <div className="center"><div className="card">
       <h1 className="brand">OpenCommunicate</h1>
-      {invite && <p className="invite-note"><b>{invite.n}</b> seni <b>{invite.r.split("/")[1]}</b> sohbetine davet ediyor.</p>}
+      {invite && <p className="invite-note">{S.invitedTo(invite.n, invite.r.split("/")[1])}</p>}
       {stage === "signin" && (
         <>
-          <p>Kişiler ve ajanlar, özel bir GitHub reposu üzerinden mesajlaşır. {invite ? "Katılmak" : "Başlamak"} için GitHub ile giriş yapın.</p>
-          <GitHubSignIn label="GitHub ile giriş yap" onToken={signedIn} />
-          {invite && <p className="muted small">GitHub hesabın yoksa github.com'da ücretsiz açıp buraya dönebilirsin.</p>}
+          <p>{S.intro(!!invite)}</p>
+          <GitHubSignIn label={S.signInGitHub} onToken={signedIn} />
+          {invite && <p className="muted small">{S.noGitHub}</p>}
           {!invite && native() && <PasteInvite onInvite={(c) => { setRepo(c.r); location.hash = `invite=${encodeInvite(c)}`; location.reload(); }} />}
         </>
       )}
       {stage === "admit" && (
         <>
-          <p>Giriş yapıldı: <b>{login}</b>.</p>
-          {!error && <p className="muted"><span className="spinner" aria-hidden="true" /> {note || "Davet onaylanıyor…"}</p>}
+          <p>{S.signedInAs(login)}</p>
+          {!error && <p className="muted"><span className="spinner" aria-hidden="true" /> {note || S.admitting}</p>}
         </>
       )}
       {stage === "join" && (
         <>
-          <p>Giriş yapıldı: <b>{login}</b>. {invite ? "Sohbete eklendin." : "Hangi sohbete katılıyorsunuz?"}</p>
+          <p>{S.signedInAs(login)} {invite ? S.addedToChat : S.whichChat}</p>
           {!invite && (reposFailed
-            ? <label>Sohbet reposu<input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="sahip/repo" /></label>
-            : <label>Sohbet reposu
+            ? <label>{S.chatRepo}<input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={S.ownerRepo} /></label>
+            : <label>{S.chatRepo}
                 <select value={repos ? repo : ""} disabled={!repos} onChange={(e) => { setRepo(e.target.value); setError(""); }}>
-                  {!repos ? <option value="">Repolar yükleniyor…</option> : <>
-                    <option value={NEW_REPO}>＋ Yeni sohbet reposu oluştur</option>
+                  {!repos ? <option value="">{S.loadingRepos}</option> : <>
+                    <option value={NEW_REPO}>{S.newChatRepo}</option>
                     {repoGroups(repos, repo).map(([title, names]) => names.length > 0 && (
                       <optgroup key={title} label={title}>{names.map((n) => <option key={n} value={n}>{n}</option>)}</optgroup>
                     ))}
@@ -438,34 +438,34 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
                 </select>
               </label>)}
           {creating && <>
-            <label>Yeni repo adı<input value={newName} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(e) => { setNewName(e.target.value); setError(""); }} /></label>
+            <label>{S.newRepoName}<input value={newName} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(e) => { setNewName(e.target.value); setError(""); }} /></label>
             {nameTaken
-              ? <p className="error small"><b>{newRepo}</b> adında bir repo zaten var. Yeni isim ne olsun?</p>
-              : <p className="muted small">Oluşturulacak: <b>{newRepo}</b> (private). Sohbet repolarının adı hep <code>-chat</code> ile biter.</p>}
+              ? <p className="error small">{S.repoTaken(newRepo)}</p>
+              : <p className="muted small">{S.repoPreview(newRepo)}</p>}
           </>}
           {/* a new repository has no accounts yet, so there is only "Yeni hesap" */}
-          {!creating && <div className="actions start" role="radiogroup" aria-label="Hesap">
-            <button role="radio" aria-checked={mode === "have"} className={mode === "have" ? "primary" : "ghost"} onClick={() => { setMode("have"); setError(""); }}>Hesabım var</button>
-            <button role="radio" aria-checked={mode === "new"} className={mode === "new" ? "primary" : "ghost"} onClick={() => { setMode("new"); setError(""); }}>Yeni hesap</button>
+          {!creating && <div className="actions start" role="radiogroup" aria-label={S.account}>
+            <button role="radio" aria-checked={mode === "have"} className={mode === "have" ? "primary" : "ghost"} onClick={() => { setMode("have"); setError(""); }}>{S.haveAccount}</button>
+            <button role="radio" aria-checked={mode === "new"} className={mode === "new" ? "primary" : "ghost"} onClick={() => { setMode("new"); setError(""); }}>{S.newAccount}</button>
           </div>}
           {mode === "have" && !creating ? (
             // a real form with username/password fields, so the browser's password manager fills and saves the account
             <form className="contents" onSubmit={(e) => { e.preventDefault(); doClaim(); }}>
-              <label>Hesap (ad#1234)<input name="username" autoComplete="username" value={account} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="ad#1234" onChange={(e) => setAccount(e.target.value)} /></label>
-              <label>Şifre<input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPasswordText(e.target.value)} /></label>
-              <button type="submit" className="primary" disabled={busy || !repo.includes("/") || !account.includes("#")}>{busy ? "Bağlanıyor…" : "Giriş yap"}</button>
+              <label>{S.accountField}<input name="username" autoComplete="username" value={account} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={S.accountPlaceholder} onChange={(e) => setAccount(e.target.value)} /></label>
+              <label>{S.password}<input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPasswordText(e.target.value)} /></label>
+              <button type="submit" className="primary" disabled={busy || !repo.includes("/") || !account.includes("#")}>{busy ? S.connecting : S.signIn}</button>
             </form>
           ) : <>
-            <label>Takma ad<input value={nick} maxLength={24} onChange={(e) => setNick(e.target.value)} /></label>
-            <p className="muted">Size ad#1234 biçiminde bir kimlik verilir, sonra bir şifre belirlersiniz.</p>
-            <button className="primary" disabled={busy || !nick.trim() || (creating ? !newName.trim() || nameTaken : !repo.includes("/"))} onClick={doJoin}>{busy ? "Bağlanıyor…" : creating ? "Oluştur ve katıl" : "Katıl"}</button>
+            <label>{S.nickname}<input value={nick} maxLength={24} onChange={(e) => setNick(e.target.value)} /></label>
+            <p className="muted">{S.handleNote}</p>
+            <button className="primary" disabled={busy || !nick.trim() || (creating ? !newName.trim() || nameTaken : !repo.includes("/"))} onClick={doJoin}>{busy ? S.connecting : creating ? S.createAndJoin : S.join}</button>
           </>}
         </>
       )}
       {stage === "password" && joined && (
         <>
-          <p>Hesabın: <b>{handle(joined.device)}</b>. Bir şifre belirle; çıkış yapınca ya da başka bir cihazdan bu hesapla <b>{handle(joined.device)}</b> ve şifreyle girersin.</p>
-          <PasswordForm username={handle(joined.device)} label="Şifreyi kaydet" onSave={async (pw) => { await setPassword(joined, pw); finish(joined); }} />
+          <p>{S.yourAccount(handle(joined.device))}</p>
+          <PasswordForm username={handle(joined.device)} label={S.savePassword} onSave={async (pw) => { await setPassword(joined, pw); finish(joined); }} />
         </>
       )}
       {error && <p className="error">{error}</p>}
@@ -489,7 +489,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [dialog, setDialog] = useState<"group" | "settings" | "channel" | "invite" | null>(null);
   const [admin, setAdmin] = useState(false);
   const [toast, setToast] = useState("");
-  const [status, setStatus] = useState("Yükleniyor…");
+  const [status, setStatus] = useState(S.loading);
   const [account, setAccount] = useState<string | null>(null); // a GitHub problem only the person can fix
   const [read, setRead] = useState<Record<string, string>>(() => { try { return JSON.parse(localStorage.getItem(READ_KEY) ?? "{}"); } catch { return {}; } });
   const [receipts, setReceipts] = useState<Receipts>({});
@@ -563,7 +563,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         // the repository's devices/<id>.json is the truth (another client may have changed it)
         const stored = watcher.devices.find((d) => d.id === session.device.id);
           if (stored) { setMe(stored); if (session.source === "app") saveSession({ ...session, device: stored }); }
-          else if (watcher.devices.length) { setStatus("Bu cihaz sohbetten çıkarılmış. Ayarlar → Çıkış yapıp yeniden katılın."); return; }
+          else if (watcher.devices.length) { setStatus(S.removedDevice); return; }
           const hist = await bus.histories([...watcher.channels], 60, watcher.head ?? undefined);
           for (const list of Object.values(hist)) list.forEach((m) => watcher.seen.add(msgPath(m)));
           setMessages(hist);
@@ -578,7 +578,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         } catch (e) {
           const problem = accountProblem(e, session.repo);
           setAccount(problem);
-          setStatus(problem ? "" : `Bağlanılamadı, yeniden deneniyor: ${(e as Error).message}`);
+          setStatus(problem ? "" : S.cantConnect((e as Error).message));
           await sleep(wait);
         }
       }
@@ -596,7 +596,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           if (await watcher.tickPins().catch(() => false)) setPins(watcher.pins);
           for (const m of fresh) {
             if (m.from === session.device.id || !wantsNotice(meRef.current, m)) continue;
-            if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || "📎 dosya");
+            if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
           }
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); bus.presence().then(setPresence).catch(() => {}); }
           failures = 0;
@@ -605,7 +605,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           const problem = accountProblem(e, session.repo);
           if (problem) setAccount(problem);
           // phones drop a request now and then (network switch, app waking up); only a run of failures is news
-          else if (++failures >= 3) setStatus(`Bağlantı sorunu: ${(e as Error).message}`);
+          else if (++failures >= 3) setStatus(S.connProblem((e as Error).message));
         }
       }
     })();
@@ -621,7 +621,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
       setAdmin(true);
       while (!stop) {
         try {
-          for (const login of await processInvites(bus, meRef.current)) { setToast(`${login} davetle sohbete eklendi.`); setTimeout(() => setToast(""), 8000); }
+          for (const login of await processInvites(bus, meRef.current)) { setToast(S.joinedByInvite(login)); setTimeout(() => setToast(""), 8000); }
         } catch { /* next round */ }
         await new Promise((r) => setTimeout(r, 15_000));
       }
@@ -676,9 +676,9 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
       const sent = await bus.forward(channel, me, msgs);
       if (channel === active) add(sent);
       for (const m of sent) notifyRecipients(m, me, devices, groups).catch(() => {});
-      setToast(`${sent.length} mesaj ${isDm(channel) ? "@" + handle(devices.find((d) => d.id === dmPeer(channel, me.id)) ?? { nick: "?", id: "" }) : "#" + (channel === "all" ? "all" : groups.find((g) => g.channel === channel)?.name ?? channel)} sohbetine iletildi.`);
+      setToast(S.forwardedTo(sent.length, isDm(channel) ? "@" + handle(devices.find((d) => d.id === dmPeer(channel, me.id)) ?? { nick: "?", id: "" }) : "#" + (channel === "all" ? "all" : groups.find((g) => g.channel === channel)?.name ?? channel)));
       setTimeout(() => setToast(""), 5000);
-    } catch (e) { setToast(`İletilemedi: ${(e as Error).message}`); setTimeout(() => setToast(""), 6000); }
+    } catch (e) { setToast(S.cantForward((e as Error).message)); setTimeout(() => setToast(""), 6000); }
   };
   const byId = useCallback((id: string) => (messages[active] ?? []).find((m) => m.id === id), [messages, active]);
   const jumpTo = useCallback((id: string) => {
@@ -692,20 +692,20 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     const before = pins;
     setPins(on ? [...msgs.filter((m) => !pinned.has(pinKey(m))).map((m) => ({ channel: m.channel, id: m.id, at: new Date().toISOString() })), ...pins] : pins.filter((p) => !msgs.some((m) => pinKey(m) === pinKey(p))));
     try { setPins(await bus.setPins(me, msgs, on)); }
-    catch (e) { setPins(before); setToast(`${on ? "Sabitlenemedi" : "Sabitleme kaldırılamadı"}: ${(e as Error).message}`); setTimeout(() => setToast(""), 6000); }
+    catch (e) { setPins(before); setToast(S.cantPin(on, (e as Error).message)); setTimeout(() => setToast(""), 6000); }
   };
   const last = (ch: string) => messages[ch]?.at(-1);
   const recent = (a: string, b: string) => (last(b)?.id ?? "").localeCompare(last(a)?.id ?? "");
-  const shown = (label: string) => label.toLocaleLowerCase("tr-TR").includes(filter.trim().toLocaleLowerCase("tr-TR"));
+  const shown = (label: string) => label.toLocaleLowerCase(LOCALE).includes(filter.trim().toLocaleLowerCase(LOCALE));
   const preview = (ch: string) => {
     const m = last(ch);
     if (!m) return "";
     const body = m.system ? systemText(m, devices) : m.text || (m.files?.length ? `📎 ${m.files[0].name}` : "");
     if (m.system) return body;
-    if (m.from === me.id) return `Siz: ${body}`;
+    if (m.from === me.id) return S.youSaid(body);
     return isDm(ch) ? body : `${m.fromNick}: ${body}`;
   };
-  const seen = (id: string) => (online(id) ? "çevrimiçi" : presence[id] ? `son görülme ${when(presence[id])}` : "");
+  const seen = (id: string) => (online(id) ? S.online : presence[id] ? S.lastSeen(when(presence[id])) : "");
   const title = active === "all" ? "#all" : isDm(active) ? `@${handle(devices.find((d) => d.id === dmPeer(active, me.id)) ?? { nick: "?", id: dmPeer(active, me.id) })}` : `#${groups.find((g) => g.channel === active)?.name ?? active}`;
 
   const open = (ch: string) => { setActive(ch); setMobileView("chat"); };
@@ -715,7 +715,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const headAvatar = peer ? <Avatar name={peer.nick} seed={peer.id} shape={peer.kind === "agent" ? "agent" : "person"} online={online(peer.id)} size={36} picture={pictureOf(peer)} />
     : <Avatar name={activeGroup?.name ?? "all"} seed={activeGroup?.channel ?? "all"} shape="group" size={36} />;
   const headSub = peer ? [KIND[peer.kind] ?? peer.kind, seen(peer.id)].filter(Boolean).join(" · ")
-    : activeGroup ? `${activeGroup.members.length} üye` : `herkes · ${devices.length} kişi`;
+    : activeGroup ? S.members(activeGroup.members.length) : S.everyoneCount(devices.length);
   const loud = Object.keys(messages).filter((ch) => quietFor(me, ch)?.mode !== "off").reduce((n, ch) => n + unread(ch), 0);
   useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
 
@@ -735,7 +735,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     } catch (e) {
       setMessages((prev) => ({ ...prev, [active]: (prev[active] ?? []).map((x) => (x.id === draft.id ? { ...x, pending: false, failed: true } : x)) }));
       const problem = accountProblem(e, session.repo);
-      if (problem) setAccount(problem); else setStatus(`Gönderilemedi: ${(e as Error).message}`);
+      if (problem) setAccount(problem); else setStatus(S.cantSend((e as Error).message));
     }
   };
 
@@ -746,8 +746,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         <header className="side-head">
           <span className="brand">OpenCommunicate</span>
           <span className="head-buttons">
-            <button className="icon" title="Kişi davet et" aria-label="Kişi davet et" onClick={() => setDialog("invite")}><PersonPlus /></button>
-            <button className="icon" title="Ayarlar" aria-label="Ayarlar" onClick={() => setDialog("settings")}><Gear /></button>
+            <button className="icon" title={S.inviteSomeone} aria-label={S.inviteSomeone} onClick={() => setDialog("invite")}><PersonPlus /></button>
+            <button className="icon" title={S.settings} aria-label={S.settings} onClick={() => setDialog("settings")}><Gear /></button>
           </span>
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
@@ -755,17 +755,17 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} picture={pictureOf(me)} />
           <span className="me-text"><b>{handle(me)}</b><span className="muted">{session.repo.split("/")[1]}</span></span>
         </div>
-        <div className="filter"><input type="search" value={filter} placeholder="Sohbet ya da kişi ara" aria-label="Ara" onChange={(e) => setFilter(e.target.value)} /></div>
+        <div className="filter"><input type="search" value={filter} placeholder={S.searchChats} aria-label={S.search} onChange={(e) => setFilter(e.target.value)} /></div>
         <nav>
-          {shown("#all herkes") && <ChannelRow avatar={<Avatar name="all" seed="all" shape="group" />} label="#all" preview={preview("all") || "Herkes"} time={last("all")?.ts} quiet={quiet("all")} count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />}
-          <div className="section">Gruplar <button className="mini" onClick={() => setDialog("group")}>+ Yeni grup</button></div>
-          {myGroups.length === 0 && <p className="muted small">Henüz grup yok.</p>}
-          {myGroups.filter((g) => shown(g.name)).sort((a, b) => recent(a.channel, b.channel) || a.name.localeCompare(b.name, "tr")).map((g) => (
-            <ChannelRow key={g.channel} avatar={<Avatar name={g.name} seed={g.channel} shape="group" />} label={`#${g.name}`} preview={preview(g.channel) || `${g.members.length} üye`}
+          {shown(`#all ${S.everyone}`) && <ChannelRow avatar={<Avatar name="all" seed="all" shape="group" />} label="#all" preview={preview("all") || S.everyone} time={last("all")?.ts} quiet={quiet("all")} count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />}
+          <div className="section">{S.groups} <button className="mini" onClick={() => setDialog("group")}>{S.newGroupButton}</button></div>
+          {myGroups.length === 0 && <p className="muted small">{S.noGroups}</p>}
+          {myGroups.filter((g) => shown(g.name)).sort((a, b) => recent(a.channel, b.channel) || a.name.localeCompare(b.name, LOCALE)).map((g) => (
+            <ChannelRow key={g.channel} avatar={<Avatar name={g.name} seed={g.channel} shape="group" />} label={`#${g.name}`} preview={preview(g.channel) || S.members(g.members.length)}
               time={last(g.channel)?.ts} quiet={quiet(g.channel)} count={unread(g.channel)} activeCh={active === g.channel} onClick={() => open(g.channel)} />
           ))}
-          <div className="section">Kişiler ve ajanlar</div>
-          {others.filter((d) => shown(handle(d))).sort((a, b) => recent(dmChannel(me.id, a.id), dmChannel(me.id, b.id)) || a.nick.localeCompare(b.nick, "tr")).map((d) => {
+          <div className="section">{S.peopleAndAgents}</div>
+          {others.filter((d) => shown(handle(d))).sort((a, b) => recent(dmChannel(me.id, a.id), dmChannel(me.id, b.id)) || a.nick.localeCompare(b.nick, LOCALE)).map((d) => {
             const ch = dmChannel(me.id, d.id);
             return <ChannelRow key={d.id} avatar={<Avatar name={d.nick} seed={d.id} shape={d.kind === "agent" ? "agent" : "person"} online={online(d.id)} picture={pictureOf(d)} />} label={handle(d)}
               preview={preview(ch) || [KIND[d.kind] ?? d.kind, seen(d.id)].filter(Boolean).join(" · ")} time={last(ch)?.ts} quiet={quiet(ch)} count={unread(ch)} activeCh={active === ch} onClick={() => open(ch)} />;
@@ -775,32 +775,32 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
 
       <main className="chat">
         <header className="chat-head">
-          <button className="icon back" onClick={() => setMobileView("list")} aria-label="Geri">‹</button>
-          <button className="title" onClick={() => setDialog("channel")} title="Sohbet ayrıntıları">
+          <button className="icon back" onClick={() => setMobileView("list")} aria-label={S.back}>‹</button>
+          <button className="title" onClick={() => setDialog("channel")} title={S.chatDetails}>
             {headAvatar}
             <span className="title-text">
               <b>{title}</b>
-              <span className="muted small">{headSub}{quiet(active) ? (quiet(active)!.mode === "off" ? " · sessiz" : " · sadece @mention") : ""}</span>
+              <span className="muted small">{headSub}{quiet(active) ? (quiet(active)!.mode === "off" ? S.mutedSuffix : S.mentionsSuffix) : ""}</span>
             </span>
           </button>
           {status && <span className="status">{status}</span>}
-          <button className="icon info" title="Ayrıntılar" aria-label="Sohbet ayrıntıları" onClick={() => setDialog("channel")}><Info /></button>
+          <button className="icon info" title={S.details} aria-label={S.chatDetails} onClick={() => setDialog("channel")}><Info /></button>
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
-        <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === "Yükleniyor…"}
+        <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
           quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
           selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} />
         {selected !== null
           ? <div className="select-bar">
-              <button className="ghost" onClick={() => setSelected(null)}>Vazgeç</button>
-              <span className="muted">{selected.size} seçildi</span>
+              <button className="ghost" onClick={() => setSelected(null)}>{S.cancel}</button>
+              <span className="muted">{S.selected(selected.size)}</span>
               {(() => {
                 const msgs = (messages[active] ?? []).filter((m) => selected.has(m.id) && !m.pending && !m.failed && !m.system);
                 const all = msgs.length > 0 && msgs.every((m) => pinned.has(pinKey(m)));
                 return <span className="actions">
-                  <button className="ghost" disabled={!msgs.length} onClick={() => { pin(msgs, !all); setSelected(null); }}>{all ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
-                  <button className="primary" disabled={!msgs.length} onClick={() => setForwarding(msgs)}>İlet</button>
+                  <button className="ghost" disabled={!msgs.length} onClick={() => { pin(msgs, !all); setSelected(null); }}>{all ? S.unpin : S.pin}</button>
+                  <button className="primary" disabled={!msgs.length} onClick={() => setForwarding(msgs)}>{S.forward}</button>
                 </span>;
               })()}
             </div>
@@ -837,13 +837,13 @@ function AccountAlert({ text, onFix }: { text: string; onFix: () => void }) {
   return (
     <div className="alert" role="alert">
       <span>{text}</span>
-      <button className="ghost" onClick={onFix}>GitHub hesabı</button>
+      <button className="ghost" onClick={onFix}>{S.githubAccount}</button>
     </div>
   );
 }
 
 const hue = (s: string) => { let h = 7; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
-const initials = (name: string) => (name.match(/[\p{L}\p{N}]/gu) ?? ["?"]).slice(0, 2).join("").toLocaleUpperCase("tr-TR");
+const initials = (name: string) => (name.match(/[\p{L}\p{N}]/gu) ?? ["?"]).slice(0, 2).join("").toLocaleUpperCase(LOCALE);
 
 /** People are round, agents square, groups tinted; the colour comes from the id, so it stays put. */
 function Avatar({ name, seed, shape, online, size = 40, picture }: { name: string; seed: string; shape: "person" | "agent" | "group"; online?: boolean; size?: number; picture?: Picture | null }) {
@@ -874,7 +874,7 @@ const PinIcon = ({ size = 12 }: { size?: number }) => <svg className="pin-icon" 
 const Plane = () => <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6v6.4l12 2-12 2z" /></svg>;
 
 /** Today: the time; earlier: the day. */
-const when = (iso: string) => new Date(iso).toDateString() === new Date().toDateString() ? time(iso) : new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+const when = (iso: string) => new Date(iso).toDateString() === new Date().toDateString() ? time(iso) : new Date(iso).toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
 
 function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, onClick }: { avatar: ReactNode; label: string; preview?: string; time?: string; count: number; activeCh: boolean; quiet?: Quiet | null; onClick: () => void }) {
   return (
@@ -884,7 +884,7 @@ function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, 
         <span className="row-top"><span className="row-label">{label}</span>{ts && <span className="row-time">{when(ts)}</span>}</span>
         <span className="row-bottom">
           <span className="row-sub">{preview}</span>
-          {quiet && <span className="quiet" title={quiet.mode === "off" ? "Sessiz" : "Sadece @mention"}>{quiet.mode === "off" ? "sessiz" : "@"}</span>}
+          {quiet && <span className="quiet" title={quiet.mode === "off" ? S.muted : S.mentionsOnly}>{quiet.mode === "off" ? S.mutedBadge : "@"}</span>}
           {count > 0 && <span className={`badge ${quiet ? "dim" : ""}`}>{count}</span>}
         </span>
       </span>
@@ -893,26 +893,26 @@ function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, 
 }
 
 const linkify = (text: string) => text.split(/(https?:\/\/\S+)/g).map((part, i) => (/^https?:\/\//.test(part) ? <a key={i} href={part} onClick={(e) => { e.preventDefault(); openLink(part); }}>{part}</a> : part));
-const num = (x: number) => x.toLocaleString("tr-TR", { maximumFractionDigits: 1 });
+const num = (x: number) => x.toLocaleString(LOCALE, { maximumFractionDigits: 1 });
 const size = (n: number) => (n < 1024 ? `${n} B` : n < 1e6 ? `${num(n / 1024)} KB` : `${num(n / 1e6)} MB`);
-const time = (iso: string) => new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
-const day = (iso: string) => new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
+const time = (iso: string) => new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+const day = (iso: string) => new Date(iso).toLocaleDateString(LOCALE, { day: "numeric", month: "long" });
 
 /** System notices in the app's language (the stored text is English, for the CLI and agents). */
 function systemText(m: Message, devices: Device[]): string {
   const who = (id: string) => { const d = devices.find((x) => x.id === id); return d ? handle(d) : `#${id}`; };
   const by = `${m.fromNick}#${m.from}`;
   const s = m.system!;
-  if (s.type === "join") return `${by} katıldı`;
-  if (s.type === "group") return `${by}, ${s.group?.name ?? "bir"} grubunu kurdu`;
+  if (s.type === "join") return S.sysJoined(by);
+  if (s.type === "group") return S.sysGroup(by, s.group?.name);
   const c = s.change;
   if (!c) return m.text;
   switch (c.type) {
-    case "add": return `${by} ekledi: ${c.ids.map(who).join(", ")}`;
-    case "remove": return `${by} gruptan çıkardı: ${who(c.id)}`;
-    case "admin": return c.id === m.from ? `${by} ${c.on ? "artık yönetici" : "yöneticilikten ayrıldı"}` : `${by} ${c.on ? "yönetici yaptı" : "yöneticilikten aldı"}: ${who(c.id)}`;
-    case "rename": return `${by} grubun adını değiştirdi: ${c.name}`;
-    case "leave": return `${by} gruptan ayrıldı`;
+    case "add": return S.sysAdded(by, c.ids.map(who).join(", "));
+    case "remove": return S.sysRemoved(by, who(c.id));
+    case "admin": return c.id === m.from ? S.sysSelfAdmin(by, c.on) : S.sysAdmin(by, c.on, who(c.id));
+    case "rename": return S.sysRenamed(by, c.name);
+    case "leave": return S.sysLeft(by);
   }
 }
 
@@ -970,16 +970,16 @@ function MessageMenu({ m, x, y, mine, pinned, onPin, onReply, onCopy, onClose, o
   const style: CSSProperties = { left: Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 400) - 180), top: Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 600) - 200) };
   return (
     <div className="msg-menu" style={style} role="menu" onClick={(e) => e.stopPropagation()}>
-      <button role="menuitem" onClick={onReply}>↩ Alıntıla</button>
-      {onForward && <button role="menuitem" onClick={onForward}>↪ İlet</button>}
-      <button role="menuitem" onClick={onPin}><PinIcon size={13} /> {pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
-      {onSelect && <button role="menuitem" onClick={onSelect}>☑ Seç</button>}
-      {m.text && <button role="menuitem" onClick={onCopy}>⧉ Kopyala</button>}
+      <button role="menuitem" onClick={onReply}>{S.reply}</button>
+      {onForward && <button role="menuitem" onClick={onForward}>{S.forwardItem}</button>}
+      <button role="menuitem" onClick={onPin}><PinIcon size={13} /> {pinned ? S.unpin : S.pin}</button>
+      {onSelect && <button role="menuitem" onClick={onSelect}>{S.selectItem}</button>}
+      {m.text && <button role="menuitem" onClick={onCopy}>{S.copyItem}</button>}
     </div>
   );
 }
 
-const TICK_LABEL: Record<Ticks, string> = { sent: "gönderildi", delivered: "iletildi", read: "görüldü" };
+const TICK_LABEL: Record<Ticks, string> = S.ticks;
 function TickMark({ state }: { state: Ticks }) {
   return (
     <svg className={`ticks ${state}`} viewBox="0 0 18 11" width="17" height="11" role="img" aria-label={TICK_LABEL[state]}>
@@ -992,7 +992,7 @@ function TickMark({ state }: { state: Ticks }) {
 function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, onReply, onJump, onMenu, selecting, selected, onToggle }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
-  if (!list.length) return <div className="messages empty muted">{loading ? "Mesajlar yükleniyor…" : "Henüz mesaj yok. İlk mesajı siz yazın."}</div>;
+  if (!list.length) return <div className="messages empty muted">{loading ? S.loadingMessages : S.noMessages}</div>;
   let lastDay = "";
   return (
     <div className="messages">
@@ -1017,12 +1017,12 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               {authors && !mine && (run ? <span className="avatar-gap" /> : <Avatar name={m.fromNick} seed={m.from} shape={sender?.kind === "agent" ? "agent" : "person"} size={32} picture={sender ? pictureOf(sender) : null} />)}
             <Swipeable className={`msg ${mine ? "mine" : ""} ${toMe ? "tome" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}
               onSwipe={() => !selecting && !m.pending && !m.failed && onReply(m)} onHold={(x, y) => !selecting && !m.pending && !m.failed && onMenu(m, x, y)}>
-              {authors && !mine && !run && !m.forwarded && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">ajan</span>}</div>}
-              {m.forwarded && <div className="fwd-tag">↪ iletildi</div>}
-              {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? "Siz" : q.fromNick}</span><span className="quote-text">{snippet(q, 90)}</span></> : <span className="quote-text muted">mesaj</span>}</button>}
+              {authors && !mine && !run && !m.forwarded && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">{S.agentTag}</span>}</div>}
+              {m.forwarded && <div className="fwd-tag">{S.forwardedTag}</div>}
+              {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
-              <div className="meta">{isPinned(m) && <span title="Sabitlendi"><PinIcon /></span>}{m.failed ? "gönderilemedi" : m.pending ? "gönderiliyor…" : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
+              <div className="meta">{isPinned(m) && <span title={S.pinned}><PinIcon /></span>}{m.failed ? S.notSent : m.pending ? S.sending : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
             </Swipeable>
             </div>
           </div>
@@ -1061,7 +1061,7 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
 
   if (!kind) return (
     <button className="attach" disabled={busy || !file.path} onClick={save}>
-      📎 {file.name} <span className="muted">{size(file.size)} · {busy ? "indiriliyor…" : "indir"}</span>
+      📎 {file.name} <span className="muted">{size(file.size)} · {busy ? S.downloadingLower : S.download}</span>
     </button>
   );
   const ratio = file.w && file.h ? Math.min(2, Math.max(0.5, file.w / file.h)) : kind === "video" ? 16 / 9 : 4 / 3;
@@ -1070,14 +1070,14 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
       {kind === "image"
         ? <img className="attach-img" src={url} alt={file.name} onClick={() => setZoom(true)} />
         : <video className="attach-video" src={url} controls playsInline preload="metadata" />}
-      <div className="media-bar"><span className="muted small">{file.name} · {size(file.size)}</span><button className="mini" disabled={busy} onClick={save}>Cihaza kaydet</button></div>
+      <div className="media-bar"><span className="muted small">{file.name} · {size(file.size)}</span><button className="mini" disabled={busy} onClick={save}>{S.saveToDevice}</button></div>
       {zoom && <Lightbox url={url} name={file.name} onSave={save} onClose={() => setZoom(false)} />}
     </div>
   );
   return (
-    <button className="media-preview" style={{ aspectRatio: String(ratio) }} disabled={busy || !file.path} onClick={show} aria-label={`${file.name}, ${size(file.size)}, indir`}>
+    <button className="media-preview" style={{ aspectRatio: String(ratio) }} disabled={busy || !file.path} onClick={show} aria-label={`${file.name}, ${size(file.size)}, ${S.download}`}>
       {file.thumb && <img className="media-thumb" src={file.thumb} alt="" />}
-      <span className="media-dl">{busy ? "İndiriliyor…" : `${kind === "video" ? "▶" : "⬇"} ${size(file.size)}`}</span>
+      <span className="media-dl">{busy ? S.downloading : `${kind === "video" ? "▶" : "⬇"} ${size(file.size)}`}</span>
       {error && <span className="media-error">{error}</span>}
     </button>
   );
@@ -1088,7 +1088,7 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   return (
         <div className="lightbox" onClick={onClose}>
           <img src={url} alt={name} />
-          <div className="actions"><button className="ghost" onClick={(e) => { e.stopPropagation(); onSave(); }}>Cihaza kaydet</button><button className="ghost" onClick={onClose}>Kapat</button></div>
+          <div className="actions"><button className="ghost" onClick={(e) => { e.stopPropagation(); onSave(); }}>{S.saveToDevice}</button><button className="ghost" onClick={onClose}>{S.close}</button></div>
         </div>
   );
 }
@@ -1103,7 +1103,7 @@ function Composer({ onSend, people, reply, onCancelReply }: { onSend: (text: str
   const input = useRef<HTMLInputElement>(null);
   const submit = () => {
     if (!text.trim() && !files.length) return;
-    if (files.some((f) => f.size > 50e6)) { alert("Dosya en fazla 50 MB olabilir."); return; }
+    if (files.some((f) => f.size > 50e6)) { alert(S.fileTooBig); return; }
     onSend(text.trim(), files);
     setText(""); setFiles([]);
   };
@@ -1111,21 +1111,21 @@ function Composer({ onSend, people, reply, onCancelReply }: { onSend: (text: str
   useEffect(() => { if (reply) replyInput.current?.focus(); }, [reply]);
   return (
     <div className="composer">
-      {reply && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{reply.fromNick}</b><span className="muted"> · {snippet(reply, 70)}</span></span><button className="reply-x" aria-label="Alıntıyı iptal et" onClick={onCancelReply}>×</button></div>}
+      {reply && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{reply.fromNick}</b><span className="muted"> · {snippet(reply, 70)}</span></span><button className="reply-x" aria-label={S.cancelReply} onClick={onCancelReply}>×</button></div>}
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
-        <button className="icon attach-btn" title="Dosya ekle" aria-label="Dosya ekle" onClick={() => input.current?.click()}><Clip /></button>
+        <button className="icon attach-btn" title={S.addFile} aria-label={S.addFile} onClick={() => input.current?.click()}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-        <textarea ref={replyInput} rows={1} value={text} placeholder={people.length > 1 ? "Mesaj yazın · @ ile birini anın" : "Mesaj yazın"} onChange={(e) => setText(e.target.value)}
+        <textarea ref={replyInput} rows={1} value={text} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
-        <button className="primary send" aria-label="Gönder" onClick={submit} disabled={!text.trim() && !files.length}><Plane /><span className="send-label">Gönder</span></button>
+        <button className="primary send" aria-label={S.send} onClick={submit} disabled={!text.trim() && !files.length}><Plane /><span className="send-label">{S.send}</span></button>
       </div>
     </div>
   );
 }
 
-const QUIET_FOR: [string, number | null][] = [["Süresiz", null], ["1 saat", 3600e3], ["8 saat", 8 * 3600e3], ["1 hafta", 7 * 86400e3]];
+const QUIET_FOR: [string, number | null][] = ([null, 3600e3, 8 * 3600e3, 7 * 86400e3] as const).map((ms, i) => [S.quietFor[i], ms]);
 
 function ChannelDialog({ channel, title, group, me, devices, quiet, pins, loaded, bus, onUnpin, onOpen, onQuiet, onChange, onClose }: {
   channel: string; title: string; group?: Group; me: Device; devices: Device[]; quiet: Quiet | null;
@@ -1147,45 +1147,45 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, pins, loaded
     const ms = QUIET_FOR[span][1];
     await onQuiet(mode === "all" ? null : { mode, ...(ms ? { until: new Date(Date.now() + ms).toISOString() } : {}) });
   });
-  const until = quiet?.until ? new Date(quiet.until).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
+  const until = quiet?.until ? new Date(quiet.until).toLocaleString(LOCALE, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
   return (
     <Sheet title={title} className="channel-card" onClose={onClose}>
-        {group && <p className="muted small">{group.members.length} üye · {admin ? "Bu grubun yöneticisisiniz." : "Üyeleri yalnız yöneticiler değiştirebilir."}</p>}
+        {group && <p className="muted small">{S.groupInfo(group.members.length, admin)}</p>}
 
         <Pinned pins={pins} loaded={loaded} bus={bus} me={me} onUnpin={onUnpin} onOpen={onOpen} />
 
-        <h3>Bildirimler</h3>
-        <div className="seg" role="radiogroup" aria-label="Bildirimler">
-          {([["all", "Tümü"], ["mentions", "Sadece @mention"], ["off", "Sessiz"]] as const).map(([v, l]) => (
+        <h3>{S.notifications}</h3>
+        <div className="seg" role="radiogroup" aria-label={S.notifications}>
+          {([["all", S.all], ["mentions", S.mentionsOnly], ["off", S.muted]] as const).map(([v, l]) => (
             <button key={v} role="radio" aria-checked={mode === v} className={mode === v ? "on" : ""} onClick={() => setMode(v)}>{l}</button>
           ))}
         </div>
         {mode !== "all" && (
-          <label className="inline">Süre
+          <label className="inline">{S.duration}
             <select value={span} onChange={(e) => setSpan(Number(e.target.value))}>{QUIET_FOR.map(([l], i) => <option key={l} value={i}>{l}</option>)}</select>
           </label>
         )}
-        <p className="muted small">{quiet ? `Şu an: ${quiet.mode === "off" ? "sessiz" : "sadece @mention"}${until ? `, ${until}'e kadar` : ""}.` : "Şu an: her mesajda bildirim."} Ayar kapalı uygulamaya giden ntfy bildirimleri için de geçerli.</p>
-        <div className="actions start"><button className="primary" disabled={busy} onClick={saveQuiet}>Bildirim ayarını kaydet</button></div>
+        <p className="muted small">{S.quietNow(quiet?.mode ?? null, until)} {S.quietNote}</p>
+        <div className="actions start"><button className="primary" disabled={busy} onClick={saveQuiet}>{S.saveNotifications}</button></div>
 
         {group && <>
-          <h3>Grup adı</h3>
+          <h3>{S.groupName}</h3>
           {admin ? (
             <div className="compose-row"><input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
-              <button className="ghost" disabled={busy || !name.trim() || name.trim() === group.name} onClick={() => run(() => onChange({ type: "rename", name }))}>Kaydet</button></div>
+              <button className="ghost" disabled={busy || !name.trim() || name.trim() === group.name} onClick={() => run(() => onChange({ type: "rename", name }))}>{S.save}</button></div>
           ) : <p>{group.name}</p>}
 
-          <h3>Üyeler</h3>
+          <h3>{S.membersTitle}</h3>
           <div className="members">
             {[...group.members].sort((a, b) => Number(admins.includes(b)) - Number(admins.includes(a))).map((id) => {
               const d = who(id), isAdmin = admins.includes(id), self = id === me.id;
               return (
                 <div key={id} className="member">
                   <Avatar name={d.nick} seed={d.id} shape={d.kind === "agent" ? "agent" : "person"} size={32} picture={pictureOf(d)} />
-                  <span className="row-text"><span className="row-label">{handle(d)}{self ? " (siz)" : ""}</span><span className="row-sub">{KIND[d.kind] ?? d.kind}{isAdmin ? " · yönetici" : ""}</span></span>
+                  <span className="row-text"><span className="row-label">{handle(d)}{self ? S.youSuffix : ""}</span><span className="row-sub">{KIND[d.kind] ?? d.kind}{isAdmin ? S.adminSuffix : ""}</span></span>
                   {admin && !self && <>
-                    <button className="mini" disabled={busy} onClick={() => run(() => onChange({ type: "admin", id, on: !isAdmin }))}>{isAdmin ? "Yöneticilikten al" : "Yönetici yap"}</button>
-                    <button className="mini danger" disabled={busy} onClick={() => run(() => onChange({ type: "remove", id }))}>Çıkar</button>
+                    <button className="mini" disabled={busy} onClick={() => run(() => onChange({ type: "admin", id, on: !isAdmin }))}>{isAdmin ? S.removeAdmin : S.makeAdmin}</button>
+                    <button className="mini danger" disabled={busy} onClick={() => run(() => onChange({ type: "remove", id }))}>{S.remove}</button>
                   </>}
                 </div>
               );
@@ -1197,24 +1197,24 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, pins, loaded
                 {devices.filter((d) => !group.members.includes(d.id)).map((d) => (
                   <label key={d.id} className="check"><input type="checkbox" checked={adding.has(d.id)} onChange={() => { const n = new Set(adding); if (n.has(d.id)) n.delete(d.id); else n.add(d.id); setAdding(n); }} />{handle(d)} <span className="muted small">{KIND[d.kind] ?? d.kind}</span></label>
                 ))}
-                {devices.every((d) => group.members.includes(d.id)) && <p className="muted small">Sohbetteki herkes zaten bu grupta.</p>}
+                {devices.every((d) => group.members.includes(d.id)) && <p className="muted small">{S.allInGroup}</p>}
               </div>
               <div className="actions start">
-                <button className="primary" disabled={busy || !adding.size} onClick={() => run(async () => { await onChange({ type: "add", ids: [...adding] }); setAdding(null); })}>Ekle</button>
-                <button className="ghost" onClick={() => setAdding(null)}>Vazgeç</button>
+                <button className="primary" disabled={busy || !adding.size} onClick={() => run(async () => { await onChange({ type: "add", ids: [...adding] }); setAdding(null); })}>{S.add}</button>
+                <button className="ghost" onClick={() => setAdding(null)}>{S.cancel}</button>
               </div>
             </>
-          ) : <div className="actions start"><button className="ghost" onClick={() => setAdding(new Set())}>+ Üye ekle</button></div>)}
+          ) : <div className="actions start"><button className="ghost" onClick={() => setAdding(new Set())}>{S.addMember}</button></div>)}
 
           <div className="actions start">
             {leaving
-              ? <><button className="primary danger-fill" disabled={busy} onClick={() => run(() => onChange({ type: "leave" }))}>Evet, ayrıl</button><button className="ghost" onClick={() => setLeaving(false)}>Vazgeç</button></>
-              : <button className="ghost danger" onClick={() => setLeaving(true)}>Gruptan ayrıl</button>}
+              ? <><button className="primary danger-fill" disabled={busy} onClick={() => run(() => onChange({ type: "leave" }))}>{S.yesLeave}</button><button className="ghost" onClick={() => setLeaving(false)}>{S.cancel}</button></>
+              : <button className="ghost danger" onClick={() => setLeaving(true)}>{S.leaveGroup}</button>}
           </div>
-          {leaving && admins.length === 1 && admin && group.members.length > 1 && <p className="muted small">Tek yönetici sizsiniz; ayrılırsanız yöneticilik gruptaki bir sonraki üyeye geçer.</p>}
+          {leaving && admins.length === 1 && admin && group.members.length > 1 && <p className="muted small">{S.lastAdmin}</p>}
         </>}
         {error && <p className="error">{error}</p>}
-        <div className="actions"><button className="ghost" onClick={onClose}>Kapat</button></div>
+        <div className="actions"><button className="ghost" onClick={onClose}>{S.close}</button></div>
     </Sheet>
   );
 }
@@ -1234,8 +1234,8 @@ function Pinned({ pins, loaded, bus, me, onUnpin, onOpen }: { pins: Pin[]; loade
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pins]);
   return <>
-    <h3 className="pinned-head"><PinIcon size={14} /> Sabitlenmiş mesajlar{pins.length ? ` · ${pins.length}` : ""}</h3>
-    {!pins.length && <p className="muted small">Bir mesaja uzun basıp <b>Sabitle</b>'ye dokun; burada listelenir. Sabitlediklerini yalnız sen görürsün, bu hesapla girdiğin her cihazda.</p>}
+    <h3 className="pinned-head"><PinIcon size={14} /> {S.pinnedMessages}{pins.length ? ` · ${pins.length}` : ""}</h3>
+    {!pins.length && <p className="muted small">{S.pinHelp}</p>}
     <div className="pinned">
       {pins.map((p) => {
         const here = loaded(p.id);
@@ -1244,10 +1244,10 @@ function Pinned({ pins, loaded, bus, me, onUnpin, onOpen }: { pins: Pin[]; loade
         return (
           <div key={p.id} className="pinned-row">
             <button className="pinned-body" onClick={() => (here ? onOpen(p.id) : setOpen(full ? null : p.id))} disabled={!m}>
-              <span className="pinned-top"><b>{!m ? "" : m.from === me.id ? "Siz" : m.forwarded ? "iletildi" : `${m.fromNick}#${m.from}`}</b>{m && <span className="muted">{when(m.ts)}</span>}</span>
-              <span className={`pinned-text ${full ? "full" : ""}`}>{m === undefined ? "Yükleniyor…" : m === null ? "Bu mesaj artık yok." : full ? m.text || snippet(m) : snippet(m, 160)}</span>
+              <span className="pinned-top"><b>{!m ? "" : m.from === me.id ? S.you : m.forwarded ? S.forwarded : `${m.fromNick}#${m.from}`}</b>{m && <span className="muted">{when(m.ts)}</span>}</span>
+              <span className={`pinned-text ${full ? "full" : ""}`}>{m === undefined ? S.loading : m === null ? S.messageGone : full ? m.text || snippet(m) : snippet(m, 160)}</span>
             </button>
-            <button className="mini" onClick={() => onUnpin(p)} title="Sabitlemeyi kaldır" aria-label="Sabitlemeyi kaldır">×</button>
+            <button className="mini" onClick={() => onUnpin(p)} title={S.unpin} aria-label={S.unpin}>×</button>
           </div>
         );
       })}
@@ -1259,14 +1259,14 @@ function Pinned({ pins, loaded, bus, me, onUnpin, onOpen }: { pins: Pin[]; loade
 function ChatPicker({ me, devices, groups, count, onPick, onClose }: { me: Device; devices: Device[]; groups: Group[]; count: number; onPick: (channel: string) => void; onClose: () => void }) {
   useBack(true, onClose);
   const [q, setQ] = useState("");
-  const match = (label: string) => label.toLocaleLowerCase("tr-TR").includes(q.trim().toLocaleLowerCase("tr-TR"));
+  const match = (label: string) => label.toLocaleLowerCase(LOCALE).includes(q.trim().toLocaleLowerCase(LOCALE));
   const myGroups = groups.filter((g) => g.members.includes(me.id));
-  const others = devices.filter((d) => d.id !== me.id).sort((a, b) => a.nick.localeCompare(b.nick, "tr"));
+  const others = devices.filter((d) => d.id !== me.id).sort((a, b) => a.nick.localeCompare(b.nick, LOCALE));
   return (
-    <Sheet title={`${count} mesajı ilet`} onClose={onClose}>
-      <div className="filter"><input type="search" value={q} placeholder="Sohbet ya da kişi ara" aria-label="Ara" onChange={(e) => setQ(e.target.value)} /></div>
+    <Sheet title={S.forwardN(count)} onClose={onClose}>
+      <div className="filter"><input type="search" value={q} placeholder={S.searchChats} aria-label={S.search} onChange={(e) => setQ(e.target.value)} /></div>
       <div className="picker">
-        {match("#all herkes") && <button className="picker-row" onClick={() => onPick("all")}><Avatar name="all" seed="all" shape="group" size={34} /><span>#all</span></button>}
+        {match(`#all ${S.everyone}`) && <button className="picker-row" onClick={() => onPick("all")}><Avatar name="all" seed="all" shape="group" size={34} /><span>#all</span></button>}
         {myGroups.filter((g) => match(g.name)).map((g) => (
           <button key={g.channel} className="picker-row" onClick={() => onPick(g.channel)}><Avatar name={g.name} seed={g.channel} shape="group" size={34} /><span>#{g.name}</span></button>
         ))}
@@ -1283,17 +1283,17 @@ function GroupDialog({ others, onClose, onCreate }: { others: Device[]; onClose:
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   return (
-    <Sheet title="Yeni grup" onClose={onClose}>
-        <label>Grup adı<input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} autoFocus /></label>
+    <Sheet title={S.newGroup} onClose={onClose}>
+        <label>{S.groupName}<input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} autoFocus /></label>
         <div className="pick">
           {others.map((d) => (
             <label key={d.id} className="check"><input type="checkbox" checked={picked.has(d.id)} onChange={() => { const n = new Set(picked); if (n.has(d.id)) n.delete(d.id); else n.add(d.id); setPicked(n); }} />{handle(d)}</label>
           ))}
         </div>
-        <p className="muted small">Grup #all kanalında duyurulur; eklenenler grubu kendiliğinden görür.</p>
+        <p className="muted small">{S.groupAnnounce}</p>
         <div className="actions">
-          <button className="ghost" onClick={onClose}>Vazgeç</button>
-          <button className="primary" disabled={!name.trim() || !picked.size || busy} onClick={async () => { setBusy(true); try { await onCreate(name.trim(), [...picked]); } finally { setBusy(false); } }}>Oluştur</button>
+          <button className="ghost" onClick={onClose}>{S.cancel}</button>
+          <button className="primary" disabled={!name.trim() || !picked.size || busy} onClick={async () => { setBusy(true); try { await onCreate(name.trim(), [...picked]); } finally { setBusy(false); } }}>{S.create}</button>
         </div>
     </Sheet>
   );
@@ -1306,7 +1306,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
   useEffect(() => {
     checkAccount(session.token, session.repo).then(
       (l) => { setLogin(l); setTrouble(null); },
-      (e) => setTrouble(accountProblem(e, session.repo) ?? `GitHub'a ulaşılamadı: ${(e as Error).message}`),
+      (e) => setTrouble(accountProblem(e, session.repo) ?? S.cantReachGitHub((e as Error).message)),
     );
   }, [session]);
   // a new token must reach the chat repository before it replaces the old one
@@ -1321,7 +1321,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
   // the password on record: undefined while it loads; signing in again takes nick#id and this password
   const [record, setRecord] = useState<PasswordRecord | null | undefined>(undefined);
   const [recordError, setRecordError] = useState("");
-  useEffect(() => { bus.passwordRecord(me.id).then(setRecord, (e) => setRecordError(`Şifre bilgisi okunamadı: ${(e as Error).message}`)); }, [bus, me.id]);
+  useEffect(() => { bus.passwordRecord(me.id).then(setRecord, (e) => setRecordError(S.cantReadPassword((e as Error).message))); }, [bus, me.id]);
   const [leaving, setLeaving] = useState(false);
   const [picture, setPicture] = useState<Picture | null | undefined>(undefined); // undefined: unchanged
   const [photo, setPhoto] = useState<{ data: Uint8Array; ext: string; url: string } | null>(null);
@@ -1360,87 +1360,91 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
     } finally { setBusy(false); }
   };
   return (
-    <Sheet title="Ayarlar" onClose={onClose}>
+    <Sheet title={S.settings} onClose={onClose}>
         <div className="profile">
           {photo ? <span className="avatar person pic" style={{ width: 72, height: 72 }}><img src={photo.url} alt="" /></span>
             : <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={72} picture={shown} />}
-          <span><b>{handle(me)}</b> <span className="muted">({KIND[me.kind] ?? me.kind})</span><br /><span className="muted small">Sohbet reposu: {session.repo}</span></span>
+          <span><b>{handle(me)}</b> <span className="muted">({KIND[me.kind] ?? me.kind})</span><br /><span className="muted small">{S.chatRepoLine(session.repo)}</span></span>
         </div>
-        <h3>Profil resmi</h3>
-        <div className="swatches" role="radiogroup" aria-label="Renk paleti">
+        <h3>{S.profilePicture}</h3>
+        <div className="swatches" role="radiogroup" aria-label={S.palette}>
           {PALETTES.map((p) => (
-            <button key={p.id} role="radio" aria-checked={art?.palette === p.id} title={p.name} className={`swatch ${art?.palette === p.id ? "on" : ""}`} onClick={() => pickPalette(p.id)}
+            <button key={p.id} role="radio" aria-checked={art?.palette === p.id} title={S.palettes[p.id] ?? p.name} className={`swatch ${art?.palette === p.id ? "on" : ""}`} onClick={() => pickPalette(p.id)}
               style={{ background: `conic-gradient(${p.colors.map((c, i) => `${c} ${i * 72}deg ${(i + 1) * 72}deg`).join(", ")})` }} />
           ))}
         </div>
         <div className="actions start">
-          <button className="ghost" onClick={reroll}>Yeni desen</button>
-          <label className="ghost file-btn">Fotoğraf yükle<input type="file" accept="image/*" hidden onChange={(e) => { choosePhoto(e.target.files?.[0]); e.target.value = ""; }} /></label>
-          {me.kind !== "agent" && (shown || photo) && <button className="ghost" onClick={() => { setPhoto(null); setPicture(null); }}>Baş harfler</button>}
+          <button className="ghost" onClick={reroll}>{S.newPattern}</button>
+          <label className="ghost file-btn">{S.uploadPhoto}<input type="file" accept="image/*" hidden onChange={(e) => { choosePhoto(e.target.files?.[0]); e.target.value = ""; }} /></label>
+          {me.kind !== "agent" && (shown || photo) && <button className="ghost" onClick={() => { setPhoto(null); setPicture(null); }}>{S.initials}</button>}
         </div>
-        {photo && <p className="muted small">Fotoğraf {(photo.data.length / 1024).toFixed(0)} KB'a küçültüldü.</p>}
-        {(picture !== undefined || photo) && <div className="actions start"><button className="primary" disabled={busy} onClick={savePicture}>Profil resmini kaydet</button><button className="ghost" onClick={() => { setPicture(undefined); setPhoto(null); }}>Vazgeç</button></div>}
+        {photo && <p className="muted small">{S.photoShrunk((photo.data.length / 1024).toFixed(0))}</p>}
+        {(picture !== undefined || photo) && <div className="actions start"><button className="primary" disabled={busy} onClick={savePicture}>{S.savePicture}</button><button className="ghost" onClick={() => { setPicture(undefined); setPhoto(null); }}>{S.cancel}</button></div>}
         {picError && <p className="error small">{picError}</p>}
-        <h3>GitHub hesabı</h3>
-        {login && !trouble && <p className="small">Giriş yapılan hesap: <b>@{login}</b> ✓</p>}
-        {!login && !trouble && <p className="muted small">Kontrol ediliyor…</p>}
+        <h3>{S.githubAccount}</h3>
+        {login && !trouble && <p className="small">{S.signedInAccount(login)}</p>}
+        {!login && !trouble && <p className="muted small">{S.checking}</p>}
         {trouble && <p className="error small">{trouble}</p>}
         {session.source === "app" ? (
           <div className="actions start">
-            <GitHubSignIn label={trouble ? "Yeniden giriş yap" : "Farklı hesapla giriş yap"} primary={!!trouble} onToken={adoptToken} />
-            {!leaving && <button className="ghost danger" onClick={() => setLeaving(true)}>Çıkış yap</button>}
+            <GitHubSignIn label={trouble ? S.signInAgain : S.signInOther} primary={!!trouble} onToken={adoptToken} />
+            {!leaving && <button className="ghost danger" onClick={() => setLeaving(true)}>{S.signOut}</button>}
           </div>
         ) : (
-          <p className="muted small">Masaüstünde hesap komut satırından yönetilir: <code>gh auth login</code> (ya da <code>OPENCOM_TOKEN</code>), sonra <code>opencom ui</code>'yi yeniden açın.</p>
+          <p className="muted small">{S.desktopAccount}</p>
         )}
         {leaving && (
           <div className="alert" role="alert">
-            <span>Bu cihazda yeniden girmek için hesabın <b>{handle(me)}</b> ve şifren gerekecek.{record === null && " Henüz şifren yok: önce aşağıdan bir şifre belirle; yoksa yalnızca bu GitHub hesabıyla geri dönebilirsin."}</span>
+            <span>{S.signOutWarn(handle(me), record === null)}</span>
             <span className="actions start">
-              <button className="ghost danger" onClick={onSignOut}>Çıkış yap</button>
-              <button className="ghost" onClick={() => setLeaving(false)}>Vazgeç</button>
+              <button className="ghost danger" onClick={onSignOut}>{S.signOut}</button>
+              <button className="ghost" onClick={() => setLeaving(false)}>{S.cancel}</button>
             </span>
           </div>
         )}
-        <h3>{record ? "Şifreyi değiştir" : "Şifre"}</h3>
-        <p className="muted small">Çıkış yaptıktan sonra ya da başka bir cihazdan GitHub ile girip <b>Hesabım var</b> deyin, <b>{handle(me)}</b> ve bu şifreyi yazın.</p>
+        <h3>{record ? S.changePassword : S.password}</h3>
+        <p className="muted small">{S.passwordHelp(handle(me))}</p>
         {recordError ? <p className="error small">{recordError}</p>
-          : record === undefined ? <p className="muted small">Kontrol ediliyor…</p>
-          : <PasswordForm current={record} username={handle(me)} label={record ? "Şifreyi değiştir" : "Şifreyi kaydet"} onSave={async (pw) => setRecord(await bus.setPassword(me, pw))} />}
-        <h3>Medya</h3>
-        <p className="small">İndirilen görseller ve videolar: <b>Cihaza kaydet</b> onları bu cihazda saklar, sonra internetsiz de açılır. <b>GitHub'dan aktar</b> her açılışta GitHub'dan getirir, cihazda yer kaplamaz.</p>
+          : record === undefined ? <p className="muted small">{S.checking}</p>
+          : <PasswordForm current={record} username={handle(me)} label={record ? S.changePassword : S.savePassword} onSave={async (pw) => setRecord(await bus.setPassword(me, pw))} />}
+        <h3>{S.media}</h3>
+        <p className="small">{S.mediaHelp}</p>
         {(["image", "video"] as const).map((k) => (
-          <label key={k} className="inline">{k === "image" ? "Görseller" : "Videolar"}
+          <label key={k} className="inline">{k === "image" ? S.images : S.videos}
             <select value={modes[k]} onChange={(e) => changeMode(k, e.target.value as MediaMode)}>
-              <option value="save">Cihaza kaydet</option>
-              <option value="stream">GitHub'dan aktar</option>
+              <option value="save">{S.saveToDevice}</option>
+              <option value="stream">{S.stream}</option>
             </select>
           </label>
         ))}
-        {kept !== null && <div className="actions start"><span className="muted small">Cihazda saklanan: {size(kept)}</span>{kept > 0 && <button className="mini" onClick={async () => { await clearStored(); setKept(0); }}>Temizle</button>}</div>}
-        <h3>Görüldü bilgisi</h3>
+        {kept !== null && <div className="actions start"><span className="muted small">{S.storedHere(size(kept))}</span>{kept > 0 && <button className="mini" onClick={async () => { await clearStored(); setKept(0); }}>{S.clear}</button>}</div>}
+        <h3>{S.readReceipts}</h3>
         <label className="inline toggle">
           <input type="checkbox" checked={showRead} onChange={(e) => onShowRead(e.target.checked)} />
-          Mesajları okuduğumu göster (mavi tik)
+          {S.showRead}
         </label>
-        <p className="muted small">Tek tik: gönderildi. Çift tik: karşı tarafa ulaştı. Mavi çift tik: okundu. Kapatırsanız kimse mesajlarını okuduğunuzu görmez, siz de başkalarının mavi tikini görmezsiniz; ulaştı bilgisi (gri çift tik) iki yönde de çalışmaya devam eder. Grupta tikler, herkese ulaşınca ve herkes okuyunca değişir.</p>
-        <h3>Anlık bildirim (ntfy)</h3>
-        <p className="small">Uygulama açıkken mesajlar anında gelir. Kapalıyken de haber almak için ücretsiz <b>ntfy</b> uygulamasını kurup aşağıdaki konuya abone olun; size mesaj atan cihaz bu konuya kısa bir bildirim gönderir, bildirime dokununca bu uygulama açılır.</p>
-        {native() && <button className="ghost" onClick={() => openLink("https://play.google.com/store/apps/details?id=io.heckel.ntfy")}>ntfy'ı Play Store'dan kur</button>}
-        {!native() && platform() === "ios" && <button className="ghost" onClick={() => openLink(NTFY_IOS)}>ntfy'ı App Store'dan kur</button>}
+        <p className="muted small">{S.ticksHelp}</p>
+        <h3>{S.push}</h3>
+        <p className="small">{S.pushHelp}</p>
+        {native() && <button className="ghost" onClick={() => openLink("https://play.google.com/store/apps/details?id=io.heckel.ntfy")}>{S.ntfyPlay}</button>}
+        {!native() && platform() === "ios" && <button className="ghost" onClick={() => openLink(NTFY_IOS)}>{S.ntfyAppStore}</button>}
         {me.notify ? (
           <>
             <code className="topic" onClick={() => navigator.clipboard?.writeText(me.notify!)}>{me.notify}</code>
             <div className="actions">
-              <button className="ghost" onClick={() => openLink(native() ? me.notify!.replace("https://", "ntfy://") : me.notify!)}>ntfy'da abone ol</button>
-              <button className="ghost" disabled={busy} onClick={toggleNotify}>Kapat</button>
+              <button className="ghost" onClick={() => openLink(native() ? me.notify!.replace("https://", "ntfy://") : me.notify!)}>{S.subscribeNtfy}</button>
+              <button className="ghost" disabled={busy} onClick={toggleNotify}>{S.turnOff}</button>
             </div>
           </>
         ) : (
-          <button className="primary" disabled={busy} onClick={toggleNotify}>Bildirim konusu oluştur</button>
+          <button className="primary" disabled={busy} onClick={toggleNotify}>{S.createTopic}</button>
         )}
+        <h3>{S.language}</h3>
+        <select aria-label={S.language} value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+          {Object.entries(LANGS).map(([k, name]) => <option key={k} value={k}>{name}</option>)}
+        </select>
         <div className="actions">
-          <button className="ghost" onClick={onClose}>Kapat</button>
+          <button className="ghost" onClick={onClose}>{S.close}</button>
         </div>
     </Sheet>
   );

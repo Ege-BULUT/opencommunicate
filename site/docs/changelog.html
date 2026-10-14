@@ -13,7 +13,10 @@
   // same key as the landing page; set before the first paint so the other language never flashes
   const TITLES = { en: "Changelog · OpenCommunicate docs", tr: "Sürüm notları · OpenCommunicate belgeleri" };
   function setLang(l) { document.documentElement.lang = l; document.title = TITLES[l]; try { localStorage.setItem("oc-lang", l); } catch (e) {} }
-  try { if (localStorage.getItem("oc-lang") === "tr") { document.documentElement.lang = "tr"; document.title = TITLES.tr; } } catch (e) {}
+  try {
+    const l = localStorage.getItem("oc-lang") || (navigator.languages || [navigator.language]).map((x) => (x || "").slice(0, 2).toLowerCase()).find((x) => x in TITLES);
+    if (l === "tr") { document.documentElement.lang = "tr"; document.title = TITLES.tr; }
+  } catch (e) {}
 </script>
 <script src="docs.js" defer></script>
 </head>

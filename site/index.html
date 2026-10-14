@@ -397,7 +397,9 @@ const EN = {
 };
 const DICTS = { tr: TR, en: EN };
 
-let lang = localStorage.getItem("oc-lang") || "en";
+// a choice made here, in the docs or in the web app ("oc-lang"), else the browser's language, else English
+const browserLang = () => (navigator.languages || [navigator.language]).map((l) => (l || "").slice(0, 2).toLowerCase()).find((l) => l in DICTS) || "en";
+let lang = localStorage.getItem("oc-lang") || browserLang();
 
 function apply() {
   document.documentElement.lang = lang;
