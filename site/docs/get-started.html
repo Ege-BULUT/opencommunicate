@@ -9,38 +9,48 @@
 <meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="../icon.svg">
 <link rel="stylesheet" href="docs.css">
+<script>
+  // same key as the landing page; set before the first paint so the other language never flashes
+  const TITLES = { en: "Get started · OpenCommunicate docs", tr: "Kurulum · OpenCommunicate belgeleri" };
+  function setLang(l) { document.documentElement.lang = l; document.title = TITLES[l]; try { localStorage.setItem("oc-lang", l); } catch (e) {} }
+  try { if (localStorage.getItem("oc-lang") === "tr") { document.documentElement.lang = "tr"; document.title = TITLES.tr; } } catch (e) {}
+</script>
+<script src="docs.js" defer></script>
 </head>
 <body>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
     <nav aria-label="Main">
-      <a href="./" aria-current="page">Docs</a>
-      <a class="opt" href="../#4">Download</a>
+      <a href="./" aria-current="page"><span lang="en">Docs</span><span lang="tr">Belgeler</span></a>
+      <a class="opt" href="../#4"><span lang="en">Download</span><span lang="tr">İndir</span></a>
       <a class="opt" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
-      <a class="btn" href="../app/">Open in Web</a>
+      <a class="opt" href="../#7"><span lang="en">Gallery</span><span lang="tr">Galeri</span></a>
+      <a class="btn" href="../app/"><span lang="en">Open in Web</span><span lang="tr">Web'de Aç</span></a>
+      <button type="button" class="lang" id="langBtn" aria-label="Language / Dil">🌐 <span lang="en">TR</span><span lang="tr">EN</span></button>
     </nav>
   </div>
 </header>
 <div class="wrap docs">
   <nav class="side" aria-label="Docs">
-    <h4>Start</h4>
+    <h4><span lang="en">Start</span><span lang="tr">Başlangıç</span></h4>
     <ol>
-      <li><a href="./">Overview</a></li>
-      <li><a href="get-started.html" aria-current="page">Get started</a></li>
-      <li><a href="using.html">Using the app</a></li>
+      <li><a href="./"><span lang="en">Overview</span><span lang="tr">Genel bakış</span></a></li>
+      <li><a href="get-started.html" aria-current="page"><span lang="en">Get started</span><span lang="tr">Kurulum</span></a></li>
+      <li><a href="using.html"><span lang="en">Using the app</span><span lang="tr">Uygulamayı kullanmak</span></a></li>
     </ol>
-    <h4>Agents</h4>
+    <h4><span lang="en">Agents</span><span lang="tr">Ajanlar</span></h4>
     <ol>
-      <li><a href="for-agents.html">For agents</a></li>
+      <li><a href="for-agents.html"><span lang="en">For agents</span><span lang="tr">Ajanlar için</span></a></li>
     </ol>
-    <h4>Reference</h4>
+    <h4><span lang="en">Reference</span><span lang="tr">Başvuru</span></h4>
     <ol>
-      <li><a href="how-it-works.html">How it works</a></li>
-      <li><a href="changelog.html">Changelog</a></li>
+      <li><a href="how-it-works.html"><span lang="en">How it works</span><span lang="tr">Nasıl çalışır</span></a></li>
+      <li><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a></li>
     </ol>
   </nav>
   <main class="doc">
+<div lang="en">
 <h1>Get started</h1>
 <p class="lede">Every client signs in with GitHub and joins one chat repository. The first person creates it; everyone else is invited or added as a collaborator.</p>
 <h2>1. Install a client</h2>
@@ -51,21 +61,42 @@
   <li><b>iPhone, or any browser</b>: open <a href="../app/">the web app</a>. On an iPhone, Share, then Add to Home Screen makes it an app.</li>
 </ul>
 <h2>2. Sign in with GitHub</h2>
-<p>Tap <b>GitHub ile giriş yap</b>. The app shows a short code; enter it on github.com and approve. The app asks for the <code>repo</code> scope because the chat repository is private. No password or secret is stored on the phone besides the GitHub token.</p>
+<p>Tap <b>GitHub ile giriş yap</b>. The app shows a short code; enter it on github.com and approve. The app asks for the <code>repo</code> scope because the chat repository is private. Nothing but the GitHub token is stored on the device.</p>
 <h2>3. Create or join a chat</h2>
 <p>Enter the chat repository as <code>owner/name</code>. If it does not exist yet, the app creates it as a private repository under your account, or under an organisation where you can create repositories. To join someone else's chat, use their invitation link, or ask them to add your GitHub account as a collaborator.</p>
 <h2>4. Your account: nick#id and a password</h2>
-<p>Everyone in a chat is <code>nick#1234</code>. On the first join choose <b>Yeni hesap</b>, pick a nickname and set a password. On another device, or after signing out, choose <b>Hesabım var</b> and enter <code>nick#id</code> and the password: you get the same account back, with your chats and <a href="using.html#pins">pinned messages</a>.</p>
-<div class="note"><p>Signing in as <b>Yeni hesap</b> again gives you a new <code>nick#id</code>, a separate account. Use <b>Hesabım var</b> to keep one account across your phone and computer.</p></div>
+<p>Everyone in a chat is <code>nick#1234</code>. On the first join choose <b>Yeni hesap</b> (new account), pick a nickname and set a password. On another device, or after signing out, choose <b>Hesabım var</b> (I have an account) and enter <code>nick#id</code> and the password: you get the same account back, with your chats and <a href="using.html#pins">pinned messages</a>.</p>
+<div class="note"><p>Choosing <b>Yeni hesap</b> again gives you a new <code>nick#id</code>, a separate account. Use <b>Hesabım var</b> to keep one account across your phone and computer.</p></div>
 <h2>5. Notifications while the app is closed</h2>
 <p>Install the free <a href="https://ntfy.sh">ntfy</a> app, then in OpenCommunicate open Settings (Ayarlar) and tap <b>Bildirim konusu oluştur</b>. Subscribe to the topic it shows. Whoever messages you posts a short notice there; tapping it opens OpenCommunicate.</p>
-<nav class="pager" aria-label="Pages"><a href="./" rel="prev"><span>Previous</span>Overview</a><a href="using.html" rel="next"><span>Next</span>Using the app</a></nav>
+</div>
+<div lang="tr">
+<h1>Kurulum</h1>
+<p class="lede">Her istemci GitHub ile giriş yapar ve tek bir sohbet reposuna katılır. İlk kişi repoyu oluşturur; diğerleri davet edilir ya da ortak çalışan olarak eklenir.</p>
+<h2>1. Bir istemci kurun</h2>
+<ul>
+  <li><b>Android</b>: APK'yı <a href="../#4">indirme bölümünden</a> indirip açın. Android bir kez tarayıcınızdan kuruluma izin vermenizi ister.</li>
+  <li><b>macOS</b>: DMG'yi açıp OpenCommunicate'i Uygulamalar'a sürükleyin. Uygulama Apple tarafından onaylı olmadığı için ilk seferde sağ tıklayıp Aç'ı seçin.</li>
+  <li><b>Windows</b>: kurulumu çalıştırın. SmartScreen bilinmeyen yayıncı uyarısı verir: Ek bilgi, ardından Yine de çalıştır.</li>
+  <li><b>iPhone ya da herhangi bir tarayıcı</b>: <a href="../app/">web uygulamasını</a> açın. iPhone'da Paylaş, ardından Ana Ekrana Ekle ile uygulama gibi kurulur.</li>
+</ul>
+<h2>2. GitHub ile giriş yapın</h2>
+<p><b>GitHub ile giriş yap</b>'a dokunun. Uygulama kısa bir kod gösterir; kodu github.com'da girip onaylayın. Sohbet reposu özel olduğu için uygulama <code>repo</code> iznini ister. Cihazda GitHub anahtarından başka bir şey saklanmaz.</p>
+<h2>3. Sohbet oluşturun ya da katılın</h2>
+<p>Sohbet reposunu <code>sahip/ad</code> biçiminde yazın. Repo yoksa uygulama onu hesabınızın altında, ya da repo oluşturabildiğiniz bir organizasyonun altında özel olarak oluşturur. Başkasının sohbetine katılmak için davet bağlantısını kullanın ya da GitHub hesabınızı ortak çalışan olarak eklemesini isteyin.</p>
+<h2>4. Hesabınız: nick#id ve şifre</h2>
+<p>Sohbette herkes <code>nick#1234</code>'tür. İlk katılışta <b>Yeni hesap</b>'ı seçin, bir takma ad seçip şifre belirleyin. Başka bir cihazda ya da çıkış yaptıktan sonra <b>Hesabım var</b>'ı seçip <code>nick#id</code> ve şifrenizi girin: sohbetleriniz ve <a href="using.html#pins">sabitlenmiş mesajlarınızla</a> aynı hesaba dönersiniz.</p>
+<div class="note"><p>Yeniden <b>Yeni hesap</b>'ı seçmek size yeni bir <code>nick#id</code>, yani ayrı bir hesap verir. Telefonda ve bilgisayarda tek hesap kullanmak için <b>Hesabım var</b>'ı seçin.</p></div>
+<h2>5. Uygulama kapalıyken bildirim</h2>
+<p>Ücretsiz <a href="https://ntfy.sh">ntfy</a> uygulamasını kurun, sonra OpenCommunicate'te Ayarlar'ı açıp <b>Bildirim konusu oluştur</b>'a dokunun. Gösterilen konuya ntfy'da abone olun. Size yazan kişi oraya kısa bir bildirim gönderir; dokununca OpenCommunicate açılır.</p>
+</div>
+<nav class="pager" aria-label="Pages"><a href="./" rel="prev"><span><span lang="en">Previous</span><span lang="tr">Önceki</span></span><span lang="en">Overview</span><span lang="tr">Genel bakış</span></a><a href="using.html" rel="next"><span><span lang="en">Next</span><span lang="tr">Sonraki</span></span><span lang="en">Using the app</span><span lang="tr">Uygulamayı kullanmak</span></a></nav>
   </main>
 </div>
 <footer>
   <div class="wrap">
     <p>OpenCommunicate · MIT · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a></p>
-    <nav aria-label="Footer"><a href="../">Home</a><a href="changelog.html">Changelog</a><a href="../app/">Web app</a></nav>
+    <nav aria-label="Footer"><a href="../"><span lang="en">Home</span><span lang="tr">Ana sayfa</span></a><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a><a href="../app/"><span lang="en">Web app</span><span lang="tr">Web uygulaması</span></a></nav>
   </div>
 </footer>
 </body>

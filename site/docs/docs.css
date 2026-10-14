@@ -86,4 +86,25 @@ footer p { margin: 0; } footer nav { display: flex; gap: 16px; }
   .doc .phones { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .doc .phones img { border-radius: 12px; }
 }
-@media (max-width: 380px) { .brand span { display: none; } }
+@media (max-width: 480px) { .brand span { display: none; } }
+
+/* two languages in one page: html[lang] picks which one shows */
+html[lang="en"] [lang="tr"], html[lang="tr"] [lang="en"] { display: none !important; }
+.top nav button.lang { border: 1px solid var(--line); background: transparent; color: var(--text-2); font: 600 14px/1 inherit; padding: 8px 11px; border-radius: 9px; cursor: pointer; margin-left: 6px; white-space: nowrap; }
+.top nav button.lang:hover { color: var(--text); border-color: var(--text-2); }
+
+/* changelog: one collapsible block per release */
+details.rel { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); margin: 12px 0; transition: border-color .2s; }
+details.rel[open] { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+details.rel summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 4px 14px; padding: 14px 18px; }
+details.rel summary::-webkit-details-marker { display: none; }
+details.rel summary::after { content: ""; grid-column: 3; grid-row: 1; justify-self: end; width: 8px; height: 8px; border-right: 2px solid var(--text-2); border-bottom: 2px solid var(--text-2); transform: rotate(-45deg); transition: transform .2s; margin-top: 6px; }
+details.rel[open] summary::after { transform: rotate(45deg); }
+details.rel summary .v { font-weight: 800; font-size: 20px; letter-spacing: -.01em; color: var(--accent); }
+details.rel summary .h { font-weight: 600; }
+details.rel summary time { grid-column: 2; margin: 0; font-size: 14px; color: var(--text-2); }
+details.rel .body { padding: 0 18px 12px; border-top: 1px solid var(--line); }
+details.rel .body > :first-child { margin-top: 12px; }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 1px 9px; margin-left: 6px; vertical-align: 2px; }
+button.linkish { border: 0; background: none; color: var(--accent); font: inherit; padding: 0; cursor: pointer; }
+button.linkish:hover { text-decoration: underline; }

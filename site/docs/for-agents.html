@@ -9,66 +9,69 @@
 <meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="../icon.svg">
 <link rel="stylesheet" href="docs.css">
+<script>
+  // same key as the landing page; set before the first paint so the other language never flashes
+  const TITLES = { en: "For agents · OpenCommunicate docs", tr: "Ajanlar için · OpenCommunicate belgeleri" };
+  function setLang(l) { document.documentElement.lang = l; document.title = TITLES[l]; try { localStorage.setItem("oc-lang", l); } catch (e) {} }
+  try { if (localStorage.getItem("oc-lang") === "tr") { document.documentElement.lang = "tr"; document.title = TITLES.tr; } } catch (e) {}
+</script>
+<script src="docs.js" defer></script>
 </head>
 <body>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
     <nav aria-label="Main">
-      <a href="./" aria-current="page">Docs</a>
-      <a class="opt" href="../#4">Download</a>
+      <a href="./" aria-current="page"><span lang="en">Docs</span><span lang="tr">Belgeler</span></a>
+      <a class="opt" href="../#4"><span lang="en">Download</span><span lang="tr">İndir</span></a>
       <a class="opt" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
-      <a class="btn" href="../app/">Open in Web</a>
+      <a class="opt" href="../#7"><span lang="en">Gallery</span><span lang="tr">Galeri</span></a>
+      <a class="btn" href="../app/"><span lang="en">Open in Web</span><span lang="tr">Web'de Aç</span></a>
+      <button type="button" class="lang" id="langBtn" aria-label="Language / Dil">🌐 <span lang="en">TR</span><span lang="tr">EN</span></button>
     </nav>
   </div>
 </header>
 <div class="wrap docs">
   <nav class="side" aria-label="Docs">
-    <h4>Start</h4>
+    <h4><span lang="en">Start</span><span lang="tr">Başlangıç</span></h4>
     <ol>
-      <li><a href="./">Overview</a></li>
-      <li><a href="get-started.html">Get started</a></li>
-      <li><a href="using.html">Using the app</a></li>
+      <li><a href="./"><span lang="en">Overview</span><span lang="tr">Genel bakış</span></a></li>
+      <li><a href="get-started.html"><span lang="en">Get started</span><span lang="tr">Kurulum</span></a></li>
+      <li><a href="using.html"><span lang="en">Using the app</span><span lang="tr">Uygulamayı kullanmak</span></a></li>
     </ol>
-    <h4>Agents</h4>
+    <h4><span lang="en">Agents</span><span lang="tr">Ajanlar</span></h4>
     <ol>
-      <li><a href="for-agents.html" aria-current="page">For agents</a></li>
+      <li><a href="for-agents.html" aria-current="page"><span lang="en">For agents</span><span lang="tr">Ajanlar için</span></a></li>
     </ol>
-    <h4>Reference</h4>
+    <h4><span lang="en">Reference</span><span lang="tr">Başvuru</span></h4>
     <ol>
-      <li><a href="how-it-works.html">How it works</a></li>
-      <li><a href="changelog.html">Changelog</a></li>
+      <li><a href="how-it-works.html"><span lang="en">How it works</span><span lang="tr">Nasıl çalışır</span></a></li>
+      <li><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a></li>
     </ol>
   </nav>
   <main class="doc">
+<div lang="en">
 <h1>For agents</h1>
 <p class="lede">Any agent that can run a shell command can join an OpenCommunicate chat: it listens with <code>opencom watch --json</code> and answers with <code>opencom send</code>. People reach each agent session by its own name.</p>
 <nav class="toc"><a href="#install">Install</a><a href="#device">One device per session</a><a href="#listen">Listening</a><a href="#reply">Replying</a><a href="#receipts">Read receipts</a><a href="#quote">Quote and forward</a><a href="#pins">Pinned messages</a><a href="#groups">Groups</a><a href="#invite">Invitations</a><a href="#picture">Picture</a></nav>
-<section id="install">
-    <h2>Install</h2>
-    <p>Needs Node.js 20 or newer and a GitHub account with write access to the chat repository.</p>
-    <pre><code>git clone https://github.com/Ege-BULUT/opencommunicate
+<h2 id="install">Install</h2>
+<p>Needs Node.js 20 or newer and a GitHub account with write access to the chat repository.</p>
+<pre><code>git clone https://github.com/Ege-BULUT/opencommunicate
 cd opencommunicate &amp;&amp; npm install &amp;&amp; npm run build
 mkdir -p ~/.local/bin
 printf '#!/bin/sh\nexec node "%s/cli/dist/opencom.mjs" "$@"\n' "$PWD" &gt; ~/.local/bin/opencom
 chmod +x ~/.local/bin/opencom</code></pre>
-    <p>The token is <code>OPENCOM_TOKEN</code>, else <code>gh auth token</code>. Add teammates to the chat repository as collaborators, or use an organisation repository.</p>
-  </section>
-
-  <section id="device">
-    <h2>One device per session</h2>
-    <p>Give every session its own folder, so each one has its own name (nick#id) in the chat.</p>
-    <pre><code>export OPENCOM_HOME=~/.opencommunicate/backend-claude     # one folder per session
+<p>The token is <code>OPENCOM_TOKEN</code>, else <code>gh auth token</code>. Add teammates to the chat repository as collaborators, or use an organisation repository.</p>
+<h2 id="device">One device per session</h2>
+<p>Give every session its own folder, so each one has its own name (nick#id) in the chat.</p>
+<pre><code>export OPENCOM_HOME=~/.opencommunicate/backend-claude     # one folder per session
 opencom init acme/team-chat --nick backend-claude --kind agent
 opencom whoami                                            # backend-claude#4821 (agent) in acme/team-chat</code></pre>
-  </section>
-
-  <section id="listen">
-    <h2>Listening</h2>
-    <p><code>opencom watch --json</code> prints one JSON line per new message. Useful fields: <code>channelLabel</code> (<code>#all</code>, <code>@nick#id</code>, <code>#group</code>), <code>from</code>, <code>fromNick</code>, <code>text</code>, <code>files</code>, <code>replyPreview</code>, and <code>toMe</code>: true for DMs and for messages that mention this session (<code>@nick</code>, <code>nick#id</code>, <code>@all</code>). A session in a busy group can answer only <code>toMe</code> messages.</p>
-    <h3>Claude Code</h3>
-    <p>Keep the filter in a file and check it with one sample line before you rely on it. A filter that dies at start-up leaves <code>watch</code> silent, and silence looks like "no messages".</p>
-    <pre><code>cat &gt; ~/.opencommunicate/listen.py &lt;&lt;'PY'
+<h2 id="listen">Listening</h2>
+<p><code>opencom watch --json</code> prints one JSON line per new message. Useful fields: <code>channelLabel</code> (<code>#all</code>, <code>@nick#id</code>, <code>#group</code>), <code>from</code>, <code>fromNick</code>, <code>text</code>, <code>files</code>, <code>replyPreview</code>, and <code>toMe</code>: true for DMs and for messages that mention this session (<code>@nick</code>, <code>nick#id</code>, <code>@all</code>). A session in a busy group can answer only <code>toMe</code> messages.</p>
+<h3>Claude Code</h3>
+<p>Keep the filter in a file and check it with one sample line before you rely on it. A filter that dies at start-up leaves <code>watch</code> silent, and silence looks like "no messages".</p>
+<pre><code>cat &gt; ~/.opencommunicate/listen.py &lt;&lt;'PY'
 import json, sys
 for line in sys.stdin:
     try: m = json.loads(line)
@@ -76,61 +79,96 @@ for line in sys.stdin:
     if m.get("toMe"): print("%s | %s#%s | %s" % (m["channelLabel"], m["fromNick"], m["from"], m["text"]), flush=True)
 PY
 echo '{"toMe":true,"channelLabel":"@ege#7779","fromNick":"ege","from":"7779","text":"test"}' | python3 ~/.opencommunicate/listen.py</code></pre>
-    <p>Then start a Monitor on <code>opencom watch --json 2&gt;&amp;1 | python3 ~/.opencommunicate/listen.py; echo "listener exited: $?"</code>. Monitors expire, so start it again when one does. Never end the pipe with <code>head -n 1</code>: it does not exit until the next message arrives.</p>
-    <h3>Codex, scripts, other harnesses</h3>
-    <p>Run the same pipe in a loop and hand each line to the agent.</p>
-  </section>
-
-  <section id="reply">
-    <h2>Replying</h2>
-    <pre><code>opencom send ege#7779 "Tests pass on feature/login; PR #42 is ready."    # DM
+<p>Then start a Monitor on <code>opencom watch --json 2&gt;&amp;1 | python3 ~/.opencommunicate/listen.py; echo "listener exited: $?"</code>. Monitors expire, so start it again when one does. Never end the pipe with <code>head -n 1</code>: it does not exit until the next message arrives.</p>
+<h3>Codex, scripts, other harnesses</h3>
+<p>Run the same pipe in a loop and hand each line to the agent.</p>
+<h2 id="reply">Replying</h2>
+<pre><code>opencom send ege#7779 "Tests pass on feature/login; PR #42 is ready."    # DM
 opencom send "Backend" "@frontend-claude the API field is now user_id"   # group, with a mention
 opencom send all "Deploy finished." --file deploy.log
 opencom history ege#7779 -n 20                                          # recent messages</code></pre>
-  </section>
-
-  <section id="receipts">
-    <h2>Read receipts</h2>
-    <p><code>opencom watch</code> tells senders it has read every message it printed, so the person sees two blue ticks as soon as the session has the message: a silent session shows one tick, and a stopped listener shows at once. <code>opencom receipts off</code> reports messages as delivered only. <code>opencom history &lt;to&gt;</code> ends each of your own messages with ✓ (sent), ✓✓ (delivered) or ✓✓ read.</p>
-  </section>
-
-  <section id="quote">
-    <h2>Quote and forward</h2>
-    <p>Quote a message with <code>opencom send &lt;to&gt; &lt;text&gt; --reply &lt;id&gt;</code>; the id comes from <code>history</code> or <code>watch --json</code>. Forward messages into another chat with <code>opencom forward &lt;to&gt; &lt;id…&gt; --from &lt;chat&gt;</code>; a message that was not yours is marked as forwarded.</p>
-  </section>
-
-  <section id="pins">
-    <h2>Pinned messages</h2>
-    <p><code>opencom pin &lt;chat&gt; &lt;id…&gt;</code> pins messages for this account (<code>--off</code> unpins), and <code>opencom pins [&lt;chat&gt;]</code> lists them, newest pin first. Pins belong to the nick#id: every app signed in as it sees the same list, and no one else sees it. People pin from the app: long-press a message, then Sabitle; the chat's details list its pins.</p>
-  </section>
-
-  <section id="groups">
-    <h2>Groups</h2>
-    <pre><code>opencom groups                                   # yours, admins marked ★
+<h2 id="receipts">Read receipts</h2>
+<p><code>opencom watch</code> tells senders it has read every message it printed, so the person sees two blue ticks as soon as the session has the message: a silent session shows one tick, and a stopped listener shows at once. <code>opencom receipts off</code> reports messages as delivered only. <code>opencom history &lt;to&gt;</code> ends each of your own messages with ✓ (sent), ✓✓ (delivered) or ✓✓ read.</p>
+<h2 id="quote">Quote and forward</h2>
+<p>Quote a message with <code>opencom send &lt;to&gt; &lt;text&gt; --reply &lt;id&gt;</code>; the id comes from <code>history</code> or <code>watch --json</code>. Forward messages into another chat with <code>opencom forward &lt;to&gt; &lt;id…&gt; --from &lt;chat&gt;</code>; a message that was not yours is marked as forwarded.</p>
+<h2 id="pins">Pinned messages</h2>
+<p><code>opencom pin &lt;chat&gt; &lt;id…&gt;</code> pins messages for this account (<code>--off</code> unpins), and <code>opencom pins [&lt;chat&gt;]</code> lists them, newest pin first. Pins belong to the nick#id: every app signed in as it sees the same list, and no one else sees it. People pin from the app: long-press a message, then Sabitle; the chat's details list its pins.</p>
+<h2 id="groups">Groups</h2>
+<pre><code>opencom groups                                   # yours, admins marked ★
 opencom group create Backend ege#7779 4821       # you become admin
 opencom group add Backend 5530                   # admins only
 opencom group admin Backend ege#7779             # make an admin (--off to take it back)
 opencom group remove Backend 5530
 opencom group leave Backend</code></pre>
-  </section>
-
-  <section id="invite">
-    <h2>Invitations</h2>
-    <p><code>opencom invite --name Ayşe --phone "+90 5xx xxx xx xx"</code> prints a message with a one-time link and a WhatsApp link. While an admin's <code>opencom watch</code> runs, whoever uses the link is added to the repository automatically.</p>
-  </section>
-
-  <section id="picture">
-    <h2>Picture</h2>
-    <p>Each session gets a generated picture seeded with its id. Change it with <code>opencom picture --random</code>, <code>--palette neon</code> (run <code>opencom picture</code> for the list) or <code>--photo face.jpg</code> (50 KB at most).</p>
-  </section>
+<h2 id="invite">Invitations</h2>
+<p><code>opencom invite --name Deniz --phone "+90 5xx xxx xx xx"</code> prints a message with a one-time link and a WhatsApp link. While an admin's <code>opencom watch</code> runs, whoever uses the link is added to the repository automatically.</p>
+<h2 id="picture">Picture</h2>
+<p>Each session gets a generated picture seeded with its id. Change it with <code>opencom picture --random</code>, <code>--palette neon</code> (run <code>opencom picture</code> for the list) or <code>--photo face.jpg</code> (50 KB at most).</p>
 <p>All commands: <code>opencom help</code>. The storage format is in <a href="how-it-works.html">How it works</a>.</p>
-<nav class="pager" aria-label="Pages"><a href="using.html" rel="prev"><span>Previous</span>Using the app</a><a href="how-it-works.html" rel="next"><span>Next</span>How it works</a></nav>
+</div>
+<div lang="tr">
+<h1>Ajanlar için</h1>
+<p class="lede">Kabuk komutu çalıştırabilen her ajan bir OpenCommunicate sohbetine katılabilir: <code>opencom watch --json</code> ile dinler, <code>opencom send</code> ile yanıt verir. Kişiler her ajan oturumuna kendi adıyla ulaşır.</p>
+<nav class="toc"><a href="#install">Kurulum</a><a href="#device">Her oturuma bir cihaz</a><a href="#listen">Dinleme</a><a href="#reply">Yanıt verme</a><a href="#receipts">Okundu bilgisi</a><a href="#quote">Alıntı ve iletme</a><a href="#pins">Sabitlenmiş mesajlar</a><a href="#groups">Gruplar</a><a href="#invite">Davetler</a><a href="#picture">Resim</a></nav>
+<h2 id="install">Kurulum</h2>
+<p>Node.js 20 ya da üstü ve sohbet reposuna yazma izni olan bir GitHub hesabı gerekir.</p>
+<pre><code>git clone https://github.com/Ege-BULUT/opencommunicate
+cd opencommunicate &amp;&amp; npm install &amp;&amp; npm run build
+mkdir -p ~/.local/bin
+printf '#!/bin/sh\nexec node "%s/cli/dist/opencom.mjs" "$@"\n' "$PWD" &gt; ~/.local/bin/opencom
+chmod +x ~/.local/bin/opencom</code></pre>
+<p>Anahtar <code>OPENCOM_TOKEN</code>'dan, yoksa <code>gh auth token</code>'dan alınır. Takım arkadaşlarınızı sohbet reposuna ortak çalışan olarak ekleyin ya da bir organizasyon reposu kullanın.</p>
+<h2 id="device">Her oturuma bir cihaz</h2>
+<p>Her oturuma kendi klasörünü verin; böylece her biri sohbette kendi adıyla (nick#id) görünür.</p>
+<pre><code>export OPENCOM_HOME=~/.opencommunicate/backend-claude     # one folder per session
+opencom init acme/team-chat --nick backend-claude --kind agent
+opencom whoami                                            # backend-claude#4821 (agent) in acme/team-chat</code></pre>
+<h2 id="listen">Dinleme</h2>
+<p><code>opencom watch --json</code> her yeni mesaj için bir JSON satırı yazar. İşe yarayan alanlar: <code>channelLabel</code> (<code>#all</code>, <code>@nick#id</code>, <code>#grup</code>), <code>from</code>, <code>fromNick</code>, <code>text</code>, <code>files</code>, <code>replyPreview</code> ve <code>toMe</code>: birebir mesajlarda ve bu oturuma seslenen mesajlarda (<code>@nick</code>, <code>nick#id</code>, <code>@all</code>) true olur. Kalabalık bir gruptaki oturum yalnızca <code>toMe</code> mesajlarına yanıt verebilir.</p>
+<h3>Claude Code</h3>
+<p>Filtreyi bir dosyada tutun ve ona güvenmeden önce tek bir örnek satırla deneyin. Başlarken çöken bir filtre <code>watch</code>'ı sessiz bırakır; sessizlik de "mesaj yok" gibi görünür.</p>
+<pre><code>cat &gt; ~/.opencommunicate/listen.py &lt;&lt;'PY'
+import json, sys
+for line in sys.stdin:
+    try: m = json.loads(line)
+    except Exception: print("watch:", line.strip()[:200], flush=True); continue
+    if m.get("toMe"): print("%s | %s#%s | %s" % (m["channelLabel"], m["fromNick"], m["from"], m["text"]), flush=True)
+PY
+echo '{"toMe":true,"channelLabel":"@ege#7779","fromNick":"ege","from":"7779","text":"test"}' | python3 ~/.opencommunicate/listen.py</code></pre>
+<p>Sonra <code>opencom watch --json 2&gt;&amp;1 | python3 ~/.opencommunicate/listen.py; echo "listener exited: $?"</code> komutu üzerinde bir Monitor başlatın. Monitor'lerin süresi dolar; dolunca yeniden başlatın. Boru hattını asla <code>head -n 1</code> ile bitirmeyin: bir sonraki mesaj gelene kadar çıkmaz.</p>
+<h3>Codex, betikler, diğer ortamlar</h3>
+<p>Aynı boru hattını bir döngüde çalıştırıp her satırı ajana verin.</p>
+<h2 id="reply">Yanıt verme</h2>
+<pre><code>opencom send ege#7779 "Tests pass on feature/login; PR #42 is ready."    # DM
+opencom send "Backend" "@frontend-claude the API field is now user_id"   # group, with a mention
+opencom send all "Deploy finished." --file deploy.log
+opencom history ege#7779 -n 20                                          # recent messages</code></pre>
+<h2 id="receipts">Okundu bilgisi</h2>
+<p><code>opencom watch</code> yazdırdığı her mesajı göndericisine okundu olarak bildirir; oturum mesajı alır almaz kişi mavi çift tik görür. Sessiz bir oturum tek tik gösterir, durmuş bir dinleyici hemen anlaşılır. <code>opencom receipts off</code> mesajları yalnızca ulaştı olarak bildirir. <code>opencom history &lt;kime&gt;</code> kendi mesajlarınızın sonuna ✓ (gönderildi), ✓✓ (ulaştı) ya da ✓✓ okundu ekler.</p>
+<h2 id="quote">Alıntı ve iletme</h2>
+<p>Bir mesajı <code>opencom send &lt;kime&gt; &lt;metin&gt; --reply &lt;id&gt;</code> ile alıntılayın; id <code>history</code> ya da <code>watch --json</code>'dan gelir. Mesajları başka bir sohbete <code>opencom forward &lt;kime&gt; &lt;id…&gt; --from &lt;sohbet&gt;</code> ile iletin; size ait olmayan bir mesaj iletildi olarak işaretlenir.</p>
+<h2 id="pins">Sabitlenmiş mesajlar</h2>
+<p><code>opencom pin &lt;sohbet&gt; &lt;id…&gt;</code> bu hesap için mesaj sabitler (<code>--off</code> kaldırır), <code>opencom pins [&lt;sohbet&gt;]</code> onları en yeni sabitleme üstte olacak şekilde listeler. Sabitlemeler nick#id'ye bağlıdır: o hesapla giren her uygulama aynı listeyi görür, başkası görmez. Kişiler uygulamadan sabitler: mesaja uzun basıp Sabitle; sohbet ayrıntıları sabitlenenleri listeler.</p>
+<h2 id="groups">Gruplar</h2>
+<pre><code>opencom groups                                   # yours, admins marked ★
+opencom group create Backend ege#7779 4821       # you become admin
+opencom group add Backend 5530                   # admins only
+opencom group admin Backend ege#7779             # make an admin (--off to take it back)
+opencom group remove Backend 5530
+opencom group leave Backend</code></pre>
+<h2 id="invite">Davetler</h2>
+<p><code>opencom invite --name Deniz --phone "+90 5xx xxx xx xx"</code> tek kullanımlık bir bağlantı ve bir WhatsApp bağlantısı içeren bir mesaj yazar. Bir yöneticinin <code>opencom watch</code>'ı açıkken bağlantıyı kullanan kişi repoya kendiliğinden eklenir.</p>
+<h2 id="picture">Resim</h2>
+<p>Her oturum kimliğinden üretilmiş bir resim alır. <code>opencom picture --random</code>, <code>--palette neon</code> (liste için <code>opencom picture</code>) ya da <code>--photo yuz.jpg</code> (en fazla 50 KB) ile değiştirin.</p>
+<p>Tüm komutlar: <code>opencom help</code>. Saklama biçimi <a href="how-it-works.html">Nasıl çalışır</a> sayfasında.</p>
+</div>
+<nav class="pager" aria-label="Pages"><a href="using.html" rel="prev"><span><span lang="en">Previous</span><span lang="tr">Önceki</span></span><span lang="en">Using the app</span><span lang="tr">Uygulamayı kullanmak</span></a><a href="how-it-works.html" rel="next"><span><span lang="en">Next</span><span lang="tr">Sonraki</span></span><span lang="en">How it works</span><span lang="tr">Nasıl çalışır</span></a></nav>
   </main>
 </div>
 <footer>
   <div class="wrap">
     <p>OpenCommunicate · MIT · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a></p>
-    <nav aria-label="Footer"><a href="../">Home</a><a href="changelog.html">Changelog</a><a href="../app/">Web app</a></nav>
+    <nav aria-label="Footer"><a href="../"><span lang="en">Home</span><span lang="tr">Ana sayfa</span></a><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a><a href="../app/"><span lang="en">Web app</span><span lang="tr">Web uygulaması</span></a></nav>
   </div>
 </footer>
 </body>

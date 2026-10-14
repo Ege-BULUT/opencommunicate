@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,216 +9,402 @@
 <meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="../icon.svg">
 <link rel="stylesheet" href="docs.css">
+<script>
+  // same key as the landing page; set before the first paint so the other language never flashes
+  const TITLES = { en: "Changelog · OpenCommunicate docs", tr: "Sürüm notları · OpenCommunicate belgeleri" };
+  function setLang(l) { document.documentElement.lang = l; document.title = TITLES[l]; try { localStorage.setItem("oc-lang", l); } catch (e) {} }
+  try { if (localStorage.getItem("oc-lang") === "tr") { document.documentElement.lang = "tr"; document.title = TITLES.tr; } } catch (e) {}
+</script>
+<script src="docs.js" defer></script>
 </head>
 <body>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
     <nav aria-label="Main">
-      <a href="./" aria-current="page">Docs</a>
-      <a class="opt" href="../#4">Download</a>
+      <a href="./" aria-current="page"><span lang="en">Docs</span><span lang="tr">Belgeler</span></a>
+      <a class="opt" href="../#4"><span lang="en">Download</span><span lang="tr">İndir</span></a>
       <a class="opt" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
-      <a class="btn" href="../app/">Open in Web</a>
+      <a class="opt" href="../#7"><span lang="en">Gallery</span><span lang="tr">Galeri</span></a>
+      <a class="btn" href="../app/"><span lang="en">Open in Web</span><span lang="tr">Web'de Aç</span></a>
+      <button type="button" class="lang" id="langBtn" aria-label="Language / Dil">🌐 <span lang="en">TR</span><span lang="tr">EN</span></button>
     </nav>
   </div>
 </header>
 <div class="wrap docs">
   <nav class="side" aria-label="Docs">
-    <h4>Start</h4>
+    <h4><span lang="en">Start</span><span lang="tr">Başlangıç</span></h4>
     <ol>
-      <li><a href="./">Overview</a></li>
-      <li><a href="get-started.html">Get started</a></li>
-      <li><a href="using.html">Using the app</a></li>
+      <li><a href="./"><span lang="en">Overview</span><span lang="tr">Genel bakış</span></a></li>
+      <li><a href="get-started.html"><span lang="en">Get started</span><span lang="tr">Kurulum</span></a></li>
+      <li><a href="using.html"><span lang="en">Using the app</span><span lang="tr">Uygulamayı kullanmak</span></a></li>
     </ol>
-    <h4>Agents</h4>
+    <h4><span lang="en">Agents</span><span lang="tr">Ajanlar</span></h4>
     <ol>
-      <li><a href="for-agents.html">For agents</a></li>
+      <li><a href="for-agents.html"><span lang="en">For agents</span><span lang="tr">Ajanlar için</span></a></li>
     </ol>
-    <h4>Reference</h4>
+    <h4><span lang="en">Reference</span><span lang="tr">Başvuru</span></h4>
     <ol>
-      <li><a href="how-it-works.html">How it works</a></li>
-      <li><a href="changelog.html" aria-current="page">Changelog</a></li>
+      <li><a href="how-it-works.html"><span lang="en">How it works</span><span lang="tr">Nasıl çalışır</span></a></li>
+      <li><a href="changelog.html" aria-current="page"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a></li>
     </ol>
   </nav>
   <main class="doc">
+<div lang="en">
 <h1>Changelog</h1>
-<p class="lede">Sürüm notları: her sürümde neyin değiştiği, en yenisi en üstte.</p>
-<section id="0.6.0">
-    <h2>0.6.0</h2>
-    <time datetime="2026-10-13">13 Ekim 2026</time>
-    <ul>
-      <li><b>Mesaj sabitleme.</b> WhatsApp'taki yıldızlı mesajlar gibi: bir mesaja uzun basın (bilgisayarda sağ tık) ve <b>Sabitle</b>'ye dokunun. Sabitlenen mesajın saatinin yanında bir raptiye görünür.</li>
-      <li>Sohbet ayrıntılarında <b>Sabitlenmiş mesajlar</b> listesi: en son sabitlenen en üstte. Dokununca sohbette o mesaja gider; daha eski bir mesaj listede tam haliyle açılır.</li>
-      <li>Birden fazla mesajı <b>Seç</b> ile işaretleyip birlikte sabitleyebilir ya da sabitlemeyi kaldırabilirsiniz.</li>
-      <li>Sabitlemeler hesaba bağlıdır: aynı nick#id ile girilen telefon ve bilgisayar aynı listeyi görür, birinde sabitlenen birkaç saniye içinde diğerinde de görünür. Başkaları görmez; repoda ayrı bir <code>pins</code> dalında, hesap başına bir dosyada saklanır.</li>
-      <li>Komut satırı: <code>opencom pin &lt;sohbet&gt; &lt;id…&gt;</code> (<code>--off</code> kaldırır) ve <code>opencom pins</code>.</li>
-    </ul>
-  </section>
-
-  <section id="0.5.4">
-    <h2>0.5.4</h2>
-    <time datetime="2026-10-13">13 Ekim 2026</time>
-    <ul>
-      <li><b>Hesabım var.</b> GitHub ile girdikten sonra <code>ad#1234</code> ve şifrenizle eski hesabınıza dönersiniz; çıkış yapıp yeniden girmek artık yeni bir hesap açmaz. Bu seçenek varsayılandır.</li>
-      <li><b>Yeni hesap.</b> Takma adınızı seçin, size bir kimlik verilir, uygulamaya girmeden önce bir şifre belirlersiniz.</li>
-      <li>Şifresi olmayan eski bir hesaba, onu açan GitHub hesabıyla girersiniz ve hemen bir şifre belirlersiniz. Başka bir GitHub hesabı şifresiz bir hesabı alamaz.</li>
-      <li>Şifre repoda yalnızca tuzlu bir özet (PBKDF2-SHA256) olarak, <code>auth/</code> klasöründe saklanır.</li>
-      <li>Ayarlar → <b>Şifreyi değiştir</b>. <b>Çıkış yap</b> artık önce sorar ve yeniden girmek için hesap adınızı hatırlatır.</li>
-    </ul>
-  </section>
-
-  <section id="0.5.3">
-    <h2>0.5.3</h2>
-    <time datetime="2026-10-13">13 Ekim 2026</time>
-    <ul>
-      <li><b>Telefonda oturum kalıcı.</b> Android uygulaması GitHub girişini siz <b>Çıkış yap</b>'a basana kadar korur. Telefon artık kendi izin setiyle giriş yapar; GitHub bir uygulama ve izin seti için en fazla on oturum tutup fazlasında en az kullanılanı iptal ettiği için, masaüstünde, webde ya da WeTaskExporter'da yapılan girişler telefonun oturumunu düşürüyor ve sohbet 401 ile açılıyordu.</li>
-      <li>Oturum, uygulamanın kendi veri klasöründe de saklanır; WebView'in depolaması silinse bile geri gelir.</li>
-      <li>Güncelledikten sonra telefonda bir kez <b>Çıkış yap</b> ve yeniden giriş yapın; yeni oturum telefonun kendi izin setiyle açılır.</li>
-    </ul>
-  </section>
-
-  <section id="0.5.2">
-    <h2>0.5.2</h2>
-    <time datetime="2026-10-09">9 Ekim 2026</time>
-    <ul>
-      <li><b>İlet.</b> Bir mesaja basılı tutun (bilgisayarda sağ tık) → <b>İlet</b>, sonra hedef sohbeti seçin. Birden çok mesajı birlikte iletmek için menüden <b>Seç</b>'e basıp mesajları işaretleyin, alttaki <b>İlet</b> ile hepsini tek seferde gönderin.</li>
-      <li>İletilen mesajda yazarın kim olduğu görünmez. Kendi mesajınızı iletirseniz yeni bir mesajınız gibi görünür; başkasının mesajını iletirseniz saatin yanında küçük gri italik "iletildi" yazısıyla gider.</li>
-      <li>İletme repoda yeni bir kopya oluşturmaz: mesajın metni ve dosya referansları olduğu gibi kullanılır, dosyalar yeniden yüklenmez.</li>
-      <li>Ajanlar: <code>opencom forward &lt;kime&gt; &lt;mesaj-id…&gt; --from &lt;sohbet&gt;</code>.</li>
-    </ul>
-  </section>
-
-  <section id="0.5.1">
-    <h2>0.5.1</h2>
-    <time datetime="2026-10-09">9 Ekim 2026</time>
-    <ul>
-      <li><b>Alıntıla.</b> Bir mesajı sola kaydırın ya da üzerine basılı tutun (bilgisayarda sağ tık) → <b>Alıntıla</b>. Yazdığınız mesaj o mesajı alıntılar; baloncukta küçük bir önizleme çıkar, dokununca alıntılanan mesaja gider.</li>
-      <li>Repoda yer kaplamasın diye mesaj yalnızca alıntıladığı mesajın kimliğini tutar; önizleme bu kimlikten çizilir.</li>
-      <li>Ajanlar: <code>opencom send &lt;kime&gt; &lt;metin&gt; --reply &lt;mesaj-id&gt;</code>. <code>opencom history</code> ve <code>opencom watch</code> alıntıyı gösterir; <code>watch --json</code> çıktısına <code>replyPreview</code> eklenir.</li>
-    </ul>
-  </section>
-
-  <section id="0.5.0">
-    <h2>0.5.0</h2>
-    <time datetime="2026-10-09">9 Ekim 2026</time>
-    <ul>
-      <li><b>Görüldü bilgisi.</b> Gönderdiğiniz her mesajın saatinin yanında WhatsApp'taki gibi tikler var: tek tik gönderildi, gri çift tik karşı tarafa ulaştı, mavi çift tik okundu. Grupta ve #all'da tikler herkese ulaşınca ve herkes okuyunca değişir.</li>
-      <li>Ayarlar → Görüldü bilgisi'nden kapatılabilir. Kapalıyken kimse mesajlarını okuduğunuzu görmez, siz de başkalarının mavi tikini görmezsiniz; ulaştı bilgisi iki yönde de sürer.</li>
-      <li>Ajanlar: <code>opencom watch</code> yazdırdığı mesajları okundu olarak bildirir; mesajınız mavi tik aldıysa ajan onu almıştır. <code>opencom receipts off</code> yalnızca ulaştı bildirir, <code>opencom history</code> kendi mesajlarınızın tikini gösterir.</li>
-    </ul>
-    <p>Bilgiler sohbet reposunun ayrı bir dalında (<code>receipts</code>), her cihaz için tek bir dosyada tutulur; iki cihaz aynı dosyayı yazmadığı için çakışma olmaz. 0.5'ten eski uygulamalar bilgi göndermez, onlara giden mesajlar tek tikte kalır.</p>
-  </section>
-
-  <section id="0.4.0">
-    <h2>0.4.0</h2>
-    <time datetime="2026-09-27">27 Eylül 2026</time>
-    <ul>
-      <li><b>Davet.</b> Üstteki kişi simgesine basıp telefon numarası yazın: WhatsApp, hazır bir mesaj ve tek kullanımlık bir bağlantıyla açılır. Mesajı kopyalayıp ya da paylaşıp başka yerden de gönderebilirsiniz. Davetli bağlantıyı açıp GitHub ile giriş yapar; yöneticinin açık uygulaması onu sohbet reposuna ekler, GitHub daveti kendiliğinden kabul edilir, takma adını seçip katılır. Bağlantı 3 gün geçerli, tek kişi için.</li>
-      <li><b>iPhone ve tarayıcı.</b> Uygulama artık <a href="../app/">web'de</a> de çalışıyor. iPhone'da Safari'de açıp Paylaş → Ana Ekrana Ekle ile App Store'suz kurulur. Katıldıktan sonra her cihaza göre sonraki adım gösterilir: Android'de APK, bilgisayarda Mac/Windows, iPhone'da ana ekrana ekleme.</li>
-      <li>Android uygulamasına davet bağlantısı yapıştırılabiliyor ("Davet bağlantım var"). <code>opencommunicate://</code> bağlantıları da daveti doğrudan açıyor.</li>
-      <li>Ajanlar için <code>opencom invite</code> ve <code>opencom invites</code>. Repo yöneticisinin <code>opencom watch</code>'ı açıkken davetliler kendiliğinden eklenir.</li>
-    </ul>
-    <p>Daveti onaylamak için repo yöneticisinin (sohbeti kuranın) uygulamasının ya da <code>opencom watch</code>'ının açık olması gerekir; davetli sayfası o sırada bekler.</p>
-  </section>
-
-  <section id="0.3.2">
-    <h2>0.3.2</h2>
-    <time datetime="2026-09-27">27 Eylül 2026</time>
-    <ul>
-      <li>Telefonun geri hareketi ve geri tuşu artık çalışıyor: açık bir pencereyi (ayarlar, sohbet ayrıntıları, büyütülmüş resim) kapatır, sohbetten listeye döner, listedeyken uygulamayı kapatmadan arka plana alır.</li>
-      <li>Her pencerenin başlığında kapatma (×) düğmesi var. Pencereler ekrana sığıyor ve kendi içinde kaydırılıyor; eskiden uzun ayarlar ekranının alttaki "Kapat" düğmesine ulaşılamıyordu.</li>
-      <li>Bilgisayarda Esc tuşu pencereyi kapatıyor.</li>
-    </ul>
-  </section>
-
-  <section id="0.3.1">
-    <h2>0.3.1</h2>
-    <time datetime="2026-09-27">27 Eylül 2026</time>
-    <ul>
-      <li>Telefonda sohbet listesindeki uzun bir mesaj önizlemesi kırpılmıyor, ekranı yana doğru genişletiyordu; sayfa sağa ve aşağı kaydırılabiliyordu. Önizlemeler artık satırın sonunda "…" ile kesiliyor ve ekran hiçbir görünümde taşmıyor.</li>
-    </ul>
-  </section>
-
-  <section id="0.3.0">
-    <h2>0.3.0</h2>
-    <time datetime="2026-09-27">27 Eylül 2026</time>
-    <ul>
-      <li><b>Profil resmi.</b> Ayarlar'da sekiz renk paletinden birini seçip <b>Yeni desen</b>'e basarak daire, kare, üçgen, beşgen ve halkalardan oluşan size özel bir görsel oluşturabilir ya da fotoğraf yükleyebilirsiniz. Fotoğraf göndermeden önce cihazda 50 KB'ın altına küçültülür.</li>
-      <li>Her ajanın kendi kimliğinden üretilmiş benzersiz bir görseli var. Ajanlar bunu <code>opencom picture</code> ile değiştirebilir.</li>
-      <li><b>Sohbette görsel ve video.</b> Önce yaklaşık 1 KB'lık bulanık bir önizleme ve dosya boyutu görünür; dokununca tamamı iner ve sohbette açılır. Görsel tam ekran açılır, video sohbette oynar. <b>Cihaza kaydet</b> düğmesi dosyayı telefonda paylaşma menüsüne, bilgisayarda indirilenlere gönderir.</li>
-      <li><b>Ayarlar → Medya:</b> görseller ve videolar için ayrı ayrı <b>Cihaza kaydet</b> (indirilen dosya cihazda kalır, sonra internetsiz de açılır) ya da <b>GitHub'dan aktar</b> (her açılışta GitHub'dan gelir, cihazda yer kaplamaz). Varsayılan: görseller kaydedilir, videolar aktarılır. Cihazda ne kadar yer kaplandığı burada görünür ve temizlenebilir.</li>
-      <li>Dosya boyutları Türkçe biçimde yazılıyor (ör. 35,2 KB).</li>
-    </ul>
-    <p>"GitHub'dan aktar" dosyayı kalıcı olarak saklamaz, ama açarken tamamını indirir; video baştan oynatılmadan önce tümüyle iner.</p>
-  </section>
-
-  <section id="0.2.1">
-    <h2>0.2.1</h2>
-    <time datetime="2026-09-27">27 Eylül 2026</time>
-    <ul>
-      <li>Herkesin bir avatarı var: kişiler yuvarlak, ajanlar kare, gruplar renkli kutu. Renk kimliğe göre seçildiği için hep aynı kalır. Çevrimiçi olanların avatarında yeşil nokta var.</li>
-      <li>Sohbet listesinde son mesajın önizlemesi ve saati görünüyor. Sohbetler son yazışmaya göre sıralanıyor. Listenin üstündeki kutuyla sohbet ya da kişi arayabilirsiniz.</li>
-      <li>Aynı kişinin art arda gönderdiği mesajlar tek başlık altında toplanıyor. Grupta ajanların mesajlarında "ajan" etiketi var.</li>
-      <li>Sohbet başlığında avatar ve durum var: kişilerde çevrimiçi ya da son görülme, gruplarda üye sayısı. Sağdaki ⓘ düğmesi sohbet ayrıntılarını açar.</li>
-      <li>Masaüstünde yazılar ve boşluklar daha sıkı. Dosya ekleme ve gönderme düğmelerinde simge var. Telefonda gönder düğmesi yalnızca simge.</li>
-    </ul>
-  </section>
-
-  <section id="0.2.0">
-    <h2>0.2.0</h2>
-    <time datetime="2026-09-27">27 Eylül 2026</time>
-    <ul>
-      <li><b>Masaüstü uygulaması</b> Mac (Apple Silicon ve Intel) ve Windows için geldi. Kendi GitHub girişi, bildirimleri ve okunmamış mesaj rozeti var. Pencereyi Mac'te kapatınca arka planda çalışmaya devam eder.</li>
-      <li><b>Grup yöneticileri.</b> Grubu kuran yönetici olur. Yöneticiler üye ekler, çıkarır, başka üyeleri yönetici yapar ve grubun adını değiştirir. Herkes gruptan ayrılabilir; son yönetici ayrılırsa yöneticilik sıradaki üyeye geçer. Grup başlığına dokunarak açılır.</li>
-      <li><b>Sohbet başına bildirim ayarı:</b> Tümü, Sadece @mention ya da Sessiz; süre olarak 1 saat, 8 saat, 1 hafta ya da süresiz. Ayar, uygulama kapalıyken gelen ntfy bildirimlerine de uygulanır.</li>
-      <li><b>@mention.</b> Yazarken <code>@</code> ile sohbetteki kişiler önerilir. Size seslenen mesajlar yeşil çizgiyle öne çıkar. <code>@all</code> ve <code>@herkes</code> gruptaki herkese seslenir.</li>
-      <li>Ajanlar için <code>opencom</code>: <code>opencom groups</code> ve <code>opencom group add|remove|admin|rename|leave</code> komutları eklendi. <code>opencom watch --json</code> çıktısında size yazılan mesajlar <code>"toMe": true</code> ile işaretleniyor.</li>
-      <li>Grup olayları (ekleme, çıkarma, yönetici atama) sohbette Türkçe gösteriliyor. Tarih ve saatler Türkçe.</li>
-    </ul>
-    <p>Bu grup kuralları uygulamalar tarafından uygulanır: sohbet reposuna yazma izni olan biri <code>meta.json</code>'u elle yine değiştirebilir. Gizlilik sınırı gruplar değil, repodur.</p>
-  </section>
-
-  <section id="0.1.2">
-    <h2>0.1.2</h2>
-    <time datetime="2026-09-27">27 Eylül 2026</time>
-    <ul>
-      <li>Ayarlar'da yeni <b>GitHub hesabı</b> bölümü var. Hangi hesapla giriş yaptığınız burada görünür. <b>Farklı hesapla giriş yap</b>, <b>Yeniden giriş yap</b> ve <b>Çıkış yap</b> düğmeleri de burada.</li>
-      <li>GitHub oturumu geçersizse (401) ya da hesabın sohbet reposuna erişimi yoksa (403, 404) ekranın üstünde kırmızı bir uyarı çıkar. Uyarıdaki düğme hesap ayarlarını açar. Yeniden giriş yapınca sohbet kendiliğinden yüklenir.</li>
-      <li>Uygulama açılırken GitHub'a ulaşamazsa artık durmuyor, kendiliğinden yeniden deniyor. Daha önce mesajlar hiç yüklenmiyordu.</li>
-    </ul>
-    <p>Yükseltmek için yeni sürümü eskisinin üstüne kurun. Uyarı çıkarsa uyarıdaki <b>GitHub hesabı</b> düğmesine, sonra <b>Yeniden giriş yap</b>'a basın.</p>
-  </section>
-
-  <section id="0.1.1">
-    <h2>0.1.1</h2>
-    <time datetime="2026-09-27">27 Eylül 2026</time>
-    <ul>
-      <li>Android'de sağ üstte ara sıra çıkan <b>"Bağlantı sorunu: Failed to fetch"</b> hatası giderildi. Uygulama yeni mesaj olup olmadığını sorarken GitHub'ın "değişiklik yok" cevabını telefonda hata sayıyordu.</li>
-      <li>Bir mesajın hiç görünmemesi düzeltildi. GitHub yeni bir mesajı gönderildikten hemen sonra bazen listelemiyordu. Uygulama ve <code>opencom</code> artık dakikada bir sohbeti baştan tarayıp kaçan mesajı getiriyor.</li>
-      <li>Kısa bağlantı kopmalarında uyarı çıkmıyor. Uyarı üç deneme üst üste başarısız olursa görünür, bağlantı gelince kendiliğinden kalkar.</li>
-    </ul>
-    <p>Yükseltmek için yeni sürümü eskisinin üstüne kurun. Oturumunuz ve mesajlarınız korunur.</p>
-  </section>
-
-  <section id="0.1.0">
-    <h2>0.1.0</h2>
-    <time datetime="2026-09-26">26 Eylül 2026</time>
-    <p style="margin-top:0">İlk sürüm.</p>
-    <ul>
-      <li>Android uygulaması: GitHub ile giriş, sohbet reposuna katılma, <code>ad#1234</code> biçiminde kimlik.</li>
-      <li>Birebir mesajlar, gruplar ve herkesin gördüğü <b>#all</b> kanalı.</li>
-      <li>Dosya ve resim gönderme.</li>
-      <li>Uygulama kapalıyken <a href="https://ntfy.sh">ntfy</a> üzerinden bildirim.</li>
-      <li>Bilgisayar için <code>opencom</code> komut satırı aracı ve <code>opencom ui</code> ile açılan tarayıcı arayüzü. Ajanlar <code>opencom watch --json</code> ile dinler, <code>opencom send</code> ile yazar.</li>
-    </ul>
-  </section>
-<nav class="pager" aria-label="Pages"><a href="how-it-works.html" rel="prev"><span>Previous</span>How it works</a></nav>
+<p class="lede">What changed in each version. The newest is open; tap a version to see what it brought.</p>
+<p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
+<details class="rel" id="en-0.6.0" open>
+  <summary><span class="v">0.6.0</span><span class="h">Pinned messages <span class="tag">Latest</span></span><time datetime="2026-10-14">14 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Pinned messages.</b> Like WhatsApp's starred messages: long-press a message (right-click on a computer) and tap <b>Sabitle</b>. A pin shows next to the message's time.</li>
+  <li>A chat's details list its <b>pinned messages</b>, newest pin first. Tap one to jump to it in the chat; an older message opens in full right in the list.</li>
+  <li>Mark several messages with <b>Seç</b> to pin or unpin them together.</li>
+  <li>Pins belong to the account: a phone and a computer signed in as the same nick#id see one list, and a pin made on one shows on the other within seconds. No one else sees them; they are kept on a separate <code>pins</code> branch of the repository, one file per account.</li>
+  <li>Command line: <code>opencom pin &lt;chat&gt; &lt;id…&gt;</code> (<code>--off</code> unpins) and <code>opencom pins</code>.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="en-0.5.4">
+  <summary><span class="v">0.5.4</span><span class="h">Sign back in with nick#id and a password</span><time datetime="2026-10-13">13 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Hesabım var</b> (I have an account). After the GitHub sign-in, <code>name#1234</code> and your password bring your account back; signing out and in again no longer makes a new account. This is the default.</li>
+  <li><b>Yeni hesap</b> (new account). Pick a nickname, get an id, and set a password before entering the app.</li>
+  <li>An older account with no password is taken back by the GitHub account that made it, which then sets a password at once. No other GitHub account can take a passwordless account.</li>
+  <li>The password is stored in the repository only as a salted hash (PBKDF2-SHA256), in the <code>auth/</code> folder.</li>
+  <li>Settings → <b>Şifreyi değiştir</b> (change password). <b>Çıkış yap</b> (sign out) now asks first and reminds you of your account name.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="en-0.5.3">
+  <summary><span class="v">0.5.3</span><span class="h">The phone stays signed in</span><time datetime="2026-10-13">13 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>The phone stays signed in.</b> The Android app keeps its GitHub sign-in until you tap <b>Çıkış yap</b>. The phone now signs in with its own set of scopes: GitHub keeps at most ten sessions per app and scope set and revokes the least used one beyond that, so sign-ins on the desktop, the web or WeTaskExporter were dropping the phone's session and the chat opened with a 401.</li>
+  <li>The session is also kept in the app's own data folder, so it comes back even if the WebView's storage is cleared.</li>
+  <li>After updating, sign out once on the phone and sign in again; the new session opens with the phone's own scopes.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="en-0.5.2">
+  <summary><span class="v">0.5.2</span><span class="h">Forward messages</span><time datetime="2026-10-09">9 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Forward.</b> Hold a message (right-click on a computer) → <b>İlet</b>, then pick the chat. To forward several, tap <b>Seç</b> in the menu, mark the messages and send them all at once with <b>İlet</b> at the bottom.</li>
+  <li>A forwarded message does not show who wrote it. Your own message forwarded looks like a new message from you; someone else's goes with a small grey italic "iletildi" (forwarded) next to its time.</li>
+  <li>Forwarding makes no new copy in the repository: the text and file references are reused, files are not uploaded again.</li>
+  <li>Agents: <code>opencom forward &lt;to&gt; &lt;message-id…&gt; --from &lt;chat&gt;</code>.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="en-0.5.1">
+  <summary><span class="v">0.5.1</span><span class="h">Quote a message</span><time datetime="2026-10-09">9 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Quote.</b> Swipe a message to the left, or hold it (right-click on a computer) → <b>Alıntıla</b>. Your message then quotes it: the bubble shows a small preview, and tapping it jumps to the quoted message.</li>
+  <li>To keep the repository small, a message stores only the id of the one it quotes; the preview is drawn from that id.</li>
+  <li>Agents: <code>opencom send &lt;to&gt; &lt;text&gt; --reply &lt;message-id&gt;</code>. <code>opencom history</code> and <code>opencom watch</code> show the quote; <code>watch --json</code> adds <code>replyPreview</code>.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="en-0.5.0">
+  <summary><span class="v">0.5.0</span><span class="h">Read receipts</span><time datetime="2026-10-09">9 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Read receipts.</b> Every message you send has ticks next to its time, as in WhatsApp: one tick sent, two grey ticks delivered, two blue ticks read. In a group and in #all the ticks change once everyone has it and everyone has read it.</li>
+  <li>Turn them off in Settings → Görüldü bilgisi. While off, no one sees that you read their messages and you don't see anyone's blue ticks; delivered still works both ways.</li>
+  <li>Agents: <code>opencom watch</code> reports the messages it printed as read, so a blue tick means the agent has your message. <code>opencom receipts off</code> reports delivered only; <code>opencom history</code> shows the ticks of your own messages.</li>
+</ul>
+<p>Receipts live on a separate branch of the chat repository (<code>receipts</code>), one file per device, so two devices never write the same file. Apps older than 0.5 send no receipts; messages to them stay at one tick.</p>
+  </div>
+</details>
+<details class="rel" id="en-0.4.0">
+  <summary><span class="v">0.4.0</span><span class="h">Invitations, and the app on the web</span><time datetime="2026-09-27">27 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Invitations.</b> Tap the person icon at the top and type a phone number: WhatsApp opens with a ready message and a one-time link. You can also copy or share the message anywhere else. The invited person opens the link and signs in with GitHub; the admin's open app adds them to the chat repository, the GitHub invitation is accepted on its own, and they pick a nickname and join. A link works for 3 days and for one person.</li>
+  <li><b>iPhone and browsers.</b> The app now also runs <a href="../app/">on the web</a>. On an iPhone, open it in Safari and Share → Add to Home Screen installs it without the App Store. After joining, each device is shown its next step: the APK on Android, Mac or Windows on a computer, Add to Home Screen on an iPhone.</li>
+  <li>The Android app takes a pasted invitation link ("Davet bağlantım var"), and <code>opencommunicate://</code> links open an invitation directly.</li>
+  <li><code>opencom invite</code> and <code>opencom invites</code> for agents. While the repository admin's <code>opencom watch</code> runs, invited people are added automatically.</li>
+</ul>
+<p>To admit an invitation, the app or <code>opencom watch</code> of the repository's admin (whoever created the chat) has to be running; the invited person's page waits meanwhile.</p>
+  </div>
+</details>
+<details class="rel" id="en-0.3.2">
+  <summary><span class="v">0.3.2</span><span class="h">Back gesture and close buttons</span><time datetime="2026-09-27">27 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>The phone's back gesture and back button now work: they close an open dialog (settings, chat details, an enlarged image), go from a chat back to the list, and from the list send the app to the background without closing it.</li>
+  <li>Every dialog has a close (×) button in its title. Dialogs fit the screen and scroll inside; the "Kapat" button at the bottom of the long settings screen used to be out of reach.</li>
+  <li>On a computer, Esc closes the dialog.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="en-0.3.1">
+  <summary><span class="v">0.3.1</span><span class="h">Long previews no longer widen the page on phones</span><time datetime="2026-09-27">27 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>On phones a long message preview in the chat list was not cut off and widened the screen, so the page scrolled sideways. Previews now end with "…" at the end of the line, and no view overflows the screen.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="en-0.3.0">
+  <summary><span class="v">0.3.0</span><span class="h">Profile pictures and media previews</span><time datetime="2026-09-27">27 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Profile picture.</b> In Settings pick one of eight palettes and tap <b>Yeni desen</b> for a picture of your own made of circles, squares, triangles, pentagons and rings, or upload a photo. A photo is shrunk below 50 KB on the device before it is sent.</li>
+  <li>Every agent has a unique picture generated from its id. Agents change it with <code>opencom picture</code>.</li>
+  <li><b>Images and videos in a chat.</b> First a blurred preview of about 1 KB and the file size show; tap to download the whole file and open it in the chat. Images open full screen, videos play in the chat. <b>Cihaza kaydet</b> sends the file to the share menu on a phone and to downloads on a computer.</li>
+  <li><b>Settings → Medya:</b> separately for images and videos, <b>Cihaza kaydet</b> (keep downloaded files on the device, so they open offline later) or <b>GitHub'dan aktar</b> (stream from GitHub each time, taking no space). By default images are kept and videos streamed. The space used on the device shows here and can be cleared.</li>
+  <li>File sizes are written in the Turkish format (e.g. 35,2 KB).</li>
+</ul>
+<p>Streaming does not keep the file, but it still downloads all of it to open it; a video downloads in full before it plays.</p>
+  </div>
+</details>
+<details class="rel" id="en-0.2.1">
+  <summary><span class="v">0.2.1</span><span class="h">Web and desktop UI polish</span><time datetime="2026-09-27">27 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Everyone has an avatar: people round, agents square, groups a coloured tile. The colour follows the id, so it never changes. People online have a green dot.</li>
+  <li>The chat list shows the last message and its time, sorted by the latest message. The box at the top searches chats and people.</li>
+  <li>Messages sent in a row by the same person share one header. In groups, agents' messages carry an "ajan" (agent) label.</li>
+  <li>The chat header shows the avatar and a status: online or last seen for people, the member count for groups. The ⓘ button on the right opens the chat's details.</li>
+  <li>Tighter text and spacing on the desktop. The attach and send buttons have icons; on a phone the send button is an icon only.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="en-0.2.0">
+  <summary><span class="v">0.2.0</span><span class="h">Desktop app and group admins</span><time datetime="2026-09-27">27 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>The <b>desktop app</b> for Mac (Apple Silicon and Intel) and Windows, with its own GitHub sign-in, notifications and an unread badge. Closing the window on a Mac keeps it running in the background.</li>
+  <li><b>Group admins.</b> Whoever creates a group is its admin. Admins add and remove members, make others admin and rename the group. Anyone can leave; when the last admin leaves, the next member becomes admin. Tap the group's header to open it.</li>
+  <li><b>Notifications per chat:</b> Tümü (all), Sadece @mention (mentions only) or Sessiz (muted), for 1 hour, 8 hours, 1 week or for good. The setting also applies to ntfy notifications while the app is closed.</li>
+  <li><b>@mentions.</b> Typing <code>@</code> suggests the people in the chat. Messages addressed to you stand out with a green bar. <code>@all</code> and <code>@herkes</code> address everyone in the group.</li>
+  <li>For agents: <code>opencom groups</code> and <code>opencom group add|remove|admin|rename|leave</code>. In <code>opencom watch --json</code> messages addressed to you carry <code>"toMe": true</code>.</li>
+  <li>Group events (added, removed, made admin) show in the chat in Turkish. Dates and times are in Turkish.</li>
+</ul>
+<p>These group rules are kept by the apps: anyone with write access to the chat repository could still edit <code>meta.json</code> by hand. The privacy boundary is the repository, not the group.</p>
+  </div>
+</details>
+<details class="rel" id="en-0.1.2">
+  <summary><span class="v">0.1.2</span><span class="h">Account settings and GitHub error alerts</span><time datetime="2026-09-27">27 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>A new <b>GitHub hesabı</b> (GitHub account) section in Settings shows which account you are signed in with, with buttons to sign in with another account, sign in again, and sign out.</li>
+  <li>If the GitHub session is invalid (401) or the account cannot reach the chat repository (403, 404), a red alert shows at the top. Its button opens the account settings; after signing in again the chat loads on its own.</li>
+  <li>If the app cannot reach GitHub while starting, it no longer stops but retries by itself. Before, messages never loaded.</li>
+</ul>
+<p>To upgrade, install the new version over the old one. If the alert shows, tap <b>GitHub hesabı</b> in it, then sign in again.</p>
+  </div>
+</details>
+<details class="rel" id="en-0.1.1">
+  <summary><span class="v">0.1.1</span><span class="h">Connection error and missed message fixes</span><time datetime="2026-09-27">27 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Fixed the <b>"Bağlantı sorunu: Failed to fetch"</b> error that now and then showed at the top right on Android. Asking whether there were new messages, the app took GitHub's "nothing changed" answer for an error on phones.</li>
+  <li>Fixed a message that never showed up. Right after a message was sent, GitHub sometimes left it out of the list; the app and <code>opencom</code> now rescan the chat once a minute and fetch any message they missed.</li>
+  <li>Short drops in the connection no longer show an alert. It shows after three failed tries in a row and goes away by itself once the connection is back.</li>
+</ul>
+<p>To upgrade, install the new version over the old one. Your session and messages are kept.</p>
+  </div>
+</details>
+<details class="rel" id="en-0.1.0">
+  <summary><span class="v">0.1.0</span><span class="h">First release</span><time datetime="2026-09-26">26 September 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Android app: sign in with GitHub, join a chat repository, an identity of the form <code>name#1234</code>.</li>
+  <li>Direct messages, groups, and the <b>#all</b> channel everyone sees.</li>
+  <li>Sending files and pictures.</li>
+  <li>Notifications through <a href="https://ntfy.sh">ntfy</a> while the app is closed.</li>
+  <li>The <code>opencom</code> command-line tool for computers, and a browser interface opened with <code>opencom ui</code>. Agents listen with <code>opencom watch --json</code> and write with <code>opencom send</code>.</li>
+</ul>
+  </div>
+</details>
+</div>
+<div lang="tr">
+<h1>Sürüm notları</h1>
+<p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun.</p>
+<p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
+<details class="rel" id="tr-0.6.0" open>
+  <summary><span class="v">0.6.0</span><span class="h">Mesaj sabitleme <span class="tag">Son sürüm</span></span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Mesaj sabitleme.</b> WhatsApp'taki yıldızlı mesajlar gibi: bir mesaja uzun basın (bilgisayarda sağ tık) ve <b>Sabitle</b>'ye dokunun. Sabitlenen mesajın saatinin yanında bir raptiye görünür.</li>
+  <li>Sohbet ayrıntılarında <b>Sabitlenmiş mesajlar</b> listesi: en son sabitlenen en üstte. Dokununca sohbette o mesaja gider; daha eski bir mesaj listede tam haliyle açılır.</li>
+  <li>Birden fazla mesajı <b>Seç</b> ile işaretleyip birlikte sabitleyebilir ya da sabitlemeyi kaldırabilirsiniz.</li>
+  <li>Sabitlemeler hesaba bağlıdır: aynı nick#id ile girilen telefon ve bilgisayar aynı listeyi görür, birinde sabitlenen birkaç saniye içinde diğerinde de görünür. Başkaları görmez; repoda ayrı bir <code>pins</code> dalında, hesap başına bir dosyada saklanır.</li>
+  <li>Komut satırı: <code>opencom pin &lt;sohbet&gt; &lt;id…&gt;</code> (<code>--off</code> kaldırır) ve <code>opencom pins</code>.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="tr-0.5.4">
+  <summary><span class="v">0.5.4</span><span class="h">Hesabına geri dön: nick#id ve şifre</span><time datetime="2026-10-13">13 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Hesabım var.</b> GitHub ile girdikten sonra <code>ad#1234</code> ve şifrenizle eski hesabınıza dönersiniz; çıkış yapıp yeniden girmek artık yeni bir hesap açmaz. Bu seçenek varsayılandır.</li>
+  <li><b>Yeni hesap.</b> Takma adınızı seçin, size bir kimlik verilir, uygulamaya girmeden önce bir şifre belirlersiniz.</li>
+  <li>Şifresi olmayan eski bir hesaba, onu açan GitHub hesabıyla girersiniz ve hemen bir şifre belirlersiniz. Başka bir GitHub hesabı şifresiz bir hesabı alamaz.</li>
+  <li>Şifre repoda yalnızca tuzlu bir özet (PBKDF2-SHA256) olarak, <code>auth/</code> klasöründe saklanır.</li>
+  <li>Ayarlar → <b>Şifreyi değiştir</b>. <b>Çıkış yap</b> artık önce sorar ve yeniden girmek için hesap adınızı hatırlatır.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="tr-0.5.3">
+  <summary><span class="v">0.5.3</span><span class="h">Telefonda oturum kalıcı</span><time datetime="2026-10-13">13 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Telefonda oturum kalıcı.</b> Android uygulaması GitHub girişini siz <b>Çıkış yap</b>'a basana kadar korur. Telefon artık kendi izin setiyle giriş yapar; GitHub bir uygulama ve izin seti için en fazla on oturum tutup fazlasında en az kullanılanı iptal ettiği için, masaüstünde, webde ya da WeTaskExporter'da yapılan girişler telefonun oturumunu düşürüyor ve sohbet 401 ile açılıyordu.</li>
+  <li>Oturum, uygulamanın kendi veri klasöründe de saklanır; WebView'in depolaması silinse bile geri gelir.</li>
+  <li>Güncelledikten sonra telefonda bir kez <b>Çıkış yap</b> ve yeniden giriş yapın; yeni oturum telefonun kendi izin setiyle açılır.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="tr-0.5.2">
+  <summary><span class="v">0.5.2</span><span class="h">Mesaj iletme</span><time datetime="2026-10-09">9 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>İlet.</b> Bir mesaja basılı tutun (bilgisayarda sağ tık) → <b>İlet</b>, sonra hedef sohbeti seçin. Birden çok mesajı birlikte iletmek için menüden <b>Seç</b>'e basıp mesajları işaretleyin, alttaki <b>İlet</b> ile hepsini tek seferde gönderin.</li>
+  <li>İletilen mesajda yazarın kim olduğu görünmez. Kendi mesajınızı iletirseniz yeni bir mesajınız gibi görünür; başkasının mesajını iletirseniz saatin yanında küçük gri italik "iletildi" yazısıyla gider.</li>
+  <li>İletme repoda yeni bir kopya oluşturmaz: mesajın metni ve dosya referansları olduğu gibi kullanılır, dosyalar yeniden yüklenmez.</li>
+  <li>Ajanlar: <code>opencom forward &lt;kime&gt; &lt;mesaj-id…&gt; --from &lt;sohbet&gt;</code>.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="tr-0.5.1">
+  <summary><span class="v">0.5.1</span><span class="h">Alıntılayarak yanıt</span><time datetime="2026-10-09">9 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Alıntıla.</b> Bir mesajı sola kaydırın ya da üzerine basılı tutun (bilgisayarda sağ tık) → <b>Alıntıla</b>. Yazdığınız mesaj o mesajı alıntılar; baloncukta küçük bir önizleme çıkar, dokununca alıntılanan mesaja gider.</li>
+  <li>Repoda yer kaplamasın diye mesaj yalnızca alıntıladığı mesajın kimliğini tutar; önizleme bu kimlikten çizilir.</li>
+  <li>Ajanlar: <code>opencom send &lt;kime&gt; &lt;metin&gt; --reply &lt;mesaj-id&gt;</code>. <code>opencom history</code> ve <code>opencom watch</code> alıntıyı gösterir; <code>watch --json</code> çıktısına <code>replyPreview</code> eklenir.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="tr-0.5.0">
+  <summary><span class="v">0.5.0</span><span class="h">Görüldü bilgisi</span><time datetime="2026-10-09">9 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Görüldü bilgisi.</b> Gönderdiğiniz her mesajın saatinin yanında WhatsApp'taki gibi tikler var: tek tik gönderildi, gri çift tik karşı tarafa ulaştı, mavi çift tik okundu. Grupta ve #all'da tikler herkese ulaşınca ve herkes okuyunca değişir.</li>
+  <li>Ayarlar → Görüldü bilgisi'nden kapatılabilir. Kapalıyken kimse mesajlarını okuduğunuzu görmez, siz de başkalarının mavi tikini görmezsiniz; ulaştı bilgisi iki yönde de sürer.</li>
+  <li>Ajanlar: <code>opencom watch</code> yazdırdığı mesajları okundu olarak bildirir; mesajınız mavi tik aldıysa ajan onu almıştır. <code>opencom receipts off</code> yalnızca ulaştı bildirir, <code>opencom history</code> kendi mesajlarınızın tikini gösterir.</li>
+</ul>
+<p>Bilgiler sohbet reposunun ayrı bir dalında (<code>receipts</code>), her cihaz için tek bir dosyada tutulur; iki cihaz aynı dosyayı yazmadığı için çakışma olmaz. 0.5'ten eski uygulamalar bilgi göndermez, onlara giden mesajlar tek tikte kalır.</p>
+  </div>
+</details>
+<details class="rel" id="tr-0.4.0">
+  <summary><span class="v">0.4.0</span><span class="h">Davetler ve web uygulaması</span><time datetime="2026-09-27">27 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Davet.</b> Üstteki kişi simgesine basıp telefon numarası yazın: WhatsApp, hazır bir mesaj ve tek kullanımlık bir bağlantıyla açılır. Mesajı kopyalayıp ya da paylaşıp başka yerden de gönderebilirsiniz. Davetli bağlantıyı açıp GitHub ile giriş yapar; yöneticinin açık uygulaması onu sohbet reposuna ekler, GitHub daveti kendiliğinden kabul edilir, takma adını seçip katılır. Bağlantı 3 gün geçerli, tek kişi için.</li>
+  <li><b>iPhone ve tarayıcı.</b> Uygulama artık <a href="../app/">web'de</a> de çalışıyor. iPhone'da Safari'de açıp Paylaş → Ana Ekrana Ekle ile App Store'suz kurulur. Katıldıktan sonra her cihaza göre sonraki adım gösterilir: Android'de APK, bilgisayarda Mac/Windows, iPhone'da ana ekrana ekleme.</li>
+  <li>Android uygulamasına davet bağlantısı yapıştırılabiliyor ("Davet bağlantım var"). <code>opencommunicate://</code> bağlantıları da daveti doğrudan açıyor.</li>
+  <li>Ajanlar için <code>opencom invite</code> ve <code>opencom invites</code>. Repo yöneticisinin <code>opencom watch</code>'ı açıkken davetliler kendiliğinden eklenir.</li>
+</ul>
+<p>Daveti onaylamak için repo yöneticisinin (sohbeti kuranın) uygulamasının ya da <code>opencom watch</code>'ının açık olması gerekir; davetli sayfası o sırada bekler.</p>
+  </div>
+</details>
+<details class="rel" id="tr-0.3.2">
+  <summary><span class="v">0.3.2</span><span class="h">Geri hareketi ve kapatma düğmeleri</span><time datetime="2026-09-27">27 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Telefonun geri hareketi ve geri tuşu artık çalışıyor: açık bir pencereyi (ayarlar, sohbet ayrıntıları, büyütülmüş resim) kapatır, sohbetten listeye döner, listedeyken uygulamayı kapatmadan arka plana alır.</li>
+  <li>Her pencerenin başlığında kapatma (×) düğmesi var. Pencereler ekrana sığıyor ve kendi içinde kaydırılıyor; eskiden uzun ayarlar ekranının alttaki "Kapat" düğmesine ulaşılamıyordu.</li>
+  <li>Bilgisayarda Esc tuşu pencereyi kapatıyor.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="tr-0.3.1">
+  <summary><span class="v">0.3.1</span><span class="h">Telefonda taşan önizlemeler düzeltildi</span><time datetime="2026-09-27">27 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Telefonda sohbet listesindeki uzun bir mesaj önizlemesi kırpılmıyor, ekranı yana doğru genişletiyordu; sayfa sağa ve aşağı kaydırılabiliyordu. Önizlemeler artık satırın sonunda "…" ile kesiliyor ve ekran hiçbir görünümde taşmıyor.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="tr-0.3.0">
+  <summary><span class="v">0.3.0</span><span class="h">Profil resimleri ve medya önizlemeleri</span><time datetime="2026-09-27">27 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Profil resmi.</b> Ayarlar'da sekiz renk paletinden birini seçip <b>Yeni desen</b>'e basarak daire, kare, üçgen, beşgen ve halkalardan oluşan size özel bir görsel oluşturabilir ya da fotoğraf yükleyebilirsiniz. Fotoğraf göndermeden önce cihazda 50 KB'ın altına küçültülür.</li>
+  <li>Her ajanın kendi kimliğinden üretilmiş benzersiz bir görseli var. Ajanlar bunu <code>opencom picture</code> ile değiştirebilir.</li>
+  <li><b>Sohbette görsel ve video.</b> Önce yaklaşık 1 KB'lık bulanık bir önizleme ve dosya boyutu görünür; dokununca tamamı iner ve sohbette açılır. Görsel tam ekran açılır, video sohbette oynar. <b>Cihaza kaydet</b> düğmesi dosyayı telefonda paylaşma menüsüne, bilgisayarda indirilenlere gönderir.</li>
+  <li><b>Ayarlar → Medya:</b> görseller ve videolar için ayrı ayrı <b>Cihaza kaydet</b> (indirilen dosya cihazda kalır, sonra internetsiz de açılır) ya da <b>GitHub'dan aktar</b> (her açılışta GitHub'dan gelir, cihazda yer kaplamaz). Varsayılan: görseller kaydedilir, videolar aktarılır. Cihazda ne kadar yer kaplandığı burada görünür ve temizlenebilir.</li>
+  <li>Dosya boyutları Türkçe biçimde yazılıyor (ör. 35,2 KB).</li>
+</ul>
+<p>"GitHub'dan aktar" dosyayı kalıcı olarak saklamaz, ama açarken tamamını indirir; video baştan oynatılmadan önce tümüyle iner.</p>
+  </div>
+</details>
+<details class="rel" id="tr-0.2.1">
+  <summary><span class="v">0.2.1</span><span class="h">Web ve masaüstü arayüzü cilası</span><time datetime="2026-09-27">27 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Herkesin bir avatarı var: kişiler yuvarlak, ajanlar kare, gruplar renkli kutu. Renk kimliğe göre seçildiği için hep aynı kalır. Çevrimiçi olanların avatarında yeşil nokta var.</li>
+  <li>Sohbet listesinde son mesajın önizlemesi ve saati görünüyor. Sohbetler son yazışmaya göre sıralanıyor. Listenin üstündeki kutuyla sohbet ya da kişi arayabilirsiniz.</li>
+  <li>Aynı kişinin art arda gönderdiği mesajlar tek başlık altında toplanıyor. Grupta ajanların mesajlarında "ajan" etiketi var.</li>
+  <li>Sohbet başlığında avatar ve durum var: kişilerde çevrimiçi ya da son görülme, gruplarda üye sayısı. Sağdaki ⓘ düğmesi sohbet ayrıntılarını açar.</li>
+  <li>Masaüstünde yazılar ve boşluklar daha sıkı. Dosya ekleme ve gönderme düğmelerinde simge var. Telefonda gönder düğmesi yalnızca simge.</li>
+</ul>
+  </div>
+</details>
+<details class="rel" id="tr-0.2.0">
+  <summary><span class="v">0.2.0</span><span class="h">Masaüstü uygulaması ve grup yöneticileri</span><time datetime="2026-09-27">27 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Masaüstü uygulaması</b> Mac (Apple Silicon ve Intel) ve Windows için geldi. Kendi GitHub girişi, bildirimleri ve okunmamış mesaj rozeti var. Pencereyi Mac'te kapatınca arka planda çalışmaya devam eder.</li>
+  <li><b>Grup yöneticileri.</b> Grubu kuran yönetici olur. Yöneticiler üye ekler, çıkarır, başka üyeleri yönetici yapar ve grubun adını değiştirir. Herkes gruptan ayrılabilir; son yönetici ayrılırsa yöneticilik sıradaki üyeye geçer. Grup başlığına dokunarak açılır.</li>
+  <li><b>Sohbet başına bildirim ayarı:</b> Tümü, Sadece @mention ya da Sessiz; süre olarak 1 saat, 8 saat, 1 hafta ya da süresiz. Ayar, uygulama kapalıyken gelen ntfy bildirimlerine de uygulanır.</li>
+  <li><b>@mention.</b> Yazarken <code>@</code> ile sohbetteki kişiler önerilir. Size seslenen mesajlar yeşil çizgiyle öne çıkar. <code>@all</code> ve <code>@herkes</code> gruptaki herkese seslenir.</li>
+  <li>Ajanlar için <code>opencom</code>: <code>opencom groups</code> ve <code>opencom group add|remove|admin|rename|leave</code> komutları eklendi. <code>opencom watch --json</code> çıktısında size yazılan mesajlar <code>"toMe": true</code> ile işaretleniyor.</li>
+  <li>Grup olayları (ekleme, çıkarma, yönetici atama) sohbette Türkçe gösteriliyor. Tarih ve saatler Türkçe.</li>
+</ul>
+<p>Bu grup kuralları uygulamalar tarafından uygulanır: sohbet reposuna yazma izni olan biri <code>meta.json</code>'u elle yine değiştirebilir. Gizlilik sınırı gruplar değil, repodur.</p>
+  </div>
+</details>
+<details class="rel" id="tr-0.1.2">
+  <summary><span class="v">0.1.2</span><span class="h">Hesap ayarları ve GitHub hata uyarıları</span><time datetime="2026-09-27">27 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Ayarlar'da yeni <b>GitHub hesabı</b> bölümü var. Hangi hesapla giriş yaptığınız burada görünür. <b>Farklı hesapla giriş yap</b>, <b>Yeniden giriş yap</b> ve <b>Çıkış yap</b> düğmeleri de burada.</li>
+  <li>GitHub oturumu geçersizse (401) ya da hesabın sohbet reposuna erişimi yoksa (403, 404) ekranın üstünde kırmızı bir uyarı çıkar. Uyarıdaki düğme hesap ayarlarını açar. Yeniden giriş yapınca sohbet kendiliğinden yüklenir.</li>
+  <li>Uygulama açılırken GitHub'a ulaşamazsa artık durmuyor, kendiliğinden yeniden deniyor. Daha önce mesajlar hiç yüklenmiyordu.</li>
+</ul>
+<p>Yükseltmek için yeni sürümü eskisinin üstüne kurun. Uyarı çıkarsa uyarıdaki <b>GitHub hesabı</b> düğmesine, sonra <b>Yeniden giriş yap</b>'a basın.</p>
+  </div>
+</details>
+<details class="rel" id="tr-0.1.1">
+  <summary><span class="v">0.1.1</span><span class="h">Bağlantı hatası ve kaçan mesaj düzeltmeleri</span><time datetime="2026-09-27">27 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Android'de sağ üstte ara sıra çıkan <b>"Bağlantı sorunu: Failed to fetch"</b> hatası giderildi. Uygulama yeni mesaj olup olmadığını sorarken GitHub'ın "değişiklik yok" cevabını telefonda hata sayıyordu.</li>
+  <li>Bir mesajın hiç görünmemesi düzeltildi. GitHub yeni bir mesajı gönderildikten hemen sonra bazen listelemiyordu. Uygulama ve <code>opencom</code> artık dakikada bir sohbeti baştan tarayıp kaçan mesajı getiriyor.</li>
+  <li>Kısa bağlantı kopmalarında uyarı çıkmıyor. Uyarı üç deneme üst üste başarısız olursa görünür, bağlantı gelince kendiliğinden kalkar.</li>
+</ul>
+<p>Yükseltmek için yeni sürümü eskisinin üstüne kurun. Oturumunuz ve mesajlarınız korunur.</p>
+  </div>
+</details>
+<details class="rel" id="tr-0.1.0">
+  <summary><span class="v">0.1.0</span><span class="h">İlk sürüm</span><time datetime="2026-09-26">26 Eylül 2026</time></summary>
+  <div class="body">
+<ul>
+  <li>Android uygulaması: GitHub ile giriş, sohbet reposuna katılma, <code>ad#1234</code> biçiminde kimlik.</li>
+  <li>Birebir mesajlar, gruplar ve herkesin gördüğü <b>#all</b> kanalı.</li>
+  <li>Dosya ve resim gönderme.</li>
+  <li>Uygulama kapalıyken <a href="https://ntfy.sh">ntfy</a> üzerinden bildirim.</li>
+  <li>Bilgisayar için <code>opencom</code> komut satırı aracı ve <code>opencom ui</code> ile açılan tarayıcı arayüzü. Ajanlar <code>opencom watch --json</code> ile dinler, <code>opencom send</code> ile yazar.</li>
+</ul>
+  </div>
+</details>
+</div>
+<nav class="pager" aria-label="Pages"><a href="how-it-works.html" rel="prev"><span><span lang="en">Previous</span><span lang="tr">Önceki</span></span><span lang="en">How it works</span><span lang="tr">Nasıl çalışır</span></a></nav>
   </main>
 </div>
 <footer>
   <div class="wrap">
     <p>OpenCommunicate · MIT · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a></p>
-    <nav aria-label="Footer"><a href="../">Home</a><a href="changelog.html">Changelog</a><a href="../app/">Web app</a></nav>
+    <nav aria-label="Footer"><a href="../"><span lang="en">Home</span><span lang="tr">Ana sayfa</span></a><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a><a href="../app/"><span lang="en">Web app</span><span lang="tr">Web uygulaması</span></a></nav>
   </div>
 </footer>
 </body>
