@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, PALETTES, REACTIONS, isEditNotice, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, PALETTES, REACTIONS, isEditNotice, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -504,6 +504,38 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const [receipts, setReceipts] = useState<Receipts>({});
   const [pins, setPins] = useState<Pin[]>([]); // this account's pinned messages (shared by every device signed in as it), newest first
   const [reactions, setReactions] = useState<Reactions>({});
+  // what this account typed and has not sent, per chat; mirrored in localStorage so it shows before GitHub answers
+  const DRAFTS_KEY = `oc.drafts.${session.repo}.${session.device.id}`;
+  const [drafts, setDrafts] = useState<Drafts>(() => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}"); } catch { return {}; } });
+  useEffect(() => { try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts)); } catch { /* private mode */ } }, [drafts, DRAFTS_KEY]);
+  const unsaved = useRef<Record<string, string>>({}); // typed here, not written to the drafts branch yet
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushDrafts = useCallback(() => {
+    if (draftTimer.current) { clearTimeout(draftTimer.current); draftTimer.current = null; }
+    const batch = unsaved.current;
+    if (!Object.keys(batch).length) return;
+    unsaved.current = {};
+    // a failed write goes back in the queue, unless something newer was typed meanwhile
+    bus.setDrafts(meRef.current, batch).catch(() => { unsaved.current = { ...batch, ...unsaved.current }; });
+  }, [bus]);
+  const saveDraft = (ch: string, text: string) => {
+    setDrafts((d) => { const n = { ...d }; if (text.trim()) n[ch] = { text, at: new Date().toISOString() }; else delete n[ch]; return n; });
+    unsaved.current[ch] = text;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(flushDrafts, 1500);
+  };
+  // a draft from another device of this account, except where something typed here is still on its way
+  const takeDrafts = (remote: Drafts) => setDrafts((local) => {
+    const n = { ...remote };
+    for (const ch of Object.keys(unsaved.current)) { if (local[ch]) n[ch] = local[ch]; else delete n[ch]; }
+    return n;
+  });
+  useEffect(() => {
+    const away = () => { if (document.hidden) flushDrafts(); };
+    document.addEventListener("visibilitychange", away);
+    window.addEventListener("pagehide", flushDrafts);
+    return () => { document.removeEventListener("visibilitychange", away); window.removeEventListener("pagehide", flushDrafts); flushDrafts(); };
+  }, [flushDrafts]);
   const [showRead, setShowRead] = useState(readReceiptsOn);
   const showReadRef = useRef(showRead);
   showReadRef.current = showRead;
@@ -584,6 +616,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           watcher.tickReceipts().then(() => setReceipts(watcher.receipts)).catch(() => {});
           watcher.tickPins().then(() => setPins(watcher.pins)).catch(() => {});
           watcher.tickReactions().then(() => setReactions(watcher.reactions)).catch(() => {});
+          watcher.tickDrafts().then(() => takeDrafts(watcher.drafts)).catch(() => {});
           setStatus(""); setAccount(null);
           bus.presence().then(setPresence).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
@@ -611,6 +644,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           if (await watcher.tickReceipts().catch(() => false)) setReceipts(watcher.receipts);
           if (await watcher.tickPins().catch(() => false)) setPins(watcher.pins);
           if (await watcher.tickReactions().catch(() => false)) setReactions(watcher.reactions);
+          if (await watcher.tickDrafts().catch(() => false)) takeDrafts(watcher.drafts);
           for (const m of fresh) {
             if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
@@ -724,7 +758,9 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const last = (ch: string) => messages[ch]?.at(-1);
   const recent = (a: string, b: string) => (last(b)?.id ?? "").localeCompare(last(a)?.id ?? "");
   const shown = (label: string) => label.toLocaleLowerCase(LOCALE).includes(filter.trim().toLocaleLowerCase(LOCALE));
-  const preview = (ch: string) => {
+  const preview = (ch: string): ReactNode => {
+    const draft = ch !== active || (narrow && mobileView === "list") ? drafts[ch]?.text : undefined;
+    if (draft) return <><span className="draft-tag">{S.draft}</span> {draft}</>;
     const m = last(ch);
     if (!m) return "";
     const body = m.system ? systemText(m, devices) : m.deleted ? S.deletedMsg : m.text || (m.files?.length ? `📎 ${m.files[0].name}` : "");
@@ -771,6 +807,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()), ...(await describe(f)) })));
     const replyTo = reply?.id;
     setReply(null);
+    saveDraft(active, "");
     await deliver(active, text, payload, replyTo);
   };
   /** A failed message goes again as a new one (new time, at the end of the chat); discard forgets it. */
@@ -782,7 +819,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     return deliver(u.channel, u.text, u.payload, u.replyTo);
   };
   const [editing, setEditing] = useState<Message | null>(null);
-  useEffect(() => { setEditing(null); }, [active]);
+  useEffect(() => { setEditing(null); flushDrafts(); }, [active, flushDrafts]);
   const amend = async (m: Message, text: string | null) => {
     try {
       const { message, notice } = await bus.amend(me, m, text);
@@ -867,7 +904,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
                 </span>;
               })()}
             </div>
-          : <Composer onSend={send} reply={reply} onCancelReply={() => setReply(null)}
+          : <Composer key={active} draft={drafts[active]?.text ?? ""} onDraft={(t) => saveDraft(active, t)} onSend={send} reply={reply} onCancelReply={() => setReply(null)}
               editing={editing} onEdit={(t) => { const m = editing!; setEditing(null); if (t !== m.text) amend(m, t); }} onCancelEdit={() => setEditing(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />}
       </main>
 
@@ -943,7 +980,7 @@ const Plane = () => <svg viewBox="0 0 24 24" width="19" height="19" fill="curren
 /** Today: the time; earlier: the day. */
 const when = (iso: string) => new Date(iso).toDateString() === new Date().toDateString() ? time(iso) : new Date(iso).toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
 
-function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, onClick }: { avatar: ReactNode; label: string; preview?: string; time?: string; count: number; activeCh: boolean; quiet?: Quiet | null; onClick: () => void }) {
+function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, onClick }: { avatar: ReactNode; label: string; preview?: ReactNode; time?: string; count: number; activeCh: boolean; quiet?: Quiet | null; onClick: () => void }) {
   return (
     <button className={`row ${activeCh ? "active" : ""} ${count ? "unread" : ""}`} onClick={onClick}>
       {avatar}
@@ -1190,27 +1227,31 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   );
 }
 
-function Composer({ onSend, people, reply, onCancelReply, editing, onEdit, onCancelEdit }: { onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void }) {
-  const [text, setText] = useState("");
+function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editing, onEdit, onCancelEdit }: { draft: string; onDraft: (text: string) => void; onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void }) {
+  const [text, setText] = useState(draft);
+  // a draft from another device shows here until something is typed in this box
+  const typed = useRef(false);
+  useEffect(() => { if (!typed.current && !editing) setText(draft); }, [draft, editing]);
+  const change = (v: string) => { setText(v); if (!editing) { typed.current = true; onDraft(v); } };
   // editing: the box holds the message's text until it is saved or the edit is cancelled
-  const before = useRef("");
+  const before = useRef<string | null>(null); // what the box held before an edit started; null when not editing
   useEffect(() => {
-    if (editing) { before.current = text; setText(editing.text); replyInput.current?.focus(); }
-    else setText(before.current);
+    if (editing) { if (before.current === null) before.current = text; setText(editing.text); replyInput.current?.focus(); }
+    else if (before.current !== null) { setText(before.current); before.current = null; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
   // "@" followed by the start of a nick at the end of the text suggests people in this chat
   const at = text.match(/(^|\s)@([\w-]*)$/);
   const suggest = at ? people.filter((d) => handle(d).toLowerCase().startsWith(at[2].toLowerCase())).slice(0, 6) : [];
-  const mention = (d: Device) => setText(text.slice(0, text.length - at![2].length - 1) + `@${handle(d)} `);
+  const mention = (d: Device) => change(text.slice(0, text.length - at![2].length - 1) + `@${handle(d)} `);
   const [files, setFiles] = useState<File[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const submit = () => {
-    if (editing) { if (text.trim()) { before.current = ""; onEdit(text.trim()); } return; }
+    if (editing) { if (text.trim()) onEdit(text.trim()); return; }
     if (!text.trim() && !files.length) return;
     if (files.some((f) => f.size > 50e6)) { alert(S.fileTooBig); return; }
     onSend(text.trim(), files);
-    setText(""); setFiles([]);
+    setText(""); setFiles([]); typed.current = false;
   };
   const replyInput = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => { if (reply) replyInput.current?.focus(); }, [reply]);
@@ -1223,7 +1264,7 @@ function Composer({ onSend, people, reply, onCancelReply, editing, onEdit, onCan
       <div className="compose-row">
         <button className="icon attach-btn" disabled={!!editing} title={S.addFile} aria-label={S.addFile} onClick={() => input.current?.click()}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-        <textarea ref={replyInput} rows={1} value={text} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => setText(e.target.value)}
+        <textarea ref={replyInput} rows={1} value={text} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
         <button className="primary send" aria-label={editing ? S.saveEdit : S.send} onClick={submit} disabled={!text.trim() && (!files.length || !!editing)}><Plane /><span className="send-label">{editing ? S.saveEdit : S.send}</span></button>
       </div>
