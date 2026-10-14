@@ -306,3 +306,7 @@ a.ghost { display: inline-flex; align-items: center; color: inherit; text-decora
 .msg-menu .confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 8px; font-size: 13px; color: var(--muted); }
 .msg-menu .confirm span { flex-basis: 100%; }
 .draft-tag { color: var(--accent); font-weight: 600; }
+/* message search in the sidebar */
+.row.result { align-items: flex-start; }
+.row.result mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.older { padding: 6px 12px 12px; }
