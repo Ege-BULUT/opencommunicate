@@ -61,6 +61,7 @@ export const saveSession = (s: Session) => {
   if (native()) void writeFile(text);
 };
 export const clearSession = () => {
+  clearSignIn();
   try { localStorage.removeItem(KEY); } catch { /* nothing stored */ }
   if (native()) void queued(() => Filesystem.deleteFile({ path: FILE, directory: Directory.Data }));
 };
@@ -140,6 +141,38 @@ export async function claim(token: string, repo: string, handle: string, passwor
 }
 
 export const setPassword = (s: Session, password: string) => new Bus({ repo: s.repo, token: s.token }).setPassword(s.device, password);
+
+/* A sign-in that has not reached the chat yet: the GitHub token, and once joined the new device waiting
+   for its password. Kept so a closed tab between "approved on GitHub" and "in the chat" doesn't mean a
+   second trip through github.com/login/device. */
+export type SignIn = { token: string; login: string; joined?: Session };
+const SIGNIN_KEY = "oc.signin";
+export const readSignIn = (): SignIn | null => { try { const s = JSON.parse(localStorage.getItem(SIGNIN_KEY) ?? "null"); return s?.token && s?.login ? s : null; } catch { return null; } };
+export const saveSignIn = (s: SignIn) => { try { localStorage.setItem(SIGNIN_KEY, JSON.stringify(s)); } catch { /* private mode: sign in again next time */ } };
+export const clearSignIn = () => { try { localStorage.removeItem(SIGNIN_KEY); } catch { /* nothing stored */ } };
+
+const gh = (token: string, path: string) => fetch(`https://api.github.com${path}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" } });
+
+/** Every repository the account can push to, most recently updated first ("owner/name"). */
+export async function listRepos(token: string): Promise<string[]> {
+  const names: string[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const res = await gh(token, `/user/repos?per_page=100&page=${page}&sort=updated&affiliation=owner,collaborator,organization_member`);
+    if (!res.ok) throw new GitHubError(res.status, `GitHub repos: ${res.status}`);
+    const batch: { full_name: string; permissions?: { push?: boolean } }[] = await res.json();
+    names.push(...batch.filter((r) => r.permissions?.push !== false).map((r) => r.full_name));
+    if (batch.length < 100) break;
+  }
+  return names;
+}
+
+/** Whether "owner/name" exists for this account; a repository it can't see reads as missing, as on GitHub. */
+export async function repoExists(token: string, repo: string): Promise<boolean> {
+  const res = await gh(token, `/repos/${repo}`);
+  if (res.status === 404) return false;
+  if (!res.ok) throw new GitHubError(res.status, `GitHub: ${res.status}`);
+  return true;
+}
 
 export async function githubLogin(token: string): Promise<string> {
   const res = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${token}` } });
