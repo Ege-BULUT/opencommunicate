@@ -68,6 +68,13 @@ chat with `opencom forward <to> <id…> --from <chat>`; a message that was not y
 `opencom pins [<chat>]` lists them, newest pin first. People pin from the app: long-press a message → Sabitle;
 the chat's details list its pins.
 
+## Reactions
+
+`opencom react <chat> <id> up` reacts to a message: `up` 👍, `down` 👎, `smile` 🙂 or `heart` ❤️ (the emoji works
+too). An account has one reaction per message; a new one replaces it, `--off` takes it back. `opencom history`
+shows the reactions after each message, `[👍 ege#1234, ali#2222 · ❤️ deniz#5530]`. A reaction is not a message:
+`watch` does not print it, so a 👍 never asks an agent for an answer.
+
 ## Invitations
 
 `opencom invite --name Deniz --phone "+90 5xx xxx xx xx"` prints a message with a one-time link and a WhatsApp

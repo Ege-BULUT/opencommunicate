@@ -5,7 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, PHOTO_MAX, Watcher, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
@@ -29,6 +29,10 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom pin <chat> <id…> [--off] pin messages (by id, from the chat's recent history) for this account
                                    only, like WhatsApp's starred messages (--off: unpin)
   opencom pins [<chat>]            this account's pinned messages, newest pin first
+  opencom react <chat> <id> <reaction> [--off]
+                                   react to a message: up 👍, down 👎, smile 🙂 or heart ❤️ (the emoji
+                                   works too); one per message, a new one replaces it (--off: take it back).
+                                   history shows them after each message: [👍 ege#1234]
   opencom watch [--json] [--interval 5]
                                    print new messages as they arrive (JSON lines with --json;
                                    "toMe" is true for DMs and for @nick, nick#1234 or @all)
@@ -106,11 +110,14 @@ const members = (g: Group, devices: Device[]) => {
 };
 
 const local = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
-const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted?: Map<string, Message>) => {
+const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted?: Map<string, Message>, reactions?: Reactions) => {
   const q = m.replyTo ? quoted?.get(m.replyTo) : undefined;
-  const quote = m.replyTo ? `  ↩ ${q ? `${q.fromNick}: ${snippet(q, 48)}` : `(mesaj ${m.replyTo.slice(-6)})`}` : "";
-  const who = m.forwarded ? "iletildi" : `${m.fromNick}#${m.from}`;
-  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${m.text}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}`;
+  const quote = m.replyTo ? `  ↩ ${q ? `${q.fromNick}: ${snippet(q, 48)}` : `(message ${m.replyTo.slice(-6)})`}` : "";
+  const who = m.forwarded ? "forwarded" : `${m.fromNick}#${m.from}`;
+  const name = (id: string) => handle(devices.find((d) => d.id === id) ?? { nick: "?", id });
+  const rs = reactions ? reactionsOn(m, reactions) : [];
+  const reacted = rs.length ? `  [${rs.map((r) => `${r.emoji} ${r.ids.map(name).join(", ")}`).join(" · ")}]` : "";
+  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${m.text}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${reacted}`;
 };
 
 async function main(argv: string[]) {
@@ -165,11 +172,11 @@ async function main(argv: string[]) {
     case "history": {
       const { devices, groups } = await load();
       const channel = resolveTarget(rest[0] ?? "all", me, devices, groups);
-      const [list, receipts] = await Promise.all([bus.history(channel, Number(f.n?.[0] ?? 20)), bus.receipts()]);
+      const [list, receipts, reactions] = await Promise.all([bus.history(channel, Number(f.n?.[0] ?? 20)), bus.receipts(), bus.reactions()]);
       const to = recipientsOf(channel, me.id, devices, groups);
       const byId = new Map(list.map((m) => [m.id, m]));
       const mark = { sent: "✓", delivered: "✓✓", read: "✓✓ read" };
-      for (const m of list) console.log(line(m, me, devices, groups, byId) + (m.from === me.id && !m.system ? `  ${mark[ticksFor(m, to, receipts, cfg.readReceipts !== false)]}` : ""));
+      for (const m of list) console.log(line(m, me, devices, groups, byId, reactions) + (m.from === me.id && !m.system ? `  ${mark[ticksFor(m, to, receipts, cfg.readReceipts !== false)]}` : ""));
       return;
     }
     case "groups": {
@@ -283,6 +290,19 @@ async function main(argv: string[]) {
       const pick = ids.map((id) => { const m = hist.find((x) => x.id === id || x.id.endsWith(id)); if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`); return m; });
       const pins = await bus.setPins(me, pick, !f.off);
       console.log(`${f.off ? "unpinned" : "pinned"} ${pick.length} in ${label(channel, me, devices, groups)}; ${pins.length} pinned in all`);
+      return;
+    }
+    case "react": {
+      const [to, id, word] = rest;
+      if (!to || !id || (!word && !f.off)) throw new Error(`Usage: opencom react <chat> <message-id> <${Object.keys(REACTION_NAMES).join("|")}> [--off]`);
+      const emoji = word ? REACTION_NAMES[word.toLowerCase()] ?? (REACTIONS as readonly string[]).find((e) => e.replace("\ufe0f", "") === word.replace("\ufe0f", "")) : undefined;
+      if (word && !emoji && !f.off) throw new Error(`A reaction is ${Object.entries(REACTION_NAMES).map(([k, e]) => `${k} ${e}`).join(", ")}.`);
+      const { devices, groups } = await load();
+      const channel = resolveTarget(to, me, devices, groups);
+      const m = (await bus.history(channel, 200)).find((x) => x.id === id || x.id.endsWith(id));
+      if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`);
+      const changed = await bus.react(me, m, f.off ? null : (emoji as Reaction));
+      console.log(!changed ? "no change" : f.off ? `took back your reaction in ${label(channel, me, devices, groups)}` : `reacted ${emoji} in ${label(channel, me, devices, groups)}`);
       return;
     }
     case "pins": {

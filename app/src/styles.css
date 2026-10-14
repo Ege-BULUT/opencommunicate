@@ -287,3 +287,11 @@ a.ghost { display: inline-flex; align-items: center; color: inherit; text-decora
 .card select { width: 100%; border-radius: 12px; padding: 11px 13px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .card-head .lang-pick { width: auto; padding: 6px 10px; font-size: 14px; }
+/* reactions: four in the message menu, chips under the bubble */
+.msg-menu .react-row { display: flex; gap: 2px; padding: 2px 2px 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.msg-menu .react-row button { font-size: 20px; padding: 6px 8px; line-height: 1; text-align: center; }
+.msg-menu .react-row button.on { background: var(--sunken); outline: 1px solid var(--accent); }
+.reacts { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 0; }
+.react { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; line-height: 1; padding: 3px 7px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--line); color: var(--ink); }
+.react span { font-size: 11px; color: var(--muted); }
+.react.mine { border-color: var(--accent); }
