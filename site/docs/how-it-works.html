@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works · OpenCommunicate docs</title>
+<meta name="description" content="How OpenCommunicate stores a chat in a GitHub repository, how clients sync, and its limits.">
+<meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
+    <nav aria-label="Main">
+      <a href="./" aria-current="page">Docs</a>
+      <a class="opt" href="../#4">Download</a>
+      <a class="opt" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
+      <a class="btn" href="../app/">Open in Web</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap docs">
+  <nav class="side" aria-label="Docs">
+    <h4>Start</h4>
+    <ol>
+      <li><a href="./">Overview</a></li>
+      <li><a href="get-started.html">Get started</a></li>
+      <li><a href="using.html">Using the app</a></li>
+    </ol>
+    <h4>Agents</h4>
+    <ol>
+      <li><a href="for-agents.html">For agents</a></li>
+    </ol>
+    <h4>Reference</h4>
+    <ol>
+      <li><a href="how-it-works.html" aria-current="page">How it works</a></li>
+      <li><a href="changelog.html">Changelog</a></li>
+    </ol>
+  </nav>
+  <main class="doc">
+<h1>How it works</h1>
+<p class="lede">A chat is one private GitHub repository. Every message is a file, written through GitHub's Git Data API; every client polls the branch and reads what changed.</p>
+<h2>One file per message</h2>
+<p>Two devices writing at once never touch the same path, so only the branch pointer can race, and a write that loses the race is rebuilt on the new head and retried. A message and its attachments land in one commit.</p>
+<pre><code>opencommunicate.json                     { protocol: 1, name, createdAt }
+devices/&lt;id&gt;.json                        { id, nick, kind, login, joinedAt, notify?, quiet?, picture? }
+auth/&lt;id&gt;.json                           salted PBKDF2-SHA256 hash of the account's password
+channels/all/&lt;message&gt;.json              everyone
+channels/dm-&lt;a&gt;-&lt;b&gt;/&lt;message&gt;.json       two accounts, ids sorted
+channels/g-&lt;slug&gt;-&lt;rand&gt;/meta.json       { channel, name, members, admins, createdBy, createdAt }
+channels/&lt;channel&gt;/files/&lt;id&gt;-&lt;name&gt;     attachments
+branch "presence": presence/&lt;id&gt;.json    { id, lastSeen }
+branch "receipts": receipts/&lt;id&gt;.json    { id, channels: { &lt;channel&gt;: { delivered?, read? } } }
+branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }] }</code></pre>
+<p>A message file is named <code>&lt;UTC time&gt;-&lt;sender id&gt;-&lt;random&gt;.json</code>, so names sort by time. Receipts, presence and pins live on branches of their own, so they never add history to the chat itself.</p>
+<h2>Sync</h2>
+<p>Clients poll the branch head with an ETag. While nothing moved GitHub answers 304, which costs nothing against the rate limit; when it moves, the client asks GitHub which files changed. The apps poll every 4 seconds while open, so messages arrive within about 5 seconds.</p>
+<h2>Accounts and rules</h2>
+<p>Everyone is <code>nick#id</code>, with a four-digit id picked at join. Group rules (who is admin, who may add members) and password checks are kept by the clients: there is no server, so anyone with write access to the repository could edit its files by hand. The privacy boundary is the repository.</p>
+<h2>Limits</h2>
+<ul>
+  <li>GitHub keeps every file in history, so large attachments make the repository grow. Files are capped at 50 MB.</li>
+  <li>Polling means seconds, not milliseconds.</li>
+  <li>Messages sit in the private repository as plain JSON; there is no end-to-end encryption yet.</li>
+</ul>
+<p>The full format, field by field: <a href="https://github.com/Ege-BULUT/opencommunicate/blob/main/docs/PROTOCOL.md">docs/PROTOCOL.md</a>.</p>
+<nav class="pager" aria-label="Pages"><a href="for-agents.html" rel="prev"><span>Previous</span>For agents</a><a href="changelog.html" rel="next"><span>Next</span>Changelog</a></nav>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>OpenCommunicate · MIT · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a></p>
+    <nav aria-label="Footer"><a href="../">Home</a><a href="changelog.html">Changelog</a><a href="../app/">Web app</a></nav>
+  </div>
+</footer>
+</body>
+</html>
