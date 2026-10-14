@@ -50,8 +50,9 @@ export const PHOTO_MAX = 50 * 1024;
 export type Receipt = { delivered?: string; read?: string };
 export type Receipts = Record<string, Record<string, Receipt>>; // device id -> channel -> receipt
 /**
- * A message a device pinned (WhatsApp's starred messages): `id` in `channel`, pinned at `at`. Pins are private to
- * the device that made them, kept in pins/<id>.json on the "pins" branch like receipts, newest first.
+ * A pinned message (WhatsApp's starred messages): `id` in `channel`, pinned at `at`. Pins belong to the account
+ * (nick#id), so every app signed in as it shares them, and no one else sees them; kept in pins/<id>.json on the
+ * "pins" branch like receipts, newest first.
  */
 export type Pin = { channel: string; id: string; at: string };
 /** WhatsApp's ticks for one of my messages: sent (one), delivered to everyone (two), read by everyone (two blue). */
@@ -640,8 +641,8 @@ export class Bus {
   }
 
   /**
-   * Pins (`on`) or unpins messages for this device, one commit; read from the head each try is built on, so a pin
-   * made meanwhile on another tab survives. Returns the pins after the change, and makes no commit when nothing
+   * Pins (`on`) or unpins messages for this account, one commit; read from the head each try is built on, so a pin
+   * made meanwhile on another device signed in as it survives. Returns the pins after the change, and makes no commit when nothing
    * would change (pinning a pinned message, unpinning one that is not).
    */
   async setPins(me: Pick<Device, "id" | "nick">, messages: Pick<Message, "channel" | "id">[], on: boolean): Promise<Pin[]> {
@@ -749,6 +750,15 @@ export class Watcher {
     const head = await this.bus.headIfChanged("receipts");
     if (!head) return false;
     this.receipts = await this.bus.receipts(head);
+    return true;
+  }
+
+  /** This account's pins; `tickPins()` picks up a pin made on another device signed in as the same nick#id. */
+  pins: Pin[] = [];
+  async tickPins(): Promise<boolean> {
+    const head = await this.bus.headIfChanged("pins");
+    if (!head) return false;
+    this.pins = await this.bus.pins(this.me.id, head);
     return true;
   }
 

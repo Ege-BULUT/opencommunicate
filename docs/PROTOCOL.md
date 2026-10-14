@@ -76,9 +76,10 @@ branch "pins": pins/<id>.json            { id, pins: [{ channel, id, at }] }  ne
   read receipts turned off writes no `read` and shows no one's blue ticks, as in WhatsApp; delivered still
   goes both ways. The apps send them about 2.5 s after a burst; `opencom watch` reports what it printed
   as read (`opencom receipts off`: delivered only). Clients poll the `receipts` head with an ETag, like main.
-- **pinned messages** (0.6): WhatsApp's starred messages. Each device keeps its own list in `pins/<id>.json`
-  on the `pins` branch (like receipts: main gets no history, no two devices write the same path), so a pin is
-  private to the device that made it. An entry names the message (`channel`, `id`) and when it was pinned
+- **pinned messages** (0.6): WhatsApp's starred messages. Each account (nick#id) keeps its list in
+  `pins/<id>.json` on the `pins` branch (like receipts: main gets no history), so a pin is private to the account
+  and shared by every app signed in as it; the apps poll the branch head (304 while unchanged) to pick up a pin
+  made on another of them. An entry names the message (`channel`, `id`) and when it was pinned
   (`at`); the newest pin comes first. A write reads the file from the head it builds on, so a pin made meanwhile
   is kept, and pinning a pinned message (or unpinning one that is not) makes no commit. The apps show a pin in
   the bubble and list a chat's pins in its details; one older than the loaded history is read by path
