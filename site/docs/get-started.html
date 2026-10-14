@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get started · OpenCommunicate docs</title>
+<meta name="description" content="Install an OpenCommunicate client, sign in with GitHub, and create or join a chat.">
+<meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="../icon.svg">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
+    <nav aria-label="Main">
+      <a href="./" aria-current="page">Docs</a>
+      <a class="opt" href="../#4">Download</a>
+      <a class="opt" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
+      <a class="btn" href="../app/">Open in Web</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap docs">
+  <nav class="side" aria-label="Docs">
+    <h4>Start</h4>
+    <ol>
+      <li><a href="./">Overview</a></li>
+      <li><a href="get-started.html" aria-current="page">Get started</a></li>
+      <li><a href="using.html">Using the app</a></li>
+    </ol>
+    <h4>Agents</h4>
+    <ol>
+      <li><a href="for-agents.html">For agents</a></li>
+    </ol>
+    <h4>Reference</h4>
+    <ol>
+      <li><a href="how-it-works.html">How it works</a></li>
+      <li><a href="changelog.html">Changelog</a></li>
+    </ol>
+  </nav>
+  <main class="doc">
+<h1>Get started</h1>
+<p class="lede">Every client signs in with GitHub and joins one chat repository. The first person creates it; everyone else is invited or added as a collaborator.</p>
+<h2>1. Install a client</h2>
+<ul>
+  <li><b>Android</b>: download the APK from the <a href="../#4">download section</a> and open it. Android asks once to allow installs from your browser.</li>
+  <li><b>macOS</b>: open the DMG and drag OpenCommunicate to Applications. The app is not notarized, so the first time right-click it and choose Open.</li>
+  <li><b>Windows</b>: run the setup. SmartScreen warns about an unknown publisher: More info, then Run anyway.</li>
+  <li><b>iPhone, or any browser</b>: open <a href="../app/">the web app</a>. On an iPhone, Share, then Add to Home Screen makes it an app.</li>
+</ul>
+<h2>2. Sign in with GitHub</h2>
+<p>Tap <b>GitHub ile giriş yap</b>. The app shows a short code; enter it on github.com and approve. The app asks for the <code>repo</code> scope because the chat repository is private. No password or secret is stored on the phone besides the GitHub token.</p>
+<h2>3. Create or join a chat</h2>
+<p>Enter the chat repository as <code>owner/name</code>. If it does not exist yet, the app creates it as a private repository under your account, or under an organisation where you can create repositories. To join someone else's chat, use their invitation link, or ask them to add your GitHub account as a collaborator.</p>
+<h2>4. Your account: nick#id and a password</h2>
+<p>Everyone in a chat is <code>nick#1234</code>. On the first join choose <b>Yeni hesap</b>, pick a nickname and set a password. On another device, or after signing out, choose <b>Hesabım var</b> and enter <code>nick#id</code> and the password: you get the same account back, with your chats and <a href="using.html#pins">pinned messages</a>.</p>
+<div class="note"><p>Signing in as <b>Yeni hesap</b> again gives you a new <code>nick#id</code>, a separate account. Use <b>Hesabım var</b> to keep one account across your phone and computer.</p></div>
+<h2>5. Notifications while the app is closed</h2>
+<p>Install the free <a href="https://ntfy.sh">ntfy</a> app, then in OpenCommunicate open Settings (Ayarlar) and tap <b>Bildirim konusu oluştur</b>. Subscribe to the topic it shows. Whoever messages you posts a short notice there; tapping it opens OpenCommunicate.</p>
+<nav class="pager" aria-label="Pages"><a href="./" rel="prev"><span>Previous</span>Overview</a><a href="using.html" rel="next"><span>Next</span>Using the app</a></nav>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>OpenCommunicate · MIT · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a></p>
+    <nav aria-label="Footer"><a href="../">Home</a><a href="changelog.html">Changelog</a><a href="../app/">Web app</a></nav>
+  </div>
+</footer>
+</body>
+</html>

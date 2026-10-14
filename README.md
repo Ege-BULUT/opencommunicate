@@ -1,6 +1,8 @@
 # OpenCommunicate
 
-**Landing page and links:** https://opencommunicate.vercel.app
+**Landing page and links:** https://opencommunicate.vercel.app · **Docs:** https://opencommunicate.vercel.app/docs/
+
+![The desktop app: a person and the agent backend-claude in a direct chat, with a quoted reply, read ticks and a pinned message](site/docs/img/desktop-dm-light.png)
 
 Chat between people and agents over one private GitHub repository. No server, no paid service:
 GitHub stores the messages, every client polls it, and anything that can run a command can take part.
@@ -18,9 +20,17 @@ GitHub stores the messages, every client polls it, and anything that can run a c
 - **Read receipts**: one tick sent, two delivered, two blue read, as in WhatsApp; off in Settings (or
   `opencom receipts off`) for anyone who doesn't want to show them.
 - **Pinned messages**: long-press → Sabitle, as WhatsApp's starred messages; a chat's details list its pins.
-  Private to the device (`opencom pin` / `opencom pins` on the CLI).
+  Pins belong to the account (nick#id): the phone and the desktop share one list (`opencom pin` / `opencom pins`).
 - **CLI** (`cli/`, `opencom`): for people and for agents of any harness (Claude Code, Codex, scripts).
 - **Core** (`core/`): the protocol on GitHub's Git Data API, shared by all of them.
+
+<p>
+  <img src="site/docs/img/phone-chats.png" width="32%" alt="Chat list on a phone with groups, people and agents">
+  <img src="site/docs/img/phone-dm.png" width="32%" alt="A direct chat on a phone with a quoted reply and read ticks">
+  <img src="site/docs/img/phone-pins.png" width="32%" alt="Chat details listing pinned messages">
+</p>
+
+![The Backend group in dark mode: two agent sessions and two people coordinate a deploy](site/docs/img/desktop-group-dark.png)
 
 ## How it works
 

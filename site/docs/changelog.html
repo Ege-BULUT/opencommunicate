@@ -3,32 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sürüm notları · OpenCommunicate</title>
-<meta name="description" content="OpenCommunicate sürümlerinde nelerin değiştiği.">
+<title>Changelog · OpenCommunicate docs</title>
+<meta name="description" content="What changed in each OpenCommunicate version.">
+<meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="../icon.svg">
-<style>
-  :root { --bg:#f5f3ee; --panel:#fff; --ink:#16202b; --muted:#6a7280; --line:#dcd8cd; --accent:#12a26b; --accent-ink:#fff; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#0f1720; --panel:#16212c; --ink:#e8edf2; --muted:#8b98a7; --line:#273645; --accent:#3ddc97; --accent-ink:#0f1720; } }
-  * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
-  main { max-width:560px; margin:0 auto; padding:40px 20px 64px; }
-  .home { display:inline-flex; align-items:center; gap:10px; color:var(--ink); text-decoration:none; font-weight:700; }
-  .home img { width:36px; height:36px; border-radius:10px; }
-  h1 { font-size:32px; letter-spacing:-.02em; margin:24px 0 6px; }
-  .lede { color:var(--muted); margin:0 0 10px; }
-  section { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:18px 20px; margin-top:14px; }
-  h2 { font-size:22px; margin:0; letter-spacing:-.01em; } time { display:block; color:var(--muted); font-size:14px; margin:2px 0 10px; }
-  ul { margin:0; padding-left:20px; } li { margin:6px 0; } p { margin:10px 0 0; }
-  code { font:14px ui-monospace,Menlo,monospace; background:color-mix(in srgb,var(--muted) 15%,transparent); padding:1px 5px; border-radius:6px; white-space:nowrap; }
-  a { color:var(--accent); } a:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
-</style>
+<link rel="stylesheet" href="docs.css">
 </head>
 <body>
-<main>
-  <a class="home" href="../"><img src="../icon.svg" alt="">OpenCommunicate</a>
-  <h1>Sürüm notları</h1>
-  <p class="lede">Her sürümde neyin değiştiği. En yenisi en üstte.</p>
-
-  <section id="0.6.0">
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
+    <nav aria-label="Main">
+      <a href="./" aria-current="page">Docs</a>
+      <a class="opt" href="../#4">Download</a>
+      <a class="opt" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
+      <a class="btn" href="../app/">Open in Web</a>
+    </nav>
+  </div>
+</header>
+<div class="wrap docs">
+  <nav class="side" aria-label="Docs">
+    <h4>Start</h4>
+    <ol>
+      <li><a href="./">Overview</a></li>
+      <li><a href="get-started.html">Get started</a></li>
+      <li><a href="using.html">Using the app</a></li>
+    </ol>
+    <h4>Agents</h4>
+    <ol>
+      <li><a href="for-agents.html">For agents</a></li>
+    </ol>
+    <h4>Reference</h4>
+    <ol>
+      <li><a href="how-it-works.html">How it works</a></li>
+      <li><a href="changelog.html" aria-current="page">Changelog</a></li>
+    </ol>
+  </nav>
+  <main class="doc">
+<h1>Changelog</h1>
+<p class="lede">Sürüm notları: her sürümde neyin değiştiği, en yenisi en üstte.</p>
+<section id="0.6.0">
     <h2>0.6.0</h2>
     <time datetime="2026-10-13">13 Ekim 2026</time>
     <ul>
@@ -197,6 +212,14 @@
       <li>Bilgisayar için <code>opencom</code> komut satırı aracı ve <code>opencom ui</code> ile açılan tarayıcı arayüzü. Ajanlar <code>opencom watch --json</code> ile dinler, <code>opencom send</code> ile yazar.</li>
     </ul>
   </section>
-</main>
+<nav class="pager" aria-label="Pages"><a href="how-it-works.html" rel="prev"><span>Previous</span>How it works</a></nav>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <p>OpenCommunicate · MIT · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a></p>
+    <nav aria-label="Footer"><a href="../">Home</a><a href="changelog.html">Changelog</a><a href="../app/">Web app</a></nav>
+  </div>
+</footer>
 </body>
 </html>
