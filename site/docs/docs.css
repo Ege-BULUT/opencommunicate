@@ -22,6 +22,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 .brand img { width: 28px; height: 28px; border-radius: 8px; }
 .brand small { color: var(--text-2); font-weight: 500; font-size: 15px; }
 .top nav { display: flex; align-items: center; gap: 2px; }
+.top .menu { display: none; align-items: center; justify-content: center; width: 40px; height: 40px; flex: none; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--text); cursor: pointer; }
+.side-extra { display: none; }
 .top nav a { color: var(--text-2); font-weight: 600; font-size: 15px; padding: 7px 12px; border-radius: 9px; white-space: nowrap; }
 .top nav a:hover, .top nav a[aria-current] { color: var(--text); background: var(--surface); text-decoration: none; }
 .btn { display: inline-flex; align-items: center; gap: 8px; background: var(--accent); color: var(--accent-ink) !important; font-weight: 700;
@@ -79,14 +81,22 @@ footer p { margin: 0; } footer nav { display: flex; gap: 16px; }
   .top nav a.opt, .brand small { display: none; }
   .brand { font-size: 15px; }
   .docs { grid-template-columns: 1fr; padding-top: 18px; gap: 18px; }
-  .side { position: static; }
-  .side h4 { display: none; }
-  .side ol { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
-  .side ol a { padding: 5px 11px; margin: 0; background: var(--surface); font-size: 14px; }
+  /* the page list is a drawer from the left, opened by the menu button; the top bar keeps only what fits */
+  .top .wrap { gap: 6px; }
+  .top .menu { display: inline-flex; }
+  .top nav a[aria-current] { display: none; }
+  .side { position: fixed; top: 0; bottom: 0; left: 0; z-index: 30; align-self: stretch; /* start would shrink a fixed grid item to its content */ width: min(300px, 84vw); padding: 22px 14px 28px; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--bg); border-right: 1px solid var(--line); transform: translateX(-102%); transition: transform .22s ease; visibility: hidden; }
+  body.nav-open .side { transform: none; visibility: visible; box-shadow: 0 0 40px rgba(0, 0, 0, .28); }
+  body.nav-open { overflow: hidden; }
+  .scrim { position: fixed; inset: 0; z-index: 25; background: rgba(0, 0, 0, .38); opacity: 0; pointer-events: none; transition: opacity .2s; }
+  body.nav-open .scrim { opacity: 1; pointer-events: auto; }
+  .side-extra { display: block; border-top: 1px solid var(--line); padding-top: 16px; }
+  .side ol a { padding: 9px 12px; }
   .doc .phones { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .doc .phones img { border-radius: 12px; }
 }
-@media (max-width: 480px) { .brand span { display: none; } }
+@media (max-width: 480px) { .brand span { display: none; } .top nav a.btn { padding: 7px 11px; margin-left: 2px; } }
 
 /* two languages in one page: html[lang] picks which one shows */
 html[lang="en"] [lang="tr"], html[lang="tr"] [lang="en"] { display: none !important; }
