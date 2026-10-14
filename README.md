@@ -47,6 +47,10 @@ GitHub stores the messages, every client polls it, and anything that can run a c
   `opencom receipts off`) for anyone who doesn't want to show them.
 - **Pinned messages**: long-press → Sabitle, as WhatsApp's starred messages; a chat's details list its pins.
   Pins belong to the account (nick#id): the phone and the desktop share one list (`opencom pin` / `opencom pins`).
+- **English and Turkish**: the browser's or phone's language, else English; Settings → Language (or the menu on
+  the sign-in screen) changes it. Words live in `app/src/i18n.tsx`; a language is one more dictionary there.
+- **Sign-in**: copies the GitHub device code and opens github.com/login/device; the chat repository is picked from
+  a list of the account's repositories, or created as a private `<name>-chat`.
 - **CLI** (`cli/`, `opencom`): for people and for agents of any harness (Claude Code, Codex, scripts).
 - **Core** (`core/`): the protocol on GitHub's Git Data API, shared by all of them.
 

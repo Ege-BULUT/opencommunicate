@@ -60,7 +60,7 @@ branch "pins": pins/<id>.json            { id, pins: [{ channel, id, at }] }  ne
   and only the SHA-256 of the secret is stored. The invitee signs in to GitHub and posts
   `{ kind: "claim", id, secret, login }` to `https://ntfy.sh/<topic>`; a client whose account administers the
   repo checks the secret, adds the login as a collaborator (`PUT /repos/{repo}/collaborators/{login}`),
-  writes `used` and posts `{ kind: "added" }` (or `{ kind: "refused", reason }`). The invitee's client then
+  writes `used` and posts `{ kind: "added" }` (or `{ kind: "refused", why, reason }`, where `why` is `"link"`, `"user"` or `"github"` with its `status`, and `reason` says the same in English for older clients). The invitee's client then
   accepts GitHub's invitation. Invites last 3 days and admit one person.
 - **forwarding** (0.5.2): a forwarded message is an ordinary new message carrying the original's `text` and
   `files` (the blobs stay where they are and are read by path from any channel, so nothing is re-uploaded).
