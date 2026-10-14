@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, PALETTES, REACTIONS, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, PALETTES, REACTIONS, isEditNotice, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -543,6 +543,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const meRef = useRef(me);
   meRef.current = me;
 
+  const replace = useCallback((m: Message) => setMessages((prev) => ({ ...prev, [m.channel]: (prev[m.channel] ?? []).map((x) => (x.id === m.id ? m : x)) })), []);
   const add = useCallback((list: Message[]) => {
     if (!list.length) return;
     setMessages((prev) => {
@@ -605,11 +606,13 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           setDevices([...watcher.devices]); setGroups([...watcher.groups]);
           add(fresh);
           delivered(fresh);
+          // an edit or delete notice: read the message it names again (its file changed in place)
+          for (const n of fresh.filter(isEditNotice)) bus.message(n.channel, n.system!.target!).then((m) => { if (m) replace(m); }).catch(() => {});
           if (await watcher.tickReceipts().catch(() => false)) setReceipts(watcher.receipts);
           if (await watcher.tickPins().catch(() => false)) setPins(watcher.pins);
           if (await watcher.tickReactions().catch(() => false)) setReactions(watcher.reactions);
           for (const m of fresh) {
-            if (m.from === session.device.id || !wantsNotice(meRef.current, m)) continue;
+            if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
           }
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); bus.presence().then(setPresence).catch(() => {}); }
@@ -676,7 +679,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     setGroups((list) => list.map((x) => (x.channel === next.channel ? next : x)));
     await watcher.refresh();
   };
-  const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && (!read[ch] || m.id > read[ch])).length;
+  const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && !isEditNotice(m) && (!read[ch] || m.id > read[ch])).length;
   const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id]) < 10 * 60_000;
   const [filter, setFilter] = useState("");
   const [reply, setReply] = useState<Message | null>(null);
@@ -724,7 +727,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
   const preview = (ch: string) => {
     const m = last(ch);
     if (!m) return "";
-    const body = m.system ? systemText(m, devices) : m.text || (m.files?.length ? `📎 ${m.files[0].name}` : "");
+    const body = m.system ? systemText(m, devices) : m.deleted ? S.deletedMsg : m.text || (m.files?.length ? `📎 ${m.files[0].name}` : "");
     if (m.system) return body;
     if (m.from === me.id) return S.youSaid(body);
     return isDm(ch) ? body : `${m.fromNick}: ${body}`;
@@ -777,6 +780,15 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     delete unsent.current[m.id];
     drop(u.channel, m.id);
     return deliver(u.channel, u.text, u.payload, u.replyTo);
+  };
+  const [editing, setEditing] = useState<Message | null>(null);
+  useEffect(() => { setEditing(null); }, [active]);
+  const amend = async (m: Message, text: string | null) => {
+    try {
+      const { message, notice } = await bus.amend(me, m, text);
+      watcher.seen.add(msgPath(notice));
+      replace(message); add([notice]);
+    } catch (e) { setToast(S.cantAmend(text === null, (e as Error).message)); setTimeout(() => setToast(""), 6000); }
   };
   const discard = (m: Message) => { delete unsent.current[m.id]; drop(m.channel, m.id); };
   const resendRef = useRef(resend);
@@ -855,7 +867,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
                 </span>;
               })()}
             </div>
-          : <Composer onSend={send} reply={reply} onCancelReply={() => setReply(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />}
+          : <Composer onSend={send} reply={reply} onCancelReply={() => setReply(null)}
+              editing={editing} onEdit={(t) => { const m = editing!; setEditing(null); if (t !== m.text) amend(m, t); }} onCancelEdit={() => setEditing(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />}
       </main>
 
       {dialog === "group" && <GroupDialog others={others} onClose={() => setDialog(null)} onCreate={async (name, ids) => {
@@ -875,6 +888,8 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }}
         onForward={() => { setForwarding([menu.m]); setMenu(null); }}
         onSelect={() => { setSelected(new Set([menu.m.id])); setMenu(null); }}
+        onEdit={menu.m.from === me.id && menu.m.text && !menu.m.forwarded ? () => { setReply(null); setEditing(menu.m); setMenu(null); } : undefined}
+        onDelete={menu.m.from === me.id ? () => { amend(menu.m, null); setMenu(null); } : undefined}
         onClose={() => setMenu(null)} />}
       {forwarding && <ChatPicker me={me} devices={devices} groups={groups} count={forwarding.length} onPick={(ch) => doForward(ch, forwarding)} onClose={() => setForwarding(null)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
@@ -957,6 +972,8 @@ function systemText(m: Message, devices: Device[]): string {
   const s = m.system!;
   if (s.type === "join") return S.sysJoined(by);
   if (s.type === "group") return S.sysGroup(by, s.group?.name);
+  if (s.type === "edit") return S.sysEdited(by);
+  if (s.type === "delete") return S.sysDeleted(by);
   const c = s.change;
   if (!c) return m.text;
   switch (c.type) {
@@ -1013,7 +1030,8 @@ function Swipeable({ className, children, onSwipe, onHold }: { className: string
 }
 
 /** The menu a long-press or right-click opens on a message: reply, forward, pin, select, copy. */
-function MessageMenu({ m, x, y, mine, pinned, reaction, onReact, onPin, onReply, onCopy, onClose, onForward, onSelect }: { m: Message; x: number; y: number; mine: boolean; pinned: boolean; reaction: Reaction | null; onReact: (e: Reaction) => void; onPin: () => void; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void }) {
+function MessageMenu({ m, x, y, mine, pinned, reaction, onReact, onPin, onReply, onCopy, onClose, onForward, onSelect, onEdit, onDelete }: { m: Message; x: number; y: number; mine: boolean; pinned: boolean; reaction: Reaction | null; onReact: (e: Reaction) => void; onPin: () => void; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void; onEdit?: () => void; onDelete?: () => void }) {
+  const [confirm, setConfirm] = useState(false);
   useEffect(() => {
     const close = () => onClose();
     document.addEventListener("click", close); document.addEventListener("keydown", close); document.addEventListener("scroll", close, true);
@@ -1030,6 +1048,10 @@ function MessageMenu({ m, x, y, mine, pinned, reaction, onReact, onPin, onReply,
       <button role="menuitem" onClick={onPin}><PinIcon size={13} /> {pinned ? S.unpin : S.pin}</button>
       {onSelect && <button role="menuitem" onClick={onSelect}>{S.selectItem}</button>}
       {m.text && <button role="menuitem" onClick={onCopy}>{S.copyItem}</button>}
+      {onEdit && <button role="menuitem" onClick={onEdit}>{S.editItem}</button>}
+      {onDelete && (confirm
+        ? <div className="confirm"><span>{S.deleteForAll}</span><button className="danger" onClick={onDelete}>{S.deleteYes}</button><button onClick={() => setConfirm(false)}>{S.cancel}</button></div>
+        : <button role="menuitem" className="danger" onClick={() => setConfirm(true)}>{S.deleteItem}</button>)}
     </div>
   );
 }
@@ -1047,6 +1069,9 @@ function TickMark({ state }: { state: Ticks }) {
 function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, reactions, onReact, onReply, onJump, onMenu, selecting, selected, onToggle, onResend, onDiscard }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; reactions: (m: Message) => { emoji: Reaction; ids: string[] }[]; onReact: (m: Message, e: Reaction) => void; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void; onResend: (m: Message) => void; onDiscard: (m: Message) => void }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
+  // messages showing their earlier versions (tap "edited")
+  const [openEdits, setOpenEdits] = useState<Set<string>>(new Set());
+  const toggleEdits = (id: string) => setOpenEdits((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   if (!list.length) return <div className="messages empty muted">{loading ? S.loadingMessages : S.noMessages}</div>;
   let lastDay = "";
   return (
@@ -1054,14 +1079,17 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
       {list.map((m, i) => {
         const d = day(m.ts);
         const sep = d !== lastDay ? (lastDay = d) : null;
-        if (m.system) return <div key={m.id} className="item">{sep && <div className="day"><span>{sep}</span></div>}<div className="system">{systemText(m, devices)}</div></div>;
+        if (m.system) return <div key={m.id} className="item">{sep && <div className="day"><span>{sep}</span></div>}{isEditNotice(m)
+          ? <button className="system notice" onClick={() => onJump(m.system!.target!)}>{systemText(m, devices)}</button>
+          : <div className="system">{systemText(m, devices)}</div>}</div>;
         const mine = m.from === me.id;
         const toMe = !mine && !isDm(m.channel) && addressedTo(m, me);
         const prev = list[i - 1];
         const run = !sep && !!prev && !prev.system && prev.from === m.from && Date.parse(m.ts) - Date.parse(prev.ts) < 5 * 60_000;
         const sender = devices.find((x) => x.id === m.from);
         const q = m.replyTo ? quoted(m.replyTo) : undefined;
-        const selectable = selecting && !m.pending && !m.failed && !m.system;
+        const selectable = selecting && !m.pending && !m.failed && !m.system && !m.deleted;
+        const still = !m.pending && !m.failed && !m.deleted; // can be replied to, reacted to, held for the menu
         const checked = !!selected?.has(m.id);
         return (
           <div key={m.id} id={`m-${m.id}`} className={`item ${run ? "run" : ""} ${selecting ? "selecting" : ""} ${checked ? "checked" : ""}`}
@@ -1071,19 +1099,21 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               {selecting && <span className={`sel-check ${checked ? "on" : ""}`} aria-hidden="true">{checked ? "✓" : ""}</span>}
               {authors && !mine && (run ? <span className="avatar-gap" /> : <Avatar name={m.fromNick} seed={m.from} shape={sender?.kind === "agent" ? "agent" : "person"} size={32} picture={sender ? pictureOf(sender) : null} />)}
             <Swipeable className={`msg ${mine ? "mine" : ""} ${toMe ? "tome" : ""} ${m.pending ? "pending" : ""} ${m.failed ? "failed" : ""}`}
-              onSwipe={() => !selecting && !m.pending && !m.failed && onReply(m)} onHold={(x, y) => !selecting && !m.pending && !m.failed && onMenu(m, x, y)}>
+              onSwipe={() => !selecting && still && onReply(m)} onHold={(x, y) => !selecting && still && onMenu(m, x, y)}>
               {authors && !mine && !run && !m.forwarded && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">{S.agentTag}</span>}</div>}
               {m.forwarded && <div className="fwd-tag">{S.forwardedTag}</div>}
-              {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>}
+              {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{q.deleted ? S.deletedMsg : snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>}
+              {m.deleted && <div className="text deleted">🚫 {S.deletedMsg}</div>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
+              {m.edits && openEdits.has(m.id) && <div className="edits" aria-label={S.earlier}>{m.edits.map((e, i) => <div key={i}><span className="muted">{when(e.at)}</span> {e.text}</div>)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
-              <div className="meta">{isPinned(m) && <span title={S.pinned}><PinIcon /></span>}{m.failed ? S.notSent : m.pending ? S.sending : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
+              <div className="meta">{isPinned(m) && <span title={S.pinned}><PinIcon /></span>}{m.edited && <button className="edited" title={S.showEarlier} onClick={(e) => { e.stopPropagation(); toggleEdits(m.id); }}>{S.edited}</button>}{m.failed ? S.notSent : m.pending ? S.sending : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
               {m.failed && <div className="unsent">
                 <button className="mini" onClick={(e) => { e.stopPropagation(); onResend(m); }}>{S.resend}</button>
                 <button className="mini" onClick={(e) => { e.stopPropagation(); onDiscard(m); }}>{S.discard}</button>
               </div>}
               {(() => {
-                const rs = m.pending || m.failed ? [] : reactions(m);
+                const rs = still ? reactions(m) : [];
                 const name = (id: string) => (id === me.id ? S.you : handle(devices.find((d) => d.id === id) ?? { nick: "?", id }));
                 return rs.length > 0 && <div className="reacts">{rs.map((r) => (
                   <button key={r.emoji} className={`react ${r.ids.includes(me.id) ? "mine" : ""}`} title={r.ids.map(name).join(", ")} aria-label={`${r.emoji} ${r.ids.map(name).join(", ")}`}
@@ -1160,8 +1190,15 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   );
 }
 
-function Composer({ onSend, people, reply, onCancelReply }: { onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void }) {
+function Composer({ onSend, people, reply, onCancelReply, editing, onEdit, onCancelEdit }: { onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void }) {
   const [text, setText] = useState("");
+  // editing: the box holds the message's text until it is saved or the edit is cancelled
+  const before = useRef("");
+  useEffect(() => {
+    if (editing) { before.current = text; setText(editing.text); replyInput.current?.focus(); }
+    else setText(before.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
   // "@" followed by the start of a nick at the end of the text suggests people in this chat
   const at = text.match(/(^|\s)@([\w-]*)$/);
   const suggest = at ? people.filter((d) => handle(d).toLowerCase().startsWith(at[2].toLowerCase())).slice(0, 6) : [];
@@ -1169,6 +1206,7 @@ function Composer({ onSend, people, reply, onCancelReply }: { onSend: (text: str
   const [files, setFiles] = useState<File[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const submit = () => {
+    if (editing) { if (text.trim()) { before.current = ""; onEdit(text.trim()); } return; }
     if (!text.trim() && !files.length) return;
     if (files.some((f) => f.size > 50e6)) { alert(S.fileTooBig); return; }
     onSend(text.trim(), files);
@@ -1178,15 +1216,16 @@ function Composer({ onSend, people, reply, onCancelReply }: { onSend: (text: str
   useEffect(() => { if (reply) replyInput.current?.focus(); }, [reply]);
   return (
     <div className="composer">
+      {editing && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{S.editingLabel}</b><span className="muted"> · {snippet(editing, 70)}</span></span><button className="reply-x" aria-label={S.cancelEdit} onClick={onCancelEdit}>×</button></div>}
       {reply && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{reply.fromNick}</b><span className="muted"> · {snippet(reply, 70)}</span></span><button className="reply-x" aria-label={S.cancelReply} onClick={onCancelReply}>×</button></div>}
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
-        <button className="icon attach-btn" title={S.addFile} aria-label={S.addFile} onClick={() => input.current?.click()}><Clip /></button>
+        <button className="icon attach-btn" disabled={!!editing} title={S.addFile} aria-label={S.addFile} onClick={() => input.current?.click()}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
         <textarea ref={replyInput} rows={1} value={text} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
-        <button className="primary send" aria-label={S.send} onClick={submit} disabled={!text.trim() && !files.length}><Plane /><span className="send-label">{S.send}</span></button>
+        <button className="primary send" aria-label={editing ? S.saveEdit : S.send} onClick={submit} disabled={!text.trim() && (!files.length || !!editing)}><Plane /><span className="send-label">{editing ? S.saveEdit : S.send}</span></button>
       </div>
     </div>
   );
@@ -1312,7 +1351,7 @@ function Pinned({ pins, loaded, bus, me, onUnpin, onOpen }: { pins: Pin[]; loade
           <div key={p.id} className="pinned-row">
             <button className="pinned-body" onClick={() => (here ? onOpen(p.id) : setOpen(full ? null : p.id))} disabled={!m}>
               <span className="pinned-top"><b>{!m ? "" : m.from === me.id ? S.you : m.forwarded ? S.forwarded : `${m.fromNick}#${m.from}`}</b>{m && <span className="muted">{when(m.ts)}</span>}</span>
-              <span className={`pinned-text ${full ? "full" : ""}`}>{m === undefined ? S.loading : m === null ? S.messageGone : full ? m.text || snippet(m) : snippet(m, 160)}</span>
+              <span className={`pinned-text ${full ? "full" : ""}`}>{m === undefined ? S.loading : m === null ? S.messageGone : m.deleted ? S.deletedMsg : full ? m.text || snippet(m) : snippet(m, 160)}</span>
             </button>
             <button className="mini" onClick={() => onUnpin(p)} title={S.unpin} aria-label={S.unpin}>×</button>
           </div>

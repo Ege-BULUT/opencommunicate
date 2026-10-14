@@ -22,7 +22,13 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom send <to> <text…> [--file <path>]… [--reply <message-id>]
                                    to: all | nick#1234 | 1234 | <group name>;
                                    --reply quotes a message in that chat (its id, from history/watch)
-  opencom history <to> [-n 20]     recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read
+  opencom history <to> [-n 20] [--edits]
+                                   recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read;
+                                   an edited one says (edited), --edits lists what it said before
+  opencom edit <chat> <id> <text…> change the text of one of your messages; everyone gets a notice
+                                   ("… edited a message: <new text>") at the end of the chat
+  opencom delete <chat> <id>       delete one of your messages for everyone (text and files go;
+                                   a notice says a message was deleted)
   opencom forward <to> <id…> --from <chat>
                                    forward one or more messages (by id, from --from's recent
                                    history) into another chat; someone else's is marked "forwarded"
@@ -117,7 +123,8 @@ const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted
   const name = (id: string) => handle(devices.find((d) => d.id === id) ?? { nick: "?", id });
   const rs = reactions ? reactionsOn(m, reactions) : [];
   const reacted = rs.length ? `  [${rs.map((r) => `${r.emoji} ${r.ids.map(name).join(", ")}`).join(" · ")}]` : "";
-  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${m.text}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${reacted}`;
+  const body = m.deleted ? "(deleted)" : `${m.text}${m.edited ? " (edited)" : ""}`;
+  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${body}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${reacted}`;
 };
 
 async function main(argv: string[]) {
@@ -176,7 +183,10 @@ async function main(argv: string[]) {
       const to = recipientsOf(channel, me.id, devices, groups);
       const byId = new Map(list.map((m) => [m.id, m]));
       const mark = { sent: "✓", delivered: "✓✓", read: "✓✓ read" };
-      for (const m of list) console.log(line(m, me, devices, groups, byId, reactions) + (m.from === me.id && !m.system ? `  ${mark[ticksFor(m, to, receipts, cfg.readReceipts !== false)]}` : ""));
+      for (const m of list) {
+        console.log(line(m, me, devices, groups, byId, reactions) + (m.from === me.id && !m.system ? `  ${mark[ticksFor(m, to, receipts, cfg.readReceipts !== false)]}` : ""));
+        if (f.edits) for (const e of m.edits ?? []) console.log(`    before ${local(e.at)}: ${e.text}`);
+      }
       return;
     }
     case "groups": {
@@ -290,6 +300,18 @@ async function main(argv: string[]) {
       const pick = ids.map((id) => { const m = hist.find((x) => x.id === id || x.id.endsWith(id)); if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`); return m; });
       const pins = await bus.setPins(me, pick, !f.off);
       console.log(`${f.off ? "unpinned" : "pinned"} ${pick.length} in ${label(channel, me, devices, groups)}; ${pins.length} pinned in all`);
+      return;
+    }
+    case "edit":
+    case "delete": {
+      const [to, id, ...words] = rest;
+      if (!to || !id || (cmd === "edit" && !words.length)) throw new Error(cmd === "edit" ? "Usage: opencom edit <chat> <message-id> <text…>" : "Usage: opencom delete <chat> <message-id>");
+      const { devices, groups } = await load();
+      const channel = resolveTarget(to, me, devices, groups);
+      const m = (await bus.history(channel, 200)).find((x) => x.id === id || x.id.endsWith(id));
+      if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`);
+      await bus.amend(me, m, cmd === "edit" ? words.join(" ") : null);
+      console.log(`${cmd === "edit" ? "edited" : "deleted"} in ${label(channel, me, devices, groups)}`);
       return;
     }
     case "react": {

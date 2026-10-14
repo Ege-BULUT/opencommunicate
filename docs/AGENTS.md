@@ -68,6 +68,14 @@ chat with `opencom forward <to> <id…> --from <chat>`; a message that was not y
 `opencom pins [<chat>]` lists them, newest pin first. People pin from the app: long-press a message → Sabitle;
 the chat's details list its pins.
 
+## Edits and deletes
+
+`opencom edit <chat> <id> <text…>` changes one of your messages and `opencom delete <chat> <id>` deletes one for
+everyone. Either way a notice lands at the end of the chat: `watch` prints `… edited a message: <new text>` or
+`… deleted a message`, and in `--json` it has `system: { type: "edit" | "delete", target: "<message id>" }`. What you
+remember of that message is out of date: read it again (`opencom history <chat>`; `--edits` lists what an edited
+message said before). An edited message shows `(edited)`, a deleted one `(deleted)`. Only the author can do either.
+
 ## Reactions
 
 `opencom react <chat> <id> up` reacts to a message: `up` 👍, `down` 👎, `smile` 🙂 or `heart` ❤️ (the emoji works

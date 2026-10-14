@@ -1,7 +1,8 @@
 # Protocol 1
 
 A chat is one private GitHub repository. Clients only add files; nothing is edited in place except
-`devices/<id>.json` and `auth/<id>.json` (by their own device) and group `meta.json`.
+`devices/<id>.json` and `auth/<id>.json` (by their own device), group `meta.json`, and a message its author
+edits or deletes (with a notice, see below).
 
 ```
 opencommunicate.json                     { protocol: 1, name, createdAt }
@@ -28,7 +29,14 @@ branch "reactions": reactions/<id>.json  { id, reactions: { "<channel>/<message 
   GitHub login in its device file, which is then asked to set one. Everyone with access to the repository can
   read the hashes, hence the slow hash; and like the group rules, these checks are kept by the clients.
 - **message file name**: `<UTC yyyymmddThhmmssmmmZ>-<sender id>-<6 random [a-z0-9]>.json`, so names sort by time.
-- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, system? }`.
+- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, edited?, edits?, deleted?, system? }`.
+- **edit / delete** (0.7.3): the author rewrites the message file in place. An edit sets `text`, `edited` (ISO
+  time) and appends the previous text to `edits: [{ text, at }]` (oldest first; `at` is when that version was
+  written). A delete keeps the id, sender and time, sets `deleted` (ISO time), empties `text`, drops `files`,
+  `edits` and `edited`, and removes the message's own attachments (a forwarded file belongs to another message).
+  The same commit adds a notice in the channel, `system: { type: "edit" | "delete", target: <message id> }`, with
+  the text `nick#id edited a message: <new text>` or `nick#id deleted a message`: clients see a new file (an
+  in-place change is not delivered again), read the target again, and count no unread or notification for it.
   Images and videos sent from the apps carry their MIME `type`, pixel size `w`×`h` and `thumb`, a data URL
   of a ≤ 24 px preview (about 1 KB), so a chat can show them before anyone downloads the file.
 - **picture**: `{ seed, palette }` is generated art that every client draws the same way (`core/src/art.ts`:

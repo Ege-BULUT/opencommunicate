@@ -5,7 +5,9 @@
  * with an ETag (a "304 Not Modified" does not count against GitHub's rate limit) and, when it moves,
  * ask GitHub which files changed. Works in Node (CLI) and in a browser/WebView (app).
  *
- * Repository layout (protocol 1, see docs/PROTOCOL.md):
+ * Repository layout (protocol 1, see docs/PROTOCOL.md). A message file changes after it is written only when its
+ * author edits or deletes it (Bus.amend), with a notice in the same channel.
+ *
  *   opencommunicate.json                 { protocol, name, createdAt }
  *   devices/<id>.json                    { id, nick, kind, login, joinedAt, notify?, quiet?, picture? }
  *   auth/<id>.json                       { alg, iter, salt, hash } — the device's password, see hashPassword
@@ -87,8 +89,15 @@ export type Message = {
   files?: FileRef[];
   replyTo?: string;              // the id of a message in the same channel this one quotes
   forwarded?: boolean;          // this text/files came from someone else's message (author hidden, shown "forwarded")
-  system?: { type: "join" | "group" | "change"; device?: Device; group?: Group; change?: GroupChange };
+  edited?: string;              // when the text was last changed; `edits` keeps what it said before, oldest first
+  edits?: { text: string; at: string }[];
+  deleted?: string;             // when its author deleted it: text, files and edits are gone, the rest stays
+  /** A notice: someone joined, made or changed a group, or edited or deleted message `target` of this channel. */
+  system?: { type: "join" | "group" | "change" | "edit" | "delete"; device?: Device; group?: Group; change?: GroupChange; target?: string };
 };
+/** An edit or delete notice: a line at the end of the chat saying a message changed, so everyone (and every agent
+ *  watching) learns of it; the apps read the message again and count no unread for it. */
+export const isEditNotice = (m: Pick<Message, "system">) => m.system?.type === "edit" || m.system?.type === "delete";
 
 export const handle = (d: Pick<Device, "nick" | "id">) => `${d.nick}#${d.id}`;
 /** A new chat repository's name: what the person typed, made a valid GitHub name, always ending in "-chat". */
@@ -719,6 +728,40 @@ export class Bus {
       }, `reaction: ${handle(me)}`, { branch: "reactions" });
     } catch (e) { if (!(e instanceof Unchanged)) throw e; }
     return changed;
+  }
+
+  /**
+   * Changes the text of one of `me`'s messages, or with null deletes it. One commit: the message file rewritten in
+   * place (an edit keeps the old text in `edits`; a delete drops text, files and edits and removes the attachments)
+   * plus a notice at the end of the channel naming it, so every client and agent hears of the change. Read from the
+   * head the commit builds on, so an edit is never lost to one made meanwhile. Only the author may (kept by the
+   * clients, like the group rules).
+   */
+  async amend(me: Device, m: Pick<Message, "channel" | "id">, text: string | null): Promise<{ message: Message; notice: Message }> {
+    let out!: { message: Message; notice: Message };
+    await this.commit(async (parent) => {
+      const cur = await this.readJson<Message>(msgPath(m), parent);
+      if (!cur) throw new Error("No such message.");
+      if (cur.from !== me.id || cur.system) throw new Error("Only its author can change a message.");
+      if (cur.deleted) throw new Error("That message was deleted.");
+      const now = new Date().toISOString();
+      const files: Files = {};
+      let message: Message;
+      if (text === null) {
+        const { files: attached, edits: _e, edited: _d, ...rest } = cur;
+        message = { ...rest, text: "", deleted: now };
+        for (const f of attached ?? []) if (f.path.startsWith(`channels/${cur.channel}/files/${cur.id}-`)) files[f.path] = null; // a forwarded file stays with its original
+      } else {
+        if (!text.trim()) throw new Error("An edit needs some text.");
+        if (text === cur.text) throw new Error("Nothing changed.");
+        message = { ...cur, text, edited: now, edits: [...(cur.edits ?? []), { text: cur.text, at: cur.edited ?? cur.ts }] };
+      }
+      const notice = this.newMessage(cur.channel, me, text === null ? `${handle(me)} deleted a message` : `${handle(me)} edited a message: ${text}`,
+        { system: { type: text === null ? "delete" : "edit", target: cur.id } });
+      out = { message, notice };
+      return { ...files, [msgPath(cur)]: JSON.stringify(message), [msgPath(notice)]: JSON.stringify(notice) };
+    }, `${text === null ? "delete" : "edit"}: ${handle(me)} ${m.id}`);
+    return out;
   }
 
   /** One message by channel and id (a pinned one older than the loaded history), or null when it is gone. */
