@@ -548,7 +548,11 @@ document.addEventListener("DOMContentLoaded", () => {
     frame.style.transition = "";
     requestAnimationFrame(() => { lb.classList.add("open"); frame.style.transform = ""; });
     document.getElementById("lbClose").focus({ preventScroll: true });
+    history.pushState({ lb: 1 }, ""); // the phone's back gesture closes the lightbox instead of leaving the site
   }
+  // every close goes through history so the extra entry never lingers; popstate does the closing
+  const dismiss = () => (history.state?.lb ? history.back() : closeLightbox());
+  addEventListener("popstate", closeLightbox);
   function closeLightbox() {
     if (lb.hidden) return;
     s = 1; tx = ty = 0; paint();
@@ -560,8 +564,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const done = () => { lb.hidden = true; frame.style.transition = "none"; frame.style.transform = ""; frame.getBoundingClientRect(); frame.style.transition = ""; paused = false; restart(); }; // the next image gets its full time
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) done(); else setTimeout(done, 400);
   }
-  document.getElementById("lbClose").addEventListener("click", closeLightbox);
-  lb.addEventListener("click", (e) => { if (e.target === lb) closeLightbox(); }); // outside the image
+  document.getElementById("lbClose").addEventListener("click", dismiss);
+  lb.addEventListener("click", (e) => { if (e.target === lb) dismiss(); }); // outside the image
   lb.querySelector(".lb-tools").addEventListener("click", (e) => {
     const z = e.target.closest("button")?.dataset.z; if (!z) return;
     const r = frame.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
@@ -594,7 +598,7 @@ document.addEventListener("DOMContentLoaded", () => {
   addEventListener("keydown", (e) => {
     if (lb.hidden) return;
     e.stopPropagation();
-    if (e.key === "Escape") closeLightbox();
+    if (e.key === "Escape") dismiss();
     else if (e.key === "+" || e.key === "=") lb.querySelector('[data-z="in"]').click();
     else if (e.key === "-") lb.querySelector('[data-z="out"]').click();
     else if (e.key === "0") lb.querySelector('[data-z="reset"]').click();
@@ -629,7 +633,7 @@ const io = new IntersectionObserver((arr) => {
     slides.forEach((s, k) => s.classList.toggle("on", k === idx));
     dots.forEach((d, k) => d.classList.toggle("on", k === idx));
     current = idx;
-    history.replaceState(null, "", "#" + (idx + 1));
+    history.replaceState(history.state, "", "#" + (idx + 1));
   });
 }, { root: deck, threshold: 0.55 });
 slides.forEach((s) => io.observe(s));
