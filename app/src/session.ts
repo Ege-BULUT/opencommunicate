@@ -26,32 +26,66 @@ export const hosted = () => !native() && !desktopApp() && location.protocol === 
 /** Can sign in to GitHub by itself: the phone app, the desktop app or the web app. */
 export const canSignIn = () => native() || !!desktopApp() || hosted();
 
-/* On the phone the session is also kept in a file in the app's own data folder. The WebView's
-   localStorage is not durable storage: Android can drop it, and so does anything that resets the
-   WebView's data, which signed the person out with no Sign out pressed. The file is what keeps a
-   sign-in until "Çıkış yap"; localStorage stays as the fast copy, and the only one on the web. */
+/* A device can be in several chats (0.8.0): every chat it signed in to, each with its own nick#id and token, and
+   which one is open, as { chats, active } under "oc.chats". A single session saved before 0.8.0 ("oc.session") is
+   read as a list of one, and its read markers move to that chat's own key.
+   On the phone the list is also kept in a file in the app's own data folder. The WebView's localStorage is not
+   durable storage: Android can drop it, and so does anything that resets the WebView's data, which signed the
+   person out with no Sign out pressed. The file is what keeps a sign-in until "Sign out"; localStorage stays as
+   the fast copy, and the only one on the web. */
+export type Chats = { chats: Session[]; active: string | null };
+const CHATS_KEY = "oc.chats";
 const FILE = "oc-session.json";
-const usable = (s: any): Session | null => (s?.token && s?.device ? s : null);
-const readStored = () => { try { return usable(JSON.parse(localStorage.getItem(KEY) ?? "null")); } catch { return null; } };
-const writeStored = (text: string) => { try { localStorage.setItem(KEY, text); } catch { /* private mode: the file still holds it */ } };
+const usable = (s: any): Session | null => (s?.token && s?.device && s?.repo ? s : null);
+const same = (a: string, b: string | null) => !!b && a.toLowerCase() === b.toLowerCase();
+/** A list from what was stored: { chats, active }, or one session from before 0.8.0. */
+export function chatsFrom(x: any): Chats | null {
+  if (usable(x)) return { chats: [x], active: x.repo };
+  const chats: Session[] = Array.isArray(x?.chats) ? x.chats.filter(usable) : [];
+  if (!chats.length) return null;
+  return { chats, active: chats.find((c) => same(c.repo, x.active))?.repo ?? chats[0].repo };
+}
+/** The list with `s` in it (replacing the same repository's entry), open when `open`. */
+export const withChat = (c: Chats | null, s: Session, open = false): Chats => {
+  const chats = c?.chats.some((x) => same(x.repo, s.repo)) ? c.chats.map((x) => (same(x.repo, s.repo) ? s : x)) : [...(c?.chats ?? []), s];
+  return { chats, active: open || !c?.active ? s.repo : c.active };
+};
+/** The list without `repo`; the next chat opens if it was the open one. */
+export const withoutChat = (c: Chats, repo: string): Chats => {
+  const chats = c.chats.filter((x) => !same(x.repo, repo));
+  return { chats, active: same(repo, c.active) ? chats[0]?.repo ?? null : c.active };
+};
+const readStored = (): Chats | null => {
+  try {
+    const list = localStorage.getItem(CHATS_KEY);
+    if (list) return chatsFrom(JSON.parse(list));
+    const old = chatsFrom(JSON.parse(localStorage.getItem(KEY) ?? "null"));
+    // before 0.8.0: one chat, and its read markers under a key every chat would share
+    const read = localStorage.getItem("oc.read");
+    if (old && read) { localStorage.setItem(`oc.read.${old.chats[0].repo}`, read); localStorage.removeItem("oc.read"); }
+    return old;
+  } catch { return null; }
+};
+const writeStored = (text: string) => { try { localStorage.setItem(CHATS_KEY, text); localStorage.removeItem(KEY); } catch { /* private mode: the file still holds it */ } };
 // Writes and deletes run one after another, so a sign-out followed by a sign-in can't land out of order.
 let fileQueue: Promise<unknown> = Promise.resolve();
 const queued = (op: () => Promise<unknown>) => (fileQueue = fileQueue.then(op).catch(() => {}));
 const writeFile = (text: string) =>
   queued(() => Filesystem.writeFile({ path: FILE, data: text, directory: Directory.Data, encoding: Encoding.UTF8 }));
 
-async function readFile(): Promise<Session | null> {
+async function readFile(): Promise<Chats | null> {
   try {
     const { data } = await Filesystem.readFile({ path: FILE, directory: Directory.Data, encoding: Encoding.UTF8 });
-    return usable(JSON.parse(typeof data === "string" ? data : await data.text()));
+    return chatsFrom(JSON.parse(typeof data === "string" ? data : await data.text()));
   } catch { return null; }
 }
 
-export async function loadSession(): Promise<Session | null> {
+/** The chats this device is in. `opencom ui` hands the page one chat of its own (#k=…), which is not stored. */
+export async function loadChats(): Promise<Chats | null> {
   const k = new URLSearchParams(location.hash.slice(1)).get("k");
   if (k) {
     const res = await fetch(`/opencom-config.json?k=${encodeURIComponent(k)}`);
-    if (res.ok) return { ...(await res.json()), source: "desktop" };
+    if (res.ok) { const s: Session = { ...(await res.json()), source: "desktop" }; return { chats: [s], active: s.repo }; }
   }
   const stored = readStored();
   if (!native()) return stored;
@@ -61,15 +95,19 @@ export async function loadSession(): Promise<Session | null> {
   return kept;
 }
 
-export const saveSession = (s: Session) => {
-  if (s.source !== "app") return;
-  const text = JSON.stringify(s);
+/** Stores the list (only chats the app signed in to itself; `opencom ui`'s stays with the CLI). */
+export function saveChats(c: Chats) {
+  const mine = { chats: c.chats.filter((s) => s.source === "app"), active: c.active };
+  if (!mine.chats.length) return clearChats();
+  const text = JSON.stringify(mine);
   writeStored(text);
   if (native()) void writeFile(text);
-};
-export const clearSession = () => {
+}
+/** Keeps a session's latest state (its device changed, or it was just joined) without opening it. */
+export const saveSession = (s: Session) => { if (s.source === "app") saveChats(withChat(readStored(), s)); };
+export const clearChats = () => {
   clearSignIn();
-  try { localStorage.removeItem(KEY); } catch { /* nothing stored */ }
+  try { localStorage.removeItem(KEY); localStorage.removeItem(CHATS_KEY); } catch { /* nothing stored */ }
   if (native()) void queued(() => Filesystem.deleteFile({ path: FILE, directory: Directory.Data }));
 };
 

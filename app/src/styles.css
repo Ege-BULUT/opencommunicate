@@ -313,3 +313,11 @@ a.ghost { display: inline-flex; align-items: center; color: inherit; text-decora
 /* a newer version: the sidebar's top, quiet enough to leave for later */
 .update { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0 12px 8px; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); font-size: 13px; }
 .update span { flex: 1 1 140px; }
+/* the chat switcher: the "me" line opens it; a dot when another chat has new messages */
+button.me { width: 100%; text-align: left; font: inherit; color: inherit; border-radius: 12px; }
+button.me:hover { background: var(--sunken); }
+.me .me-end { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); flex: none; }
+i.activity { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
+.picker-row.here { background: var(--sunken); }
+.chat-pick { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.chat-pick .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

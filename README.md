@@ -47,6 +47,9 @@ GitHub stores the messages, every client polls it, and anything that can run a c
   `opencom receipts off`) for anyone who doesn't want to show them.
 - **Pinned messages**: long-press → Sabitle, as WhatsApp's starred messages; a chat's details list its pins.
   Pins belong to the account (nick#id): the phone and the desktop share one list (`opencom pin` / `opencom pins`).
+- **Several chats**: a device can be in more than one chat (each its own repository and nick#id): tap your name
+  at the top of the chat list to switch, or add a chat without signing in to GitHub again; a dot marks a chat
+  with new messages.
 - **Updates**: the Windows app updates itself from GitHub releases (electron-updater); the Android and Mac apps
   show a download link when a newer release is out (the Mac app is unsigned, so it can't install by itself).
 - **Search**: the sidebar box finds messages too, in every chat; older messages load a page at a time
