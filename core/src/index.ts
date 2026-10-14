@@ -72,6 +72,14 @@ export type Message = {
 };
 
 export const handle = (d: Pick<Device, "nick" | "id">) => `${d.nick}#${d.id}`;
+/** A new chat repository's name: what the person typed, made a valid GitHub name, always ending in "-chat". */
+export const chatRepoName = (typed: string) => {
+  const base = typed.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[-.]+|-+$/g, "").replace(/-?chat$/i, "");
+  return base ? `${base}-chat` : "chat";
+};
+/** Repositories to offer for a chat: names with "opencommunicate" or "chat" in them first, otherwise in the given order. */
+export const looksLikeChat = (repo: string) => /opencommunicate|chat/i.test(repo.split("/")[1] ?? repo);
+export const chatReposFirst = (names: string[]) => [...names.filter(looksLikeChat), ...names.filter((n) => !looksLikeChat(n))];
 export const dmChannel = (a: string, b: string) => `dm-${[a, b].sort().join("-")}`;
 export const isDm = (ch: string) => /^dm-\d{4}-\d{4}$/.test(ch);
 export const dmPeer = (ch: string, me: string) => ch.slice(3).split("-").find((x) => x !== me) ?? me;

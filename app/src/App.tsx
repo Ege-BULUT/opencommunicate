@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, PALETTES, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, PALETTES, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
-import { accountProblem, canSignIn, checkAccount, claim, clearSession, desktopApp, finishSignIn, githubLogin, hosted, join, loadSession, native, saveSession, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, canSignIn, checkAccount, claim, clearSession, clearSignIn, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, loadSession, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 
@@ -188,9 +188,20 @@ function InviteDialog({ bus, me, admin, onClose }: { bus: Bus; me: Device; admin
   );
 }
 
-// GitHub device flow: shows the code, opens github.com/login/device, hands the token on
+/** Puts text on the clipboard; false when the browser refuses. The write starts inside the click while the
+   text may still be on its way: Safari only allows clipboard writes during a click, not after an await. */
+function copyText(text: string | Promise<string>): Promise<boolean> {
+  const t = Promise.resolve(text);
+  let write: Promise<void>;
+  try { write = navigator.clipboard.write([new ClipboardItem({ "text/plain": t.then((x) => new Blob([x], { type: "text/plain" })) })]); }
+  catch (e) { write = Promise.reject(e); }
+  return write.catch(() => t.then((x) => navigator.clipboard.writeText(x))).then(() => true, () => false);
+}
+
+// GitHub device flow: copies the code, opens github.com/login/device, hands the token on
 function GitHubSignIn({ label, primary = true, onToken }: { label: string; primary?: boolean; onToken: (token: string) => Promise<void> }) {
   const [code, setCode] = useState<DeviceCode | null>(null);
+  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const gone = useRef(false);
@@ -198,9 +209,12 @@ function GitHubSignIn({ label, primary = true, onToken }: { label: string; prima
   const go = async () => {
     setError(""); setBusy(true);
     try {
-      const c = await startSignIn();
+      const started = startSignIn();
+      const copying = copyText(started.then((c) => c.user_code));
+      const c = await started;
       setCode(c);
-      openLink(c.verification_uri).catch(() => {}); // the code stays on screen even if no browser opens
+      setCopied(await copying); // copied before GitHub's tab takes the focus a clipboard write needs
+      openLink(c.verification_uri).catch(() => {}); // the code and the "GitHub'ı aç" link stay on screen if no tab opens
       const token = await finishSignIn(c, () => gone.current);
       setCode(null);
       await onToken(token);
@@ -209,9 +223,12 @@ function GitHubSignIn({ label, primary = true, onToken }: { label: string; prima
   };
   if (code) return (
     <div className="code">
-      <p>github.com/login/device sayfasına bu kodu girin:</p>
-      <strong className="usercode" onClick={() => navigator.clipboard?.writeText(code.user_code)}>{code.user_code}</strong>
-      <button className="ghost" onClick={() => openLink(code.verification_uri)}>Sayfayı yeniden aç</button>
+      <p>github.com/login/device sayfasına bu kodu {copied ? "yapıştırın" : "girin"}:</p>
+      <button type="button" className="usercode" title="Kopyala" onClick={async () => setCopied(await copyText(code.user_code))}>{code.user_code}</button>
+      <p className="muted small" aria-live="polite">{copied ? "Kod kopyalandı ✓ Yeniden kopyalamak için koda dokunun." : "Kopyalamak için koda dokunun."}</p>
+      {/* a real link: a browser opens it on the click itself, where a window.open after an await is a blocked popup */}
+      <a className="ghost" href={code.verification_uri} target="_blank" rel="noopener"
+        onClick={native() ? (e) => { e.preventDefault(); openLink(code.verification_uri).catch(() => {}); } : undefined}>GitHub'ı aç</a>
       <p className="muted small">Onayladıktan sonra burada kendiliğinden devam eder. Başka bir hesap için GitHub sayfasında önce o hesaba geçin.</p>
     </div>
   );
@@ -222,7 +239,7 @@ function GitHubSignIn({ label, primary = true, onToken }: { label: string; prima
 }
 
 /** A new password twice, and the current one first when `current` is a record; `onSave` stores the new one. */
-function PasswordForm({ current, label, onSave }: { current?: PasswordRecord | null; label: string; onSave: (password: string) => Promise<void> }) {
+function PasswordForm({ current, username, label, onSave }: { current?: PasswordRecord | null; username: string; label: string; onSave: (password: string) => Promise<void> }) {
   const [old, setOld] = useState("");
   const [pw, setPw] = useState("");
   const [again, setAgain] = useState("");
@@ -238,18 +255,20 @@ function PasswordForm({ current, label, onSave }: { current?: PasswordRecord | n
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
-  return <>
+  // a form with the account in a hidden username field, so the browser's password manager offers to save both
+  return <form className="contents" onSubmit={(e) => { e.preventDefault(); save(); }}>
+    <input hidden readOnly name="username" autoComplete="username" value={username} />
     {current && <label>Mevcut şifre<input type="password" autoComplete="current-password" value={old} onChange={(e) => setOld(e.target.value)} /></label>}
     <label>{current ? "Yeni şifre" : "Şifre"}<input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
     <label>{current ? "Yeni şifre (tekrar)" : "Şifre (tekrar)"}<input type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></label>
     {pw && pw.length < PASSWORD_MIN && <p className="muted small">En az {PASSWORD_MIN} karakter.</p>}
     {again && again !== pw && <p className="error small">Şifreler aynı değil.</p>}
     <div className="actions start">
-      <button className="primary" disabled={busy || pw.length < PASSWORD_MIN || pw !== again || (!!current && !old)} onClick={save}>{busy ? "Kaydediliyor…" : label}</button>
+      <button type="submit" className="primary" disabled={busy || pw.length < PASSWORD_MIN || pw !== again || (!!current && !old)}>{busy ? "Kaydediliyor…" : label}</button>
     </div>
     {done && <p className="small">Şifre kaydedildi.</p>}
     {error && <p className="error small">{error}</p>}
-  </>;
+  </form>;
 }
 
 /** A failed claim in words; wrong handle and wrong password read the same. */
@@ -260,22 +279,51 @@ function claimProblem(e: unknown, repo: string): string {
   return accountProblem(e, repo) ?? (e as Error).message;
 }
 
+const NEW_REPO = "+new"; // the "create a chat repository" choice; no "owner/name" looks like it
+
+/** The repository list in two groups, with a repository from a link at the top even when the list lacks it. */
+function repoGroups(repos: string[], picked: string): [string, string[]][] {
+  const all = picked && picked !== NEW_REPO && !repos.some((r) => r.toLowerCase() === picked.toLowerCase()) ? [picked, ...repos] : repos;
+  return [["Sohbet repoları", all.filter(looksLikeChat)], ["Diğer repolar", all.filter((r) => !looksLikeChat(r))]];
+}
+
 // ---------------- sign-in + join (phone) ----------------
 function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session) => void }) {
   const invite = arrival.invite;
-  const [token, setToken] = useState("");
-  const [login, setLogin] = useState("");
+  const [resumed] = useState(readSignIn); // approved on GitHub before the tab closed
+  const [token, setToken] = useState(resumed?.token ?? "");
+  const [login, setLogin] = useState(resumed?.login ?? "");
   const [repo, setRepo] = useState(invite?.r ?? arrival.repo ?? "");
-  const [nick, setNick] = useState("");
+  const [repos, setRepos] = useState<string[] | null>(null); // the account's repositories, chat-looking ones first
+  const [reposFailed, setReposFailed] = useState(false);
+  const [newName, setNewName] = useState("opencommunicate");
+  const [taken, setTaken] = useState<string[]>([]); // new names GitHub said already exist
+  const [nick, setNick] = useState(resumed?.login.toLowerCase().slice(0, 12) ?? "");
   // an invited person is new to the chat, so "Yeni hesap" comes first for them; everyone else most likely returns
   const [mode, setMode] = useState<"have" | "new">(invite ? "new" : "have");
   const [account, setAccount] = useState("");
   const [password, setPasswordText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [stage, setStage] = useState<"signin" | "admit" | "join" | "password" | "next">("signin");
+  const [stage, setStage] = useState<"signin" | "admit" | "join" | "password" | "next">(!resumed ? "signin" : resumed.joined ? "password" : invite ? "admit" : "join");
   const [note, setNote] = useState("");
-  const [joined, setJoined] = useState<Session | null>(null);
+  const [joined, setJoined] = useState<Session | null>(resumed?.joined ?? null);
+
+  // a kept token that GitHub no longer accepts (revoked, expired) means signing in again
+  useEffect(() => {
+    if (resumed) githubLogin(resumed.token).then((l) => { if (!l) { clearSignIn(); setToken(""); setJoined(null); setStage("signin"); } }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // the repositories to choose from; a likely chat first, or a new one when none looks like a chat
+  useEffect(() => {
+    if (stage !== "join" || invite || !token || repos) return;
+    listRepos(token).then(
+      (names) => { const list = chatReposFirst(names); setRepos(list); setRepo((r) => r || (list.find(looksLikeChat) ?? NEW_REPO)); },
+      () => { setReposFailed(true); setRepo((r) => r || `${login}/opencommunicate-chat`); },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, token]);
 
   // invited: ask to be let in, then wait for an admin's app to add us and accept GitHub's invitation
   useEffect(() => {
@@ -314,12 +362,13 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
 
   const signedIn = async (t: string) => {
     const l = await githubLogin(t);
+    saveSignIn({ token: t, login: l });
     setToken(t); setLogin(l); setNick(l.toLowerCase().slice(0, 12));
-    setRepo((r) => r || `${l}/opencommunicate-chat`);
     setStage(invite ? "admit" : "join");
   };
 
   const finish = (s: Session) => {
+    saveSession(s); clearSignIn(); // signed in from here on, even if this tab closes before the next screen
     // on the web the next step depends on the device: install the app, or add this page to the home screen
     if (hosted()) {
       history.replaceState(null, "", `${location.pathname}?repo=${encodeURIComponent(s.repo)}`);
@@ -327,9 +376,18 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
     } else onDone(s);
   };
 
+  const creating = !invite && repo === NEW_REPO;
+  const newRepo = `${login}/${chatRepoName(newName)}`;
+  const nameTaken = creating && [...(repos ?? []), ...taken].some((r) => r.toLowerCase() === newRepo.toLowerCase());
+  const awaitPassword = (s: Session) => { saveSignIn({ token, login, joined: s }); setJoined(s); setStage("password"); };
+
   const doJoin = async () => {
     setError(""); setBusy(true);
-    try { setJoined(await join(token, repo.trim(), nick.trim())); setStage("password"); }
+    try {
+      // the list can miss a repository (one it couldn't page to): GitHub has the last word on a new name
+      if (creating && await repoExists(token, newRepo)) { setTaken((t) => [...t, newRepo]); return; }
+      awaitPassword(await join(token, creating ? newRepo : repo.trim(), nick.trim()));
+    }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -338,7 +396,7 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
     setError(""); setBusy(true);
     try {
       const { session: s, needsPassword } = await claim(token, repo.trim(), account, password);
-      if (needsPassword) { setJoined(s); setStage("password"); } else finish(s);
+      if (needsPassword) awaitPassword(s); else finish(s);
     }
     catch (e) { setError(claimProblem(e, repo.trim())); }
     finally { setBusy(false); }
@@ -367,26 +425,47 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
       {stage === "join" && (
         <>
           <p>Giriş yapıldı: <b>{login}</b>. {invite ? "Sohbete eklendin." : "Hangi sohbete katılıyorsunuz?"}</p>
-          <div className="actions start" role="radiogroup" aria-label="Hesap">
+          {!invite && (reposFailed
+            ? <label>Sohbet reposu<input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="sahip/repo" /></label>
+            : <label>Sohbet reposu
+                <select value={repos ? repo : ""} disabled={!repos} onChange={(e) => { setRepo(e.target.value); setError(""); }}>
+                  {!repos ? <option value="">Repolar yükleniyor…</option> : <>
+                    <option value={NEW_REPO}>＋ Yeni sohbet reposu oluştur</option>
+                    {repoGroups(repos, repo).map(([title, names]) => names.length > 0 && (
+                      <optgroup key={title} label={title}>{names.map((n) => <option key={n} value={n}>{n}</option>)}</optgroup>
+                    ))}
+                  </>}
+                </select>
+              </label>)}
+          {creating && <>
+            <label>Yeni repo adı<input value={newName} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(e) => { setNewName(e.target.value); setError(""); }} /></label>
+            {nameTaken
+              ? <p className="error small"><b>{newRepo}</b> adında bir repo zaten var. Yeni isim ne olsun?</p>
+              : <p className="muted small">Oluşturulacak: <b>{newRepo}</b> (private). Sohbet repolarının adı hep <code>-chat</code> ile biter.</p>}
+          </>}
+          {/* a new repository has no accounts yet, so there is only "Yeni hesap" */}
+          {!creating && <div className="actions start" role="radiogroup" aria-label="Hesap">
             <button role="radio" aria-checked={mode === "have"} className={mode === "have" ? "primary" : "ghost"} onClick={() => { setMode("have"); setError(""); }}>Hesabım var</button>
             <button role="radio" aria-checked={mode === "new"} className={mode === "new" ? "primary" : "ghost"} onClick={() => { setMode("new"); setError(""); }}>Yeni hesap</button>
-          </div>
-          {!invite && <label>Sohbet reposu<input value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="sahip/repo" /></label>}
-          {mode === "have" ? <>
-            <label>Hesap (ad#1234)<input value={account} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="ad#1234" onChange={(e) => setAccount(e.target.value)} /></label>
-            <label>Şifre<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPasswordText(e.target.value)} /></label>
-            <button className="primary" disabled={busy || !repo.includes("/") || !account.includes("#")} onClick={doClaim}>{busy ? "Bağlanıyor…" : "Giriş yap"}</button>
-          </> : <>
+          </div>}
+          {mode === "have" && !creating ? (
+            // a real form with username/password fields, so the browser's password manager fills and saves the account
+            <form className="contents" onSubmit={(e) => { e.preventDefault(); doClaim(); }}>
+              <label>Hesap (ad#1234)<input name="username" autoComplete="username" value={account} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="ad#1234" onChange={(e) => setAccount(e.target.value)} /></label>
+              <label>Şifre<input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPasswordText(e.target.value)} /></label>
+              <button type="submit" className="primary" disabled={busy || !repo.includes("/") || !account.includes("#")}>{busy ? "Bağlanıyor…" : "Giriş yap"}</button>
+            </form>
+          ) : <>
             <label>Takma ad<input value={nick} maxLength={24} onChange={(e) => setNick(e.target.value)} /></label>
-            <p className="muted">{invite ? "" : "Repo yoksa private olarak oluşturulur. "}Size ad#1234 biçiminde bir kimlik verilir, sonra bir şifre belirlersiniz.</p>
-            <button className="primary" disabled={busy || !repo.includes("/") || !nick.trim()} onClick={doJoin}>{busy ? "Bağlanıyor…" : "Katıl"}</button>
+            <p className="muted">Size ad#1234 biçiminde bir kimlik verilir, sonra bir şifre belirlersiniz.</p>
+            <button className="primary" disabled={busy || !nick.trim() || (creating ? !newName.trim() || nameTaken : !repo.includes("/"))} onClick={doJoin}>{busy ? "Bağlanıyor…" : creating ? "Oluştur ve katıl" : "Katıl"}</button>
           </>}
         </>
       )}
       {stage === "password" && joined && (
         <>
           <p>Hesabın: <b>{handle(joined.device)}</b>. Bir şifre belirle; çıkış yapınca ya da başka bir cihazdan bu hesapla <b>{handle(joined.device)}</b> ve şifreyle girersin.</p>
-          <PasswordForm label="Şifreyi kaydet" onSave={async (pw) => { await setPassword(joined, pw); finish(joined); }} />
+          <PasswordForm username={handle(joined.device)} label="Şifreyi kaydet" onSave={async (pw) => { await setPassword(joined, pw); finish(joined); }} />
         </>
       )}
       {error && <p className="error">{error}</p>}
@@ -1327,7 +1406,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         <p className="muted small">Çıkış yaptıktan sonra ya da başka bir cihazdan GitHub ile girip <b>Hesabım var</b> deyin, <b>{handle(me)}</b> ve bu şifreyi yazın.</p>
         {recordError ? <p className="error small">{recordError}</p>
           : record === undefined ? <p className="muted small">Kontrol ediliyor…</p>
-          : <PasswordForm current={record} label={record ? "Şifreyi değiştir" : "Şifreyi kaydet"} onSave={async (pw) => setRecord(await bus.setPassword(me, pw))} />}
+          : <PasswordForm current={record} username={handle(me)} label={record ? "Şifreyi değiştir" : "Şifreyi kaydet"} onSave={async (pw) => setRecord(await bus.setPassword(me, pw))} />}
         <h3>Medya</h3>
         <p className="small">İndirilen görseller ve videolar: <b>Cihaza kaydet</b> onları bu cihazda saklar, sonra internetsiz de açılır. <b>GitHub'dan aktar</b> her açılışta GitHub'dan getirir, cihazda yer kaplamaz.</p>
         {(["image", "video"] as const).map((k) => (

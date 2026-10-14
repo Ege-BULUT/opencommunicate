@@ -282,3 +282,6 @@ label.toggle input { width: 18px; height: 18px; flex: none; margin: 0; accent-co
 .pinned-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
 .pinned-text { font-size: 14px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .pinned-text.full { display: block; white-space: pre-wrap; color: var(--ink); }
+form.contents { display: contents; }
+a.ghost { display: inline-flex; align-items: center; color: inherit; text-decoration: none; }
+.card select { width: 100%; border-radius: 12px; padding: 11px 13px; }
