@@ -44,8 +44,9 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom picture [--random] [--seed <text>] [--palette <name>] [--photo <file>] [--reset]
                                    this device's profile picture: generated art (agents get one
                                    by default) or a photo of 50 KB at most
-  opencom invite [--name <name>] [--phone <number>]
+  opencom invite [--name <name>] [--phone <number>] [--lang en|tr]
                                    a one-time link for someone new (and a WhatsApp link with --phone);
+                                   the message is in --lang, else the system language ($LANG), else English;
                                    "opencom invites" lists them. Whoever administers the repo lets the
                                    invitee in: the app, or "opencom watch", does it while running
   opencom notify on|off            phone notifications through ntfy for this device
@@ -234,7 +235,9 @@ async function main(argv: string[]) {
     case "invite": {
       const name = f.name?.[0];
       const { link } = await createInvite(bus, me, { name, base: INVITE_BASE });
-      const text = inviteMessage(link, handle(me), cfg.repo, name);
+      const lang = f.lang?.[0] ?? (/^tr/i.test(process.env.LC_ALL || process.env.LANG || "") ? "tr" : "en");
+      if (lang !== "en" && lang !== "tr") throw new Error("--lang is en or tr");
+      const text = inviteMessage(link, handle(me), cfg.repo, name, lang);
       console.log(text);
       if (f.phone) console.log(`\nWhatsApp: ${whatsappLink(f.phone[0], text)}`);
       if (!(await canAdmit(bus))) console.log("\nNote: this GitHub account doesn't administer the repo; an admin's app or `opencom watch` must be running to let the invitee in.");

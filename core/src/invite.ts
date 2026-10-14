@@ -13,7 +13,11 @@ import { Bus, GitHubError, handle, type Device } from "./index.ts";
 export type Invite = { id: string; by: string; byHandle: string; name?: string; createdAt: string; expiresAt: string; hash: string; topic: string; used?: { login: string; at: string; by: string } };
 /** What the link carries. */
 export type InviteCode = { r: string; i: string; s: string; t: string; n: string };
-type Note = { kind: "claim"; id: string; secret: string; login: string } | { kind: "added"; login: string } | { kind: "refused"; login: string; reason: string };
+/* A refusal carries why, so the invitee's app says it in the invitee's language: "link" a wrong secret,
+   "user" no such GitHub user, "github" GitHub refused with `status`. `reason` is the same in English, for
+   apps from before `why`. */
+export type Refusal = { kind: "refused"; login: string; reason: string; why?: "link" | "user" | "github"; status?: number };
+type Note = { kind: "claim"; id: string; secret: string; login: string } | { kind: "added"; login: string } | Refusal;
 
 export const NTFY = "https://ntfy.sh";
 export const INVITE_DAYS = 3;
@@ -90,15 +94,16 @@ export async function processInvites(bus: Bus, me: Device, f: typeof fetch = fet
   for (const inv of (await invites(bus)).filter((i) => isOpen(i))) {
     for (const note of await read(inv.topic, inv.createdAt, f)) {
       if (note.kind !== "claim" || note.id !== inv.id || !/^[A-Za-z0-9-]{1,39}$/.test(note.login)) continue;
-      if ((await sha256(note.secret)) !== inv.hash) { await post(inv.topic, { kind: "refused", login: note.login, reason: "Davet bağlantısı geçersiz." }, f); continue; }
+      if ((await sha256(note.secret)) !== inv.hash) { await post(inv.topic, { kind: "refused", login: note.login, why: "link", reason: "The invitation link is not valid." }, f); continue; }
       // the owner is in already (GitHub refuses to make the owner a collaborator: 422 "Validation Failed")
       if (note.login.toLowerCase() !== bus.repo.split("/")[0].toLowerCase()) {
         try {
           await bus.gh(`/repos/${bus.repo}/collaborators/${note.login}`, { method: "PUT", body: JSON.stringify({ permission: "push" }) });
         } catch (e) {
           if (!(e instanceof GitHubError)) throw e;
-          const reason = e.status === 404 ? `GitHub'da ${note.login} diye bir kullanıcı yok.` : `GitHub eklemeyi reddetti (${e.status}).`;
-          await post(inv.topic, { kind: "refused", login: note.login, reason }, f);
+          await post(inv.topic, e.status === 404
+            ? { kind: "refused", login: note.login, why: "user", reason: `GitHub has no user named ${note.login}.` }
+            : { kind: "refused", login: note.login, why: "github", status: e.status, reason: `GitHub refused to add them (${e.status}).` }, f);
           continue;
         }
       }
