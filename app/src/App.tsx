@@ -7,7 +7,7 @@ import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
-import { accountProblem, canSignIn, checkAccount, claim, clearSession, clearSignIn, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, loadSession, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, loadChats, saveChats, withChat, withoutChat, type Chats, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 
@@ -63,7 +63,6 @@ function Sheet({ title, className = "", onClose, children }: { title: string; cl
 }
 const BusContext = createContext<Bus | null>(null);
 const KIND = S.kind;
-const READ_KEY = "oc.read";
 // Read receipts (blue ticks), on unless turned off in Settings. Off works as in WhatsApp: this device tells no one
 // it read their messages and sees no one's blue ticks; delivered (two grey ticks) still goes both ways.
 const RECEIPTS_KEY = "oc.readReceipts";
@@ -76,33 +75,83 @@ const arrivalFrom = (url: string): Arrival => ({ invite: decodeInvite(url), repo
 const noArrival: Arrival = { invite: null, repo: null };
 
 export default function App() {
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [chats, setChats] = useState<Chats | null | undefined>(undefined);
   const [arrival, setArrival] = useState<Arrival>(() => arrivalFrom(location.href));
-  useEffect(() => { loadSession().then(setSession).catch(() => setSession(null)); }, []);
+  const [adding, setAdding] = useState(false); // joining another chat, with the GitHub account already signed in
+  useEffect(() => { loadChats().then(setChats).catch(() => setChats(null)); }, []);
   useEffect(() => {
     if (!native()) return;
     NativeApp.getLaunchUrl().then((u) => { if (u?.url) setArrival(arrivalFrom(u.url)); });
     const l = NativeApp.addListener("appUrlOpen", ({ url }) => setArrival(arrivalFrom(url)));
     return () => { l.then((h) => h.remove()); };
   }, []);
-  if (session === undefined) return <div className="center muted">{S.opening}</div>;
-  const use = (s: Session) => { saveSession(s); setSession(s); };
+  const activity = useActivity(chats);
+  if (chats === undefined) return <div className="center muted">{S.opening}</div>;
+  const session = chats?.chats.find((c) => c.repo === chats.active) ?? chats?.chats[0] ?? null;
+  const commit = (next: Chats) => { saveChats(next); setChats(next); };
+  const update = (s: Session) => commit(withChat(chats ?? null, s));
+  const open = (repo: string) => { if (chats) commit({ ...chats, active: repo }); };
   const forget = () => { setArrival(noArrival); if (location.hash.includes("invite=")) history.replaceState(null, "", location.pathname + location.search); };
-  if (!session) return <Onboarding arrival={arrival} onDone={(s) => { forget(); use(s); }} />;
-  // an invitation to another chat while signed in to one: this device can be in one chat at a time
-  if (arrival.invite && arrival.invite.r.toLowerCase() !== session.repo.toLowerCase()) return (
-    <div className="center"><div className="card">
-      <h1 className="brand">{S.invitation}</h1>
-      <p>{S.inviteToOther(arrival.invite.n, arrival.invite.r.split("/")[1], session.repo.split("/")[1])}</p>
-      <p className="muted small">{S.inviteLeaves}</p>
-      <div className="actions start">
-        <button className="primary" onClick={() => { clearSession(); setSession(null); }}>{S.joinInvite}</button>
-        <button className="ghost" onClick={forget}>{S.cancel}</button>
-      </div>
-    </div></div>
-  );
-  // a new token (signed in again, or another account) starts the chat afresh
-  return <Chat key={session.token} session={session} onSession={use} onSignOut={() => { clearSession(); setSession(null); }} />;
+  const joined = (s: Session) => { forget(); setAdding(false); commit(withChat(chats ?? null, s, true)); };
+  const others = chats?.chats.length ?? 0;
+  const known = session ? { token: session.token, login: session.device.login ?? "" } : undefined;
+  if (!session || adding) return <Onboarding arrival={arrival} known={known} onCancel={session ? () => { forget(); setAdding(false); } : undefined} onDone={joined} />;
+  // an invitation to a chat this device is not in yet: join it as well (the other chats stay)
+  if (arrival.invite) {
+    const there = chats!.chats.find((c) => c.repo.toLowerCase() === arrival.invite!.r.toLowerCase());
+    if (there) { if (there.repo !== session.repo) open(there.repo); forget(); }
+    else return (
+      <div className="center"><div className="card">
+        <h1 className="brand">{S.invitation}</h1>
+        <p>{S.invitedTo(arrival.invite.n, arrival.invite.r.split("/")[1])}</p>
+        <p className="muted small">{S.inviteKeeps(others)}</p>
+        <div className="actions start">
+          {session.source === "app" && canSignIn() && <button className="primary" onClick={() => setAdding(true)}>{S.joinInvite}</button>}
+          <button className="ghost" onClick={forget}>{S.cancel}</button>
+        </div>
+      </div></div>
+    );
+  }
+  // a new token (signed in again, or another account) or another chat starts the chat view afresh
+  return <Chat key={`${session.repo}/${session.token}`} session={session} onSession={update} chats={chats!.chats} activity={activity}
+    onOpen={open} onAdd={session.source === "app" && canSignIn() ? () => setAdding(true) : undefined}
+    onSignOut={() => { const next = withoutChat(chats!, session.repo); if (next.chats.length) commit(next); else { clearChats(); setChats(null); } }} />;
+}
+
+/**
+ * New activity in the chats that are not open: each one's branch head, checked once a minute with its ETag (a 304
+ * while nothing moved is free), against the head its chat view last saw (stored as "oc.head.<repo>").
+ */
+function useActivity(chats: Chats | null | undefined): Record<string, boolean> {
+  const [moved, setMoved] = useState<Record<string, boolean>>({});
+  const buses = useRef(new Map<string, Bus>());
+  const heads = useRef(new Map<string, string>()); // the last head each bus saw (headIfChanged answers null while it stays)
+  const list = chats?.chats ?? [];
+  const key = list.map((c) => `${c.repo}/${c.token}`).join(" ") + " " + (chats?.active ?? "");
+  useEffect(() => {
+    if (list.length < 2) { setMoved({}); return; }
+    let stop = false;
+    const check = async () => {
+      const next: Record<string, boolean> = {};
+      for (const c of list) {
+        if (c.repo === chats?.active) continue;
+        const id = `${c.repo}/${c.token}`;
+        if (!buses.current.has(id)) buses.current.set(id, new Bus({ repo: c.repo, token: c.token }));
+        try {
+          const head = (await buses.current.get(id)!.headIfChanged()) ?? heads.current.get(id);
+          if (head) heads.current.set(id, head);
+          let seen: string | null = null; try { seen = localStorage.getItem(`oc.head.${c.repo}`); } catch { /* none */ }
+          next[c.repo] = !!head && !!seen && head !== seen;
+        } catch { /* offline: next minute */ }
+      }
+      if (!stop) setMoved(next);
+    };
+    check();
+    const t = setInterval(check, 60_000);
+    return () => { stop = true; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return moved;
 }
 
 const SITE = "https://opencommunicate.vercel.app/";
@@ -298,9 +347,11 @@ function repoGroups(repos: string[], picked: string): [string, string[]][] {
 }
 
 // ---------------- sign-in + join (phone) ----------------
-function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session) => void }) {
+/** Sign in with GitHub and join a chat; `known` is the GitHub account of a chat this device is already in, so
+ *  adding another chat skips the sign-in, and `onCancel` goes back to the chats. */
+function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; known?: { token: string; login: string }; onCancel?: () => void; onDone: (s: Session) => void }) {
   const invite = arrival.invite;
-  const [resumed] = useState(readSignIn); // approved on GitHub before the tab closed
+  const [resumed] = useState(() => readSignIn() ?? (known ? { ...known } : null)); // approved on GitHub before the tab closed, or already signed in
   const [token, setToken] = useState(resumed?.token ?? "");
   const [login, setLogin] = useState(resumed?.login ?? "");
   const [repo, setRepo] = useState(invite?.r ?? arrival.repo ?? "");
@@ -321,7 +372,10 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
 
   // a kept token that GitHub no longer accepts (revoked, expired) means signing in again
   useEffect(() => {
-    if (resumed) githubLogin(resumed.token).then((l) => { if (!l) { clearSignIn(); setToken(""); setJoined(null); setStage("signin"); } }).catch(() => {});
+    if (resumed) githubLogin(resumed.token).then((l) => {
+      if (!l) { clearSignIn(); setToken(""); setJoined(null); setStage("signin"); }
+      else { setLogin((x) => x || l); setNick((x) => x || l.toLowerCase().slice(0, 12)); } // a known account whose login was not stored
+    }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -379,7 +433,7 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
   const finish = (s: Session) => {
     saveSession(s); clearSignIn(); // signed in from here on, even if this tab closes before the next screen
     // on the web the next step depends on the device: install the app, or add this page to the home screen
-    if (hosted()) {
+    if (hosted() && !known) {
       history.replaceState(null, "", `${location.pathname}?repo=${encodeURIComponent(s.repo)}`);
       setJoined(s); setStage("next");
     } else onDone(s);
@@ -478,6 +532,7 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
         </>
       )}
       {error && <p className="error">{error}</p>}
+      {onCancel && <div className="actions start"><button className="ghost" onClick={onCancel}>{S.backToChats}</button></div>}
     </div></div>
   );
 }
@@ -485,17 +540,21 @@ function Onboarding({ arrival, onDone }: { arrival: Arrival; onDone: (s: Session
 // ---------------- chat ----------------
 type Pending = Message & { pending?: boolean; failed?: boolean };
 
-function Chat({ session, onSession, onSignOut }: { session: Session; onSession: (s: Session) => void; onSignOut: () => void }) {
-  const bus = useMemo(() => new Bus({ repo: session.repo, token: session.token }), [session]);
+function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }: { session: Session; onSession: (s: Session) => void; onSignOut: () => void; chats: Session[]; activity: Record<string, boolean>; onOpen: (repo: string) => void; onAdd?: () => void }) {
+  // the bus and the watcher follow the chat and the token; a change to this device (picture, notifications) keeps them
+  const bus = useMemo(() => new Bus({ repo: session.repo, token: session.token }), [session.repo, session.token]);
   const [me, setMe] = useState<Device>(session.device);
-  const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device.id]);
+  const READ_KEY = `oc.read.${session.repo}`; // read markers per chat: channel names ("all") repeat across chats
+  const seenHead = () => { try { if (watcher.head) localStorage.setItem(`oc.head.${session.repo}`, watcher.head); } catch { /* private mode */ } };
   const [devices, setDevices] = useState<Device[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [presence, setPresence] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<Record<string, Pending[]>>({});
   const [active, setActive] = useState("all");
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
-  const [dialog, setDialog] = useState<"group" | "settings" | "channel" | "invite" | null>(null);
+  const [dialog, setDialog] = useState<"group" | "settings" | "channel" | "invite" | "chats" | null>(null);
   const [admin, setAdmin] = useState(false);
   const [toast, setToast] = useState("");
   const [status, setStatus] = useState(S.loading);
@@ -607,7 +666,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         setDevices(watcher.devices); setGroups(watcher.groups);
         // the repository's devices/<id>.json is the truth (another client may have changed it)
         const stored = watcher.devices.find((d) => d.id === session.device.id);
-          if (stored) { setMe(stored); if (session.source === "app") saveSession({ ...session, device: stored }); }
+          if (stored) { setMe(stored); onSession({ ...session, device: stored }); }
           else if (watcher.devices.length) { setStatus(S.removedDevice); return; }
           const hist = await bus.histories([...watcher.channels], 60, watcher.head ?? undefined);
           for (const list of Object.values(hist)) list.forEach((m) => watcher.seen.add(msgPath(m)));
@@ -617,7 +676,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
           watcher.tickPins().then(() => setPins(watcher.pins)).catch(() => {});
           watcher.tickReactions().then(() => setReactions(watcher.reactions)).catch(() => {});
           watcher.tickDrafts().then(() => takeDrafts(watcher.drafts)).catch(() => {});
-          setStatus(""); setAccount(null);
+          setStatus(""); setAccount(null); seenHead();
           bus.presence().then(setPresence).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
           askNotifications();
@@ -636,6 +695,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         if (stop) break;
         try {
           const fresh = await watcher.tick();
+          seenHead();
           setDevices([...watcher.devices]); setGroups([...watcher.groups]);
           add(fresh);
           delivered(fresh);
@@ -706,7 +766,7 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
     if (q) next.quiet![ch] = q; else delete next.quiet![ch];
     await bus.updateDevice(next);
     setMe(next);
-    if (session.source === "app") saveSession({ ...session, device: next });
+    onSession({ ...session, device: next });
   };
   const changeGroup = async (g: Group, change: GroupChange) => {
     const next = await bus.changeGroup(g.channel, change, me, devices);
@@ -869,10 +929,14 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         </header>
         <UpdateBanner />
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
-        <div className="me">
+        <button className="me" onClick={() => setDialog("chats")} title={S.chatsTitle} aria-label={`${S.chatsTitle}: ${session.repo.split("/")[1]}`}>
           <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} picture={pictureOf(me)} />
           <span className="me-text"><b>{handle(me)}</b><span className="muted">{session.repo.split("/")[1]}</span></span>
-        </div>
+          <span className="me-end">
+            {Object.values(activity).some(Boolean) && <i className="activity" aria-label={S.newActivity} />}
+            <svg className="chev" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </span>
+        </button>
         <div className="filter"><input type="search" value={filter} placeholder={S.searchAll} aria-label={S.search} onChange={(e) => setFilter(e.target.value)} /></div>
         <nav>
           {shown(`#all ${S.everyone}`) && <ChannelRow avatar={<Avatar name="all" seed="all" shape="group" />} label="#all" preview={preview("all") || S.everyone} time={last("all")?.ts} quiet={quiet("all")} count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />}
@@ -948,6 +1012,22 @@ function Chat({ session, onSession, onSignOut }: { session: Session; onSession: 
         pins={pins.filter((p) => p.channel === active)} loaded={byId} bus={bus} onUnpin={(m) => pin([m], false)}
         onOpen={(id) => { setDialog(null); setTimeout(() => jumpTo(id), 60); }}
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
+      {dialog === "chats" && (
+        <Sheet title={S.chatsTitle} onClose={() => setDialog(null)}>
+          <div className="picker">
+            {chats.map((c) => (
+              <button key={c.repo} className={`picker-row ${c.repo === session.repo ? "here" : ""}`} onClick={() => { setDialog(null); if (c.repo !== session.repo) onOpen(c.repo); }}>
+                <Avatar name={c.repo.split("/")[1]} seed={c.repo} shape="group" size={34} />
+                <span className="chat-pick"><b>{c.repo.split("/")[1]}</b><span className="muted small">{handle(c.repo === session.repo ? me : c.device)} · {c.repo}</span></span>
+                {activity[c.repo] && <i className="activity" aria-label={S.newActivity} />}
+                {c.repo === session.repo && <span className="muted" aria-label={S.openNow}>✓</span>}
+              </button>
+            ))}
+          </div>
+          {onAdd && <div className="actions start"><button className="ghost" onClick={() => { setDialog(null); onAdd(); }}>{S.addChat}</button></div>}
+          <p className="muted small">{S.chatsHelp}</p>
+        </Sheet>
+      )}
       {dialog === "invite" && <InviteDialog bus={bus} me={me} admin={admin} onClose={() => setDialog(null)} />}
       {menu && <MessageMenu m={menu.m} x={menu.x} y={menu.y} mine={menu.m.from === me.id}
         reaction={myReaction(menu.m)} onReact={(e) => { react(menu.m, myReaction(menu.m) === e ? null : e); setMenu(null); }}
@@ -1579,7 +1659,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
       const next = await bus.setPicture(me, photo ? { photo: photo.data, ext: photo.ext } : picture && "seed" in picture ? picture : null);
       if (photo && next.picture && "photo" in next.picture) remember(next.picture.photo, photo.data, true);
       onMe(next);
-      if (session.source === "app") saveSession({ ...session, device: next });
+      onSession({ ...session, device: next });
       setPicture(undefined); setPhoto(null);
     } catch (e) { setPicError((e as Error).message); }
     finally { setBusy(false); }
@@ -1591,7 +1671,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
       const next: Device = { ...me, notify: me.notify ? undefined : `https://ntfy.sh/opencom-${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}` };
       await bus.updateDevice(next);
       onMe(next);
-      if (session.source === "app") saveSession({ ...session, device: next });
+      onSession({ ...session, device: next });
     } finally { setBusy(false); }
   };
   return (
