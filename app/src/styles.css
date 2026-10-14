@@ -310,3 +310,6 @@ a.ghost { display: inline-flex; align-items: center; color: inherit; text-decora
 .row.result { align-items: flex-start; }
 .row.result mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 .older { padding: 6px 12px 12px; }
+/* a newer version: the sidebar's top, quiet enough to leave for later */
+.update { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0 12px 8px; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); font-size: 13px; }
+.update span { flex: 1 1 140px; }

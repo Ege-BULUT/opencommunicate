@@ -306,6 +306,11 @@ const en = {
   turnOff: "Turn off",
   createTopic: "Create a notification topic",
   language: "Language",
+  updateReady: (v: string) => `Version ${v} is downloaded.`,
+  updateOut: (v: string) => `OpenCommunicate ${v} is out.`,
+  restartToUpdate: "Restart to update",
+  getUpdate: "Download",
+  later: "Not now",
 
   // errors from the session and media code
   signInNotStarted: "GitHub did not start the sign-in.",
@@ -582,6 +587,11 @@ const tr: typeof en = {
   turnOff: "Kapat",
   createTopic: "Bildirim konusu oluştur",
   language: "Dil",
+  updateReady: (v) => `${v} sürümü indirildi.`,
+  updateOut: (v) => `OpenCommunicate ${v} çıktı.`,
+  restartToUpdate: "Yeniden başlat ve güncelle",
+  getUpdate: "İndir",
+  later: "Şimdi değil",
 
   signInNotStarted: "GitHub girişi başlatmadı.",
   signInFailed: "Giriş başarısız.",

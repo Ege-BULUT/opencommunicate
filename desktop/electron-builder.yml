@@ -14,7 +14,12 @@ files:
 asar: true
 compression: maximum
 npmRebuild: false
-publish: null
+# where the Windows app looks for updates (latest.yml on the newest release); builds never publish by themselves
+publish:
+  provider: github
+  owner: Ege-BULUT
+  repo: opencommunicate
+  releaseType: release
 # `npm run mac` recompresses each DMG with lzma (ULMO, macOS 10.15+), about a quarter smaller; electron-builder can't write that format itself
 # only the languages the app speaks; every other Chromium locale is dead weight
 electronLanguages: [en, en-US, tr]
