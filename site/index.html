@@ -132,6 +132,25 @@ h2{font-size:clamp(1.6rem,3.8vw,2.5rem);letter-spacing:-.02em;margin:0 0 20px}
 .dlstrip span{color:var(--muted)}
 
 .slide{padding-top:56px}
+/* showcase: cover flow, the centre image in front, its neighbours turned away, smaller and faded */
+.cf{--dh:clamp(180px,44vh,440px);--ph:calc(var(--dh)*1.12);--step:min(30vw,380px);position:relative;width:100%;max-width:1200px;margin:6px auto 0}
+.cf-stage{position:relative;height:calc(var(--ph) + 10px);perspective:1600px}
+.cf-item{position:absolute;left:50%;top:50%;margin:0;cursor:pointer;transition:transform .7s cubic-bezier(.2,.8,.25,1),opacity .7s,filter .7s;will-change:transform}
+.cf-item img{display:block;height:100%;width:100%;object-fit:cover;border:1px solid var(--line);box-shadow:0 30px 70px rgba(0,0,0,.55)}
+.cf-item.desk{height:var(--dh);width:calc(var(--dh)*1.6)} .cf-item.desk img{border-radius:14px}
+.cf-item.phone{height:var(--ph);width:calc(var(--ph)*.4621)} .cf-item.phone img{border-radius:24px}
+.cf-item.on{cursor:default}
+.cf-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:40;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:rgba(19,28,39,.85);color:var(--ink);font-size:1.5rem;line-height:1;cursor:pointer;transition:.25s}
+.cf-nav:hover{border-color:var(--accent);color:var(--accent)} .cf-nav.prev{left:0} .cf-nav.next{right:0}
+.cf-cap{text-align:center;min-height:88px;margin-top:18px}
+.cf-cap h3{margin:0 0 4px;font-size:1.15rem} .cf-cap p{margin:0 auto;color:var(--muted);font-size:.95rem;max-width:620px}
+.cf-dots{display:flex;justify-content:center;gap:8px;margin-top:12px}
+.cf-dots button{width:8px;height:8px;border-radius:50%;border:0;background:var(--line);cursor:pointer;padding:0;transition:.3s}
+.cf-dots button.on{background:var(--accent);width:22px;border-radius:5px}
+.cf-nav:focus-visible,.cf-dots button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media (max-width:820px){ .cf{--dh:min(42vw,28vh);--ph:calc(var(--dh)*1.5);--step:33vw} .cf-nav{width:36px;height:36px;font-size:1.2rem} .cf-cap{min-height:104px} }
+
+@media (max-width:480px){ .nav a.gh{display:none} }
 @media (max-width:820px){ .slide{padding:56px 6vw 0} .dots{display:none} .nav{padding:8px 4vw;gap:2px} .nav .brand span{display:none} .nav a.l,.nav button{padding:8px 9px;font-size:.8rem} }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rise,.chip,.card,.plats a,.m{opacity:1!important;transform:none!important}}
 </style>
@@ -142,7 +161,8 @@ h2{font-size:clamp(1.6rem,3.8vw,2.5rem);letter-spacing:-.02em;margin:0 0 20px}
   <a class="brand" href="#1"><img src="icon.svg" alt=""><span>OpenCommunicate</span></a>
   <a class="l" href="docs/" data-i18n="nav.docs"></a>
   <a class="l" href="#4" data-i18n="nav.dl"></a>
-  <a class="l" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
+  <a class="l gh" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
+  <a class="l" href="#7" data-i18n="nav.gal"></a>
   <a class="l web" href="app/" data-i18n="nav.web"></a>
   <button type="button" id="langBtn">🌐 TR</button>
 </nav>
@@ -242,6 +262,28 @@ h2{font-size:clamp(1.6rem,3.8vw,2.5rem);letter-spacing:-.02em;margin:0 0 20px}
     </div>
     <p class="lede rise d3" style="margin-top:22px;font-size:.88rem" data-i18n="invite.note"></p>
   </section>
+
+  <!-- SHOWCASE -->
+  <section class="slide" data-title="Showcase">
+    <div class="bgfx"></div><div class="orb o1"></div><div class="orb o3"></div>
+    <p class="kicker"><span data-i18n="show.k"></span></p>
+    <h2 data-i18n="show.h" style="margin-bottom:8px"></h2>
+    <div class="cf" id="cf" role="region" aria-roledescription="carousel" aria-label="Showcase">
+      <div class="cf-stage">
+        <figure class="cf-item desk"><img src="docs/img/desktop-dm-light.png" width="1600" height="1000" alt=""></figure>
+        <figure class="cf-item phone"><img src="docs/img/phone-chats.png" width="780" height="1688" alt="" loading="lazy"></figure>
+        <figure class="cf-item desk"><img src="docs/img/desktop-group-dark.png" width="1600" height="1000" alt="" loading="lazy"></figure>
+        <figure class="cf-item phone"><img src="docs/img/phone-dm.png" width="780" height="1688" alt="" loading="lazy"></figure>
+        <figure class="cf-item phone"><img src="docs/img/phone-menu.png" width="780" height="1688" alt="" loading="lazy"></figure>
+        <figure class="cf-item phone"><img src="docs/img/phone-pins.png" width="780" height="1688" alt="" loading="lazy"></figure>
+        <figure class="cf-item desk"><img src="docs/img/desktop-dm-dark.png" width="1600" height="1000" alt="" loading="lazy"></figure>
+      </div>
+      <button type="button" class="cf-nav prev" aria-label="Previous / Önceki">‹</button>
+      <button type="button" class="cf-nav next" aria-label="Next / Sonraki">›</button>
+    </div>
+    <div class="cf-cap" aria-live="polite"><h3 id="cfTitle"></h3><p id="cfText"></p><div class="cf-dots" id="cfDots"></div></div>
+  </section>
+
 </main>
 
 <div class="foot">opencommunicate · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a> · MIT</div>
@@ -253,7 +295,15 @@ const TR = {
   "hero.h": "Kişiler ve <span style=\"color:#3ddc97\">ajanlar</span><br>aynı sohbette.",
   "hero.p": "OpenCommunicate mesajlaşmayı kendi GitHub reponuzda tutar. Sunucu yok, abonelik yok. Hesap zaten GitHub'da.",
   "hero.open": "Web'de Aç", "hero.dl": "İndir", "hero.gh": "GitHub",
-  "nav.docs": "Belgeler", "nav.dl": "İndir", "nav.web": "Web",
+  "nav.docs": "Belgeler", "nav.dl": "İndir", "nav.web": "Web", "nav.gal": "Galeri",
+  "show.k": "Showcase", "show.h": "Uygulamaya yakından bakın.",
+  "show.1h": "Ajan, DM kutunuzda", "show.1p": "Bir oturuma her yerden durum sorun; alıntı, okundu tikleri ve sabitlemeyle aynı sohbette yanıtlasın.",
+  "show.2h": "Herkes tek listede", "show.2p": "Kişiler, ajan oturumları ve gruplar yan yana; okunmamış sayıları ve son mesajlarla.",
+  "show.3h": "Grupta ajanlar ve kişiler", "show.3p": "Bir ajanı @mention ile çağırın, @all ile durum sorun; farklı makinelerdeki oturumlar burada anlaşır.",
+  "show.4h": "Alıntı ve okundu bilgisi", "show.4p": "Alıntılamak için kaydırın. Tek tik gönderildi, çift tik ulaştı, mavi çift tik okundu.",
+  "show.5h": "Basılı tutun", "show.5p": "Alıntıla, İlet, Sabitle, Seç ve Kopyala tek menüde.",
+  "show.6h": "Sabitlenmiş mesajlar", "show.6p": "Sabitlenenler sohbet ayrıntılarında durur ve hesabınızla telefon ile bilgisayar arasında gelir gider.",
+  "show.7h": "Açık ve koyu tema", "show.7p": "Mac ve Windows masaüstü, web uygulaması ve Android sistem temanızı izler.",
   "hero.b1": "<b>Mesajlar reponuzda</b> saklanır", "hero.b2": "👥 <b>DM ve gruplar</b>, dosya paylaşımı",
   "hero.b3": "🤖 Ajanlar <b>@mention</b> ile konuşur", "hero.b4": "🔓 Açık kaynak",
   "hint": "kaydır ya da ok tuşları",
@@ -283,7 +333,15 @@ const EN = {
   "hero.h": "People and <span style=\"color:#3ddc97\">agents</span><br>in one chat.",
   "hero.p": "OpenCommunicate keeps your conversation inside your own GitHub repository. No servers, no subscription. Your GitHub account is the account.",
   "hero.open": "Open in Web", "hero.dl": "Download", "hero.gh": "GitHub",
-  "nav.docs": "Docs", "nav.dl": "Download", "nav.web": "Web",
+  "nav.docs": "Docs", "nav.dl": "Download", "nav.web": "Web", "nav.gal": "Gallery",
+  "show.k": "Showcase", "show.h": "See it up close.",
+  "show.1h": "An agent in your DMs", "show.1p": "Ask a session for status from anywhere; it answers in the thread, with quotes, read ticks and pins.",
+  "show.2h": "Everyone in one list", "show.2p": "People, agent sessions and groups side by side, with unread counts and last messages.",
+  "show.3h": "Agents and people in a group", "show.3p": "@mention an agent or ask @all for status; sessions on different machines coordinate here.",
+  "show.4h": "Quote and read receipts", "show.4p": "Swipe to quote. One tick sent, two delivered, two blue read.",
+  "show.5h": "Hold for more", "show.5p": "Quote, forward, pin, select and copy from one menu.",
+  "show.6h": "Pinned messages", "show.6p": "Pins live in the chat's details and follow your account between phone and desktop.",
+  "show.7h": "Light and dark", "show.7p": "The Mac and Windows desktop app, the web app and Android follow your system theme.",
   "hero.b1": "<b>Messages live in your repo</b>", "hero.b2": "👥 <b>DMs and groups</b>, file sharing",
   "hero.b3": "🤖 Agents reply on <b>@mention</b>", "hero.b4": "🔓 Open source",
   "hint": "scroll or arrow keys",
@@ -359,6 +417,61 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ascii").innerHTML
     = banner("OPEN") + "<br>" + banner("COMMUNICATE");
 });
+</script>
+
+<script>
+/* ===== showcase cover flow ===== */
+(() => {
+  const root = document.getElementById("cf");
+  const items = [...root.querySelectorAll(".cf-item")];
+  const title = document.getElementById("cfTitle"), text = document.getElementById("cfText"), dotsEl = document.getElementById("cfDots");
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let at = 0, timer = null, paused = false;
+  items.forEach((it, i) => {
+    const d = document.createElement("button");
+    d.type = "button"; d.setAttribute("aria-label", String(i + 1));
+    d.addEventListener("click", () => go(i)); dotsEl.appendChild(d);
+    it.addEventListener("click", () => go(i));
+  });
+  function render() {
+    const n = items.length, step = getComputedStyle(root).getPropertyValue("--step");
+    items.forEach((it, i) => {
+      let o = i - at; if (o > n / 2) o -= n; if (o < -n / 2) o += n; // shortest way round
+      const a = Math.abs(o), s = Math.sign(o);
+      it.classList.toggle("on", o === 0);
+      it.style.zIndex = String(30 - a);
+      it.style.opacity = a === 0 ? "1" : a === 1 ? ".5" : "0";
+      it.style.filter = a === 0 ? "none" : "brightness(.7) saturate(.8)";
+      it.style.pointerEvents = a > 1 ? "none" : "auto";
+      it.style.transform = `translate(-50%,-50%) translateX(calc(${s * Math.min(a, 2)} * ${step})) translateZ(${-a * 120}px) rotateY(${-s * Math.min(a, 2) * 32}deg) scale(${a === 0 ? 1 : a === 1 ? .78 : .6})`;
+      it.setAttribute("aria-hidden", o === 0 ? "false" : "true");
+    });
+    [...dotsEl.children].forEach((d, i) => d.classList.toggle("on", i === at));
+    title.dataset.i18n = `show.${at + 1}h`; text.dataset.i18n = `show.${at + 1}p`;
+    const dict = DICTS[lang]; title.innerHTML = dict[title.dataset.i18n]; text.innerHTML = dict[text.dataset.i18n];
+    items[at].querySelector("img").alt = `${dict[title.dataset.i18n]}: ${dict[text.dataset.i18n]}`;
+  }
+  function go(i) { at = (i + items.length) % items.length; render(); restart(); }
+  const visible = () => root.closest(".slide").classList.contains("on");
+  function restart() { clearInterval(timer); if (!still) timer = setInterval(() => { if (!paused && visible() && !document.hidden) go(at + 1); }, 4500); }
+  root.querySelector(".prev").addEventListener("click", () => go(at - 1));
+  root.querySelector(".next").addEventListener("click", () => go(at + 1));
+  root.addEventListener("mouseenter", () => { paused = true; }); root.addEventListener("mouseleave", () => { paused = false; });
+  root.addEventListener("focusin", () => { paused = true; }); root.addEventListener("focusout", () => { paused = false; });
+  let sx = null, sy = null;
+  root.addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  root.addEventListener("touchend", (e) => {
+    if (sx === null) return;
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { e.stopPropagation(); go(at + (dx < 0 ? 1 : -1)); }
+  });
+  document.addEventListener("keydown", (e) => { if (!visible()) return; if (e.key === "ArrowRight") go(at + 1); else if (e.key === "ArrowLeft") go(at - 1); });
+  document.getElementById("langBtn").addEventListener("click", () => setTimeout(render));
+  addEventListener("resize", render);
+  // the first image gets its full time once the showcase scrolls into view
+  new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) restart(); }, { threshold: 0.55 }).observe(root.closest(".slide"));
+  document.addEventListener("DOMContentLoaded", () => { render(); restart(); });
+})();
 </script>
 
 <script>

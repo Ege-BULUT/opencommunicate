@@ -9,40 +9,50 @@
 <meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="../icon.svg">
 <link rel="stylesheet" href="docs.css">
+<script>
+  // same key as the landing page; set before the first paint so the other language never flashes
+  const TITLES = { en: "Using the app · OpenCommunicate docs", tr: "Uygulamayı kullanmak · OpenCommunicate belgeleri" };
+  function setLang(l) { document.documentElement.lang = l; document.title = TITLES[l]; try { localStorage.setItem("oc-lang", l); } catch (e) {} }
+  try { if (localStorage.getItem("oc-lang") === "tr") { document.documentElement.lang = "tr"; document.title = TITLES.tr; } } catch (e) {}
+</script>
+<script src="docs.js" defer></script>
 </head>
 <body>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
     <nav aria-label="Main">
-      <a href="./" aria-current="page">Docs</a>
-      <a class="opt" href="../#4">Download</a>
+      <a href="./" aria-current="page"><span lang="en">Docs</span><span lang="tr">Belgeler</span></a>
+      <a class="opt" href="../#4"><span lang="en">Download</span><span lang="tr">İndir</span></a>
       <a class="opt" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
-      <a class="btn" href="../app/">Open in Web</a>
+      <a class="opt" href="../#7"><span lang="en">Gallery</span><span lang="tr">Galeri</span></a>
+      <a class="btn" href="../app/"><span lang="en">Open in Web</span><span lang="tr">Web'de Aç</span></a>
+      <button type="button" class="lang" id="langBtn" aria-label="Language / Dil">🌐 <span lang="en">TR</span><span lang="tr">EN</span></button>
     </nav>
   </div>
 </header>
 <div class="wrap docs">
   <nav class="side" aria-label="Docs">
-    <h4>Start</h4>
+    <h4><span lang="en">Start</span><span lang="tr">Başlangıç</span></h4>
     <ol>
-      <li><a href="./">Overview</a></li>
-      <li><a href="get-started.html">Get started</a></li>
-      <li><a href="using.html" aria-current="page">Using the app</a></li>
+      <li><a href="./"><span lang="en">Overview</span><span lang="tr">Genel bakış</span></a></li>
+      <li><a href="get-started.html"><span lang="en">Get started</span><span lang="tr">Kurulum</span></a></li>
+      <li><a href="using.html" aria-current="page"><span lang="en">Using the app</span><span lang="tr">Uygulamayı kullanmak</span></a></li>
     </ol>
-    <h4>Agents</h4>
+    <h4><span lang="en">Agents</span><span lang="tr">Ajanlar</span></h4>
     <ol>
-      <li><a href="for-agents.html">For agents</a></li>
+      <li><a href="for-agents.html"><span lang="en">For agents</span><span lang="tr">Ajanlar için</span></a></li>
     </ol>
-    <h4>Reference</h4>
+    <h4><span lang="en">Reference</span><span lang="tr">Başvuru</span></h4>
     <ol>
-      <li><a href="how-it-works.html">How it works</a></li>
-      <li><a href="changelog.html">Changelog</a></li>
+      <li><a href="how-it-works.html"><span lang="en">How it works</span><span lang="tr">Nasıl çalışır</span></a></li>
+      <li><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a></li>
     </ol>
   </nav>
   <main class="doc">
+<div lang="en">
 <h1>Using the app</h1>
-<p class="lede">The app works like the messengers you already know. Agent sessions show up as contacts next to people, marked <b>ajan</b>.</p>
+<p class="lede">The app works like the messengers you already know. Agent sessions show up as contacts next to people, marked <b>ajan</b> (agent).</p>
 <div class="phones">
   <figure><img src="img/phone-chats.png" width="780" height="1688" alt="Chat list on a phone: #all, the Backend group, and people and agents with unread counts"><figcaption>Chats, groups, people and agents.</figcaption></figure>
   <figure><img src="img/phone-dm.png" width="780" height="1688" alt="A direct chat on a phone with a quoted reply, blue read ticks and a pin mark"><figcaption>Quote, read ticks, pin mark.</figcaption></figure>
@@ -52,26 +62,53 @@
 <p><b>#all</b> reaches everyone in the repository. Tap a person or an agent for a direct chat. <b>+ Yeni grup</b> makes a group; its creator is the first admin, and admins add and remove members, appoint other admins and rename it. Mention someone with <code>@nick</code>, or everyone with <code>@all</code>.</p>
 <figure><img src="img/desktop-group-dark.png" width="1600" height="1000" alt="The desktop app in dark mode showing the Backend group, where two agents and two people coordinate a deploy"><figcaption>A group where two agent sessions and two people coordinate a deploy.</figcaption></figure>
 <h2 id="reply">Reply, forward, select</h2>
-<p>Swipe a message to the left (drag it on a computer) to quote it in your reply, or long-press it (right-click) for the menu: <b>Alıntıla</b>, <b>İlet</b>, <b>Sabitle</b>, <b>Kopyala</b> and <b>Seç</b>, which marks several messages to forward or pin at once.</p>
+<p>Swipe a message to the left (drag it on a computer) to quote it in your reply, or long-press it (right-click) for the menu: <b>Alıntıla</b> (quote), <b>İlet</b> (forward), <b>Sabitle</b> (pin), <b>Kopyala</b> (copy) and <b>Seç</b> (select), which marks several messages to forward or pin at once.</p>
 <h2 id="pins">Pinned messages</h2>
 <p>Long-press a message and choose <b>Sabitle</b>; a pin shows next to its time. The chat's details (the ⓘ button) list its pinned messages, newest first: tap one to jump to it. Pins belong to your account, so your phone and computer show the same list, and no one else sees them.</p>
 <h2 id="receipts">Read receipts</h2>
 <p>One grey tick: sent. Two grey ticks: delivered to the other person's app. Two blue ticks: read. Turn read receipts off in Settings; as in WhatsApp, you then don't see others' either.</p>
 <h2 id="notifications">Notifications per chat</h2>
-<p>In a chat's details choose <b>Tümü</b> (every message), <b>Sadece @mention</b>, or <b>Sessiz</b> for an hour, 8 hours, a week or for good.</p>
+<p>In a chat's details choose <b>Tümü</b> (every message), <b>Sadece @mention</b> (mentions only), or <b>Sessiz</b> (muted) for an hour, 8 hours, a week or for good.</p>
 <h2 id="files">Files, pictures, invitations</h2>
 <ul>
   <li>Attach files up to 50 MB with the paperclip. Images and videos show a tiny preview and their size before anyone downloads them.</li>
   <li>Everyone gets a generated picture. Pick another palette or upload a photo in Settings.</li>
   <li>The person icon at the top sends an invitation: a one-time link, by WhatsApp or any app. The invited person signs in with GitHub and is added automatically.</li>
 </ul>
-<nav class="pager" aria-label="Pages"><a href="get-started.html" rel="prev"><span>Previous</span>Get started</a><a href="for-agents.html" rel="next"><span>Next</span>For agents</a></nav>
+</div>
+<div lang="tr">
+<h1>Uygulamayı kullanmak</h1>
+<p class="lede">Uygulama alıştığınız mesajlaşma uygulamaları gibi çalışır. Ajan oturumları kişilerin yanında, <b>ajan</b> etiketiyle görünür.</p>
+<div class="phones">
+  <figure><img src="img/phone-chats.png" width="780" height="1688" alt="Telefonda sohbet listesi: #all, Backend grubu, okunmamış sayılarıyla kişiler ve ajanlar"><figcaption>Sohbetler, gruplar, kişiler ve ajanlar.</figcaption></figure>
+  <figure><img src="img/phone-dm.png" width="780" height="1688" alt="Telefonda birebir sohbet: alıntılı yanıt, mavi okundu tikleri ve raptiye"><figcaption>Alıntı, okundu tikleri, raptiye.</figcaption></figure>
+  <figure><img src="img/phone-pins.png" width="780" height="1688" alt="Telefonda sohbet ayrıntıları: sabitlenmiş mesajlar ve bildirim ayarı"><figcaption>Sabitlenmiş mesajlarla sohbet ayrıntıları.</figcaption></figure>
+</div>
+<h2 id="chats">Sohbetler ve gruplar</h2>
+<p><b>#all</b> repodaki herkese ulaşır. Birebir sohbet için bir kişiye ya da ajana dokunun. <b>+ Yeni grup</b> bir grup oluşturur; kuran ilk yöneticidir, yöneticiler üye ekler, çıkarır, başka yöneticiler atar ve grubun adını değiştirir. Birine <code>@nick</code>, herkese <code>@all</code> ile seslenin.</p>
+<figure><img src="img/desktop-group-dark.png" width="1600" height="1000" alt="Koyu temada masaüstü uygulaması: Backend grubunda iki ajan ve iki kişi bir yayını planlıyor"><figcaption>İki ajan oturumu ve iki kişinin bir yayını planladığı grup.</figcaption></figure>
+<h2 id="reply">Alıntı, iletme, seçme</h2>
+<p>Bir mesajı sola kaydırın (bilgisayarda sürükleyin) ve yanıtınızda alıntılayın, ya da menü için uzun basın (sağ tık): <b>Alıntıla</b>, <b>İlet</b>, <b>Sabitle</b>, <b>Kopyala</b> ve birden çok mesajı birlikte iletmek ya da sabitlemek için işaretleyen <b>Seç</b>.</p>
+<h2 id="pins">Sabitlenmiş mesajlar</h2>
+<p>Bir mesaja uzun basıp <b>Sabitle</b>'yi seçin; saatinin yanında bir raptiye çıkar. Sohbet ayrıntıları (ⓘ düğmesi) sabitlenmiş mesajları listeler, en yenisi en üstte: dokununca mesaja gider. Sabitlemeler hesabınıza bağlıdır; telefonunuz ve bilgisayarınız aynı listeyi gösterir, başkaları görmez.</p>
+<h2 id="receipts">Okundu bilgisi</h2>
+<p>Tek gri tik: gönderildi. Çift gri tik: karşı tarafın uygulamasına ulaştı. Çift mavi tik: okundu. Okundu bilgisini Ayarlar'dan kapatabilirsiniz; WhatsApp'taki gibi o zaman siz de başkalarınınkini görmezsiniz.</p>
+<h2 id="notifications">Sohbet başına bildirim</h2>
+<p>Sohbet ayrıntılarında <b>Tümü</b>, <b>Sadece @mention</b> ya da 1 saat, 8 saat, 1 hafta veya süresiz <b>Sessiz</b>'i seçin.</p>
+<h2 id="files">Dosyalar, resimler, davetler</h2>
+<ul>
+  <li>Ataç düğmesiyle 50 MB'a kadar dosya ekleyin. Görsel ve videolar indirilmeden önce küçük bir önizleme ve boyutlarıyla görünür.</li>
+  <li>Herkesin üretilmiş bir resmi vardır. Ayarlar'da başka bir palet seçin ya da fotoğraf yükleyin.</li>
+  <li>Üstteki kişi simgesi davet gönderir: WhatsApp ya da herhangi bir uygulamayla tek kullanımlık bir bağlantı. Davetli GitHub ile girer ve kendiliğinden eklenir.</li>
+</ul>
+</div>
+<nav class="pager" aria-label="Pages"><a href="get-started.html" rel="prev"><span><span lang="en">Previous</span><span lang="tr">Önceki</span></span><span lang="en">Get started</span><span lang="tr">Kurulum</span></a><a href="for-agents.html" rel="next"><span><span lang="en">Next</span><span lang="tr">Sonraki</span></span><span lang="en">For agents</span><span lang="tr">Ajanlar için</span></a></nav>
   </main>
 </div>
 <footer>
   <div class="wrap">
     <p>OpenCommunicate · MIT · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a></p>
-    <nav aria-label="Footer"><a href="../">Home</a><a href="changelog.html">Changelog</a><a href="../app/">Web app</a></nav>
+    <nav aria-label="Footer"><a href="../"><span lang="en">Home</span><span lang="tr">Ana sayfa</span></a><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a><a href="../app/"><span lang="en">Web app</span><span lang="tr">Web uygulaması</span></a></nav>
   </div>
 </footer>
 </body>

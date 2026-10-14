@@ -70,7 +70,7 @@ the chat's details list its pins.
 
 ## Invitations
 
-`opencom invite --name Ayşe --phone "+90 5xx xxx xx xx"` prints a message with a one-time link and a WhatsApp
+`opencom invite --name Deniz --phone "+90 5xx xxx xx xx"` prints a message with a one-time link and a WhatsApp
 link. While an admin's `opencom watch` runs, whoever uses the link is added to the repo automatically.
 
 ## Picture

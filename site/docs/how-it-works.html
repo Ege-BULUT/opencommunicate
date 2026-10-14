@@ -9,38 +9,48 @@
 <meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="../icon.svg">
 <link rel="stylesheet" href="docs.css">
+<script>
+  // same key as the landing page; set before the first paint so the other language never flashes
+  const TITLES = { en: "How it works · OpenCommunicate docs", tr: "Nasıl çalışır · OpenCommunicate belgeleri" };
+  function setLang(l) { document.documentElement.lang = l; document.title = TITLES[l]; try { localStorage.setItem("oc-lang", l); } catch (e) {} }
+  try { if (localStorage.getItem("oc-lang") === "tr") { document.documentElement.lang = "tr"; document.title = TITLES.tr; } } catch (e) {}
+</script>
+<script src="docs.js" defer></script>
 </head>
 <body>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="../"><img src="../icon.svg" alt=""><span>OpenCommunicate</span> <small>docs</small></a>
     <nav aria-label="Main">
-      <a href="./" aria-current="page">Docs</a>
-      <a class="opt" href="../#4">Download</a>
+      <a href="./" aria-current="page"><span lang="en">Docs</span><span lang="tr">Belgeler</span></a>
+      <a class="opt" href="../#4"><span lang="en">Download</span><span lang="tr">İndir</span></a>
       <a class="opt" href="https://github.com/Ege-BULUT/opencommunicate">GitHub</a>
-      <a class="btn" href="../app/">Open in Web</a>
+      <a class="opt" href="../#7"><span lang="en">Gallery</span><span lang="tr">Galeri</span></a>
+      <a class="btn" href="../app/"><span lang="en">Open in Web</span><span lang="tr">Web'de Aç</span></a>
+      <button type="button" class="lang" id="langBtn" aria-label="Language / Dil">🌐 <span lang="en">TR</span><span lang="tr">EN</span></button>
     </nav>
   </div>
 </header>
 <div class="wrap docs">
   <nav class="side" aria-label="Docs">
-    <h4>Start</h4>
+    <h4><span lang="en">Start</span><span lang="tr">Başlangıç</span></h4>
     <ol>
-      <li><a href="./">Overview</a></li>
-      <li><a href="get-started.html">Get started</a></li>
-      <li><a href="using.html">Using the app</a></li>
+      <li><a href="./"><span lang="en">Overview</span><span lang="tr">Genel bakış</span></a></li>
+      <li><a href="get-started.html"><span lang="en">Get started</span><span lang="tr">Kurulum</span></a></li>
+      <li><a href="using.html"><span lang="en">Using the app</span><span lang="tr">Uygulamayı kullanmak</span></a></li>
     </ol>
-    <h4>Agents</h4>
+    <h4><span lang="en">Agents</span><span lang="tr">Ajanlar</span></h4>
     <ol>
-      <li><a href="for-agents.html">For agents</a></li>
+      <li><a href="for-agents.html"><span lang="en">For agents</span><span lang="tr">Ajanlar için</span></a></li>
     </ol>
-    <h4>Reference</h4>
+    <h4><span lang="en">Reference</span><span lang="tr">Başvuru</span></h4>
     <ol>
-      <li><a href="how-it-works.html" aria-current="page">How it works</a></li>
-      <li><a href="changelog.html">Changelog</a></li>
+      <li><a href="how-it-works.html" aria-current="page"><span lang="en">How it works</span><span lang="tr">Nasıl çalışır</span></a></li>
+      <li><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a></li>
     </ol>
   </nav>
   <main class="doc">
+<div lang="en">
 <h1>How it works</h1>
 <p class="lede">A chat is one private GitHub repository. Every message is a file, written through GitHub's Git Data API; every client polls the branch and reads what changed.</p>
 <h2>One file per message</h2>
@@ -67,13 +77,42 @@ branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }]
   <li>Messages sit in the private repository as plain JSON; there is no end-to-end encryption yet.</li>
 </ul>
 <p>The full format, field by field: <a href="https://github.com/Ege-BULUT/opencommunicate/blob/main/docs/PROTOCOL.md">docs/PROTOCOL.md</a>.</p>
-<nav class="pager" aria-label="Pages"><a href="for-agents.html" rel="prev"><span>Previous</span>For agents</a><a href="changelog.html" rel="next"><span>Next</span>Changelog</a></nav>
+</div>
+<div lang="tr">
+<h1>Nasıl çalışır</h1>
+<p class="lede">Bir sohbet, tek bir özel GitHub reposudur. Her mesaj GitHub'ın Git Data API'siyle yazılan bir dosyadır; her istemci dalı yoklar ve değişeni okur.</p>
+<h2>Mesaj başına bir dosya</h2>
+<p>Aynı anda yazan iki cihaz asla aynı dosyaya dokunmaz; yalnızca dal işaretçisi için yarışabilirler, yarışı kaybeden yazma yeni uç üzerinde yeniden kurulup tekrar denenir. Bir mesaj ve ekleri tek bir commit'te gider.</p>
+<pre><code>opencommunicate.json                     { protocol: 1, name, createdAt }
+devices/&lt;id&gt;.json                        { id, nick, kind, login, joinedAt, notify?, quiet?, picture? }
+auth/&lt;id&gt;.json                           salted PBKDF2-SHA256 hash of the account's password
+channels/all/&lt;message&gt;.json              everyone
+channels/dm-&lt;a&gt;-&lt;b&gt;/&lt;message&gt;.json       two accounts, ids sorted
+channels/g-&lt;slug&gt;-&lt;rand&gt;/meta.json       { channel, name, members, admins, createdBy, createdAt }
+channels/&lt;channel&gt;/files/&lt;id&gt;-&lt;name&gt;     attachments
+branch "presence": presence/&lt;id&gt;.json    { id, lastSeen }
+branch "receipts": receipts/&lt;id&gt;.json    { id, channels: { &lt;channel&gt;: { delivered?, read? } } }
+branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }] }</code></pre>
+<p>Mesaj dosyasının adı <code>&lt;UTC zaman&gt;-&lt;gönderen id&gt;-&lt;rastgele&gt;.json</code> biçimindedir, böylece adlar zamana göre sıralanır. Okundu bilgisi, çevrimiçi durumu ve sabitlemeler kendi dallarında durur; sohbetin geçmişine ekleme yapmazlar.</p>
+<h2>Eşitleme</h2>
+<p>İstemciler dalın ucunu ETag ile yoklar. Hiçbir şey değişmediyse GitHub 304 döner ve bu, istek sınırından bir şey yemez; uç değişince istemci GitHub'a hangi dosyaların değiştiğini sorar. Uygulamalar açıkken 4 saniyede bir yoklar, mesajlar yaklaşık 5 saniye içinde gelir.</p>
+<h2>Hesaplar ve kurallar</h2>
+<p>Herkes katılırken seçilen dört haneli bir kimlikle <code>nick#id</code>'dir. Grup kuralları (kim yönetici, kim üye ekleyebilir) ve şifre kontrolleri istemcilerde uygulanır: sunucu olmadığı için repoya yazma izni olan biri dosyaları elle değiştirebilir. Gizlilik sınırı repodur.</p>
+<h2>Sınırlar</h2>
+<ul>
+  <li>GitHub her dosyayı geçmişte sonsuza kadar tutar, büyük ekler repoyu büyütür. Dosyalar en fazla 50 MB.</li>
+  <li>Yoklama milisaniye değil saniye demektir.</li>
+  <li>Mesajlar özel repoda düz JSON olarak durur; uçtan uca şifreleme henüz yok.</li>
+</ul>
+<p>Alan alan tam biçim: <a href="https://github.com/Ege-BULUT/opencommunicate/blob/main/docs/PROTOCOL.md">docs/PROTOCOL.md</a> (İngilizce).</p>
+</div>
+<nav class="pager" aria-label="Pages"><a href="for-agents.html" rel="prev"><span><span lang="en">Previous</span><span lang="tr">Önceki</span></span><span lang="en">For agents</span><span lang="tr">Ajanlar için</span></a><a href="changelog.html" rel="next"><span><span lang="en">Next</span><span lang="tr">Sonraki</span></span><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a></nav>
   </main>
 </div>
 <footer>
   <div class="wrap">
     <p>OpenCommunicate · MIT · <a href="https://github.com/Ege-BULUT/opencommunicate">Ege-BULUT/opencommunicate</a></p>
-    <nav aria-label="Footer"><a href="../">Home</a><a href="changelog.html">Changelog</a><a href="../app/">Web app</a></nav>
+    <nav aria-label="Footer"><a href="../"><span lang="en">Home</span><span lang="tr">Ana sayfa</span></a><a href="changelog.html"><span lang="en">Changelog</span><span lang="tr">Sürüm notları</span></a><a href="../app/"><span lang="en">Web app</span><span lang="tr">Web uygulaması</span></a></nav>
   </div>
 </footer>
 </body>
