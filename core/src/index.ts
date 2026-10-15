@@ -905,15 +905,24 @@ export class Watcher {
 
   get channels() { return new Set(this.bus.channelsFor(this.me.id, this.devices, this.groups)); }
 
-  async start(): Promise<void> {
-    this.head = await this.bus.head();
+  /** The head the first tick moves to when start() was given an older one. */
+  private resume: string | null = null;
+
+  /** `from`: a head an earlier watcher stopped at, so what arrived since is delivered on the first tick. */
+  async start(from?: string | null): Promise<void> {
+    const now = await this.bus.head();
+    this.head = from || now;
     await this.refresh();
     // everything already in this device's channels counts as seen; only new messages are delivered
     if (this.head) {
       const mine = this.channels;
-      for (const e of await this.bus.tree(this.head)) if (isMessagePath(e.path) && mine.has(e.path.split("/")[1])) this.seen.add(e.path);
+      let tree;
+      try { tree = await this.bus.tree(this.head); }
+      catch { this.head = now; tree = now ? await this.bus.tree(now) : []; } // that head is gone: start from now
+      for (const e of tree) if (isMessagePath(e.path) && mine.has(e.path.split("/")[1])) this.seen.add(e.path);
     }
     await this.bus.headIfChanged(); // prime the ETag
+    this.resume = this.head !== now ? now : null;
   }
 
   /** Everyone's receipts; `tickReceipts()` brings them up to date (free while the receipts branch has not moved). */
@@ -960,7 +969,8 @@ export class Watcher {
   async tick(): Promise<Message[]> {
     this.ticks++;
     const out: Message[] = [];
-    const next = await this.bus.headIfChanged();
+    const next = (await this.bus.headIfChanged()) ?? this.resume;
+    this.resume = null;
     if (next && next !== this.head) {
       if (!this.head) { this.head = next; await this.refresh(); }
       else {

@@ -42,9 +42,12 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    react to a message: up 👍, down 👎, smile 🙂 or heart ❤️ (the emoji
                                    works too); one per message, a new one replaces it (--off: take it back).
                                    history shows them after each message: [👍 ege#1234]
-  opencom watch [--json] [--interval 5]
+  opencom watch [--json] [--interval 5] [--to-me] [--once]
                                    print new messages as they arrive (JSON lines with --json;
-                                   "toMe" is true for DMs and for @nick, nick#1234 or @all)
+                                   "toMe" is true for DMs and for @nick, nick#1234 or @all);
+                                   --to-me prints only those; --once exits after the first new
+                                   messages, and the next --once starts where it stopped, so an
+                                   agent can run it in the background and be woken when it exits
   opencom groups                   your groups, their members and admins (★)
   opencom group create <name> <member…>
                                    create a group; you are its admin (members: nick#1234 or 1234)
@@ -77,6 +80,8 @@ const readConfig = (): Config => {
   try { return JSON.parse(fs.readFileSync(CONFIG, "utf8")); }
   catch { throw new Error("Not set up yet. Run: opencom init <owner/repo> --nick <name>"); }
 };
+const readText = (p: string) => { try { return fs.readFileSync(p, "utf8").trim(); } catch { return ""; } };
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
 const writeConfig = (c: Config) => { fs.mkdirSync(CONFIG_DIR, { recursive: true }); fs.writeFileSync(CONFIG, JSON.stringify(c, null, 2), { mode: 0o600 }); };
 
 function flags(args: string[]) {
@@ -351,8 +356,15 @@ async function main(argv: string[]) {
       return;
     }
     case "watch": {
+      // Two sessions on one identity both get every message and both answer it: say so at once.
+      const pidFile = path.join(CONFIG_DIR, "watch.pid");
+      const other = Number(readText(pidFile)) || 0;
+      if (other && other !== process.pid && alive(other)) console.error(`watch: another watch (pid ${other}) is listening as ${handle(me)}; both get every message and both will answer. Give each session its own identity: OPENCOM_HOME=~/.opencommunicate-<name> opencom init ${cfg.repo} --nick <name> --kind agent`);
+      else fs.writeFileSync(pidFile, String(process.pid));
+      // where the last watch stopped, so --once picks up what arrived while nothing was listening
+      const cursor = path.join(CONFIG_DIR, "watch-head");
       const w = new Watcher(bus, me);
-      await w.start();
+      await w.start(f.once ? readText(cursor) : null);
       const recent = new Map<string, Message>(); // a small window so a reply can show what it quotes
       const every = Math.max(2, Number(f.interval?.[0] ?? 5)) * 1000;
       let beat = 0;
@@ -369,20 +381,22 @@ async function main(argv: string[]) {
           }
           const fresh = await w.tick();
           for (const m of fresh) recent.set(m.id, m);
-          for (const m of fresh) {
-            if (m.from === me.id && !f.all) continue;
+          const shown = fresh.filter((m) => (m.from !== me.id || f.all) && (!f["to-me"] || addressedTo(m, me)));
+          for (const m of shown) {
             const quoted = m.replyTo ? recent.get(m.replyTo) : undefined;
             console.log(f.json
               ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me), replyPreview: quoted ? { from: quoted.from, fromNick: quoted.fromNick, text: snippet(quoted) } : undefined })
               : line(m, me, w.devices, w.groups, recent));
           }
+          if (w.head) fs.writeFileSync(cursor, w.head);
           // what watch printed has reached this session: delivered, and read unless read receipts are off
-          const others = fresh.filter((m) => m.from !== me.id);
+          const others = shown.filter((m) => m.from !== me.id);
           if (others.length) {
             const newest = newestByChannel(others);
             const read = cfg.readReceipts !== false;
-            bus.markReceipts(me, Object.fromEntries(Object.entries(newest).map(([ch, id]) => [ch, read ? { read: id } : { delivered: id }])))
+            const sent = bus.markReceipts(me, Object.fromEntries(Object.entries(newest).map(([ch, id]) => [ch, read ? { read: id } : { delivered: id }])))
               .catch((e) => console.error(`watch: receipts: ${(e as Error).message}`));
+            if (f.once) { await sent; return; }
           }
         } catch (e) {
           console.error(`watch: ${(e as Error).message}`);
