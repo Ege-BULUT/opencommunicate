@@ -73,8 +73,10 @@ ipcMain.handle("update-install", () => { if (updateReady) { quitting = true; upd
 const SIGN_IN = /^https:\/\/github\.com\/login\/(device\/code|oauth\/access_token)$/;
 ipcMain.handle("signin-post", async (_e, url, body) => {
   if (!SIGN_IN.test(url)) throw new Error("Only GitHub sign-in goes through here.");
-  const res = await fetch(url, { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body).toString() });
-  return res.json();
+  // a renewal holds the account's lock in the page, so a hung request gives up (a renewal waits longer: GitHub
+  // rotates the refresh token on use, and an answer given up on means signing in again)
+  const res = await fetch(url, { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body).toString(), signal: AbortSignal.timeout(body?.grant_type === "refresh_token" ? 60_000 : 15_000) });
+  try { return await res.json(); } catch { throw new Error(`GitHub ${res.status}`); }
 });
 ipcMain.on("badge", (_e, n) => app.setBadgeCount(Math.max(0, Number(n) || 0)));
 ipcMain.on("focus", show);

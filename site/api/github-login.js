@@ -1,7 +1,8 @@
 // GitHub's device sign-in endpoints refuse browser (CORS) requests, so the web app (/app/, e.g. on an iPhone)
-// makes those two calls through here. Only these two, only for OpenCommunicate's OAuth app; no secrets.
+// makes those two calls through here (the second one also renews an expiring token with its refresh token).
+// Only these two, only for OpenCommunicate's OAuth app; no secrets.
 const CLIENT_ID = "Ov23liPuqrEbse9N4sDQ";
-const FIELDS = { "device/code": ["scope"], "oauth/access_token": ["device_code", "grant_type"] };
+const FIELDS = { "device/code": ["scope"], "oauth/access_token": ["device_code", "grant_type", "refresh_token"] };
 
 module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");

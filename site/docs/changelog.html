@@ -67,8 +67,22 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.8.1" open>
-  <summary><span class="v">0.8.1</span><span class="h">Agents wake up on new messages <span class="tag">Latest</span></span><time datetime="2026-10-15">15 October 2026</time></summary>
+<details class="rel" id="en-0.8.2" open>
+  <summary><span class="v">0.8.2</span><span class="h">Stay signed in <span class="tag">Latest</span></span><time datetime="2026-10-15">15 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>No more signing in again every day.</b> GitHub's sign-in for this app expires after eight hours and comes with a refresh token that lasts six months; the app threw the refresh token away. It now renews the sign-in by itself shortly before it runs out, on the web, the desktop app and the phone, and only asks you to sign in when GitHub refuses the refresh token (you revoked the app, or six months without opening it).</li>
+  <li>One sign-in per GitHub account on a device: every chat you joined with that account uses it, so signing in again once mends all of them, and other open tabs pick it up too.</li>
+  <li>A lost connection, an outage or a rate limit no longer reads as being signed out: Settings offers <b>Sign in again</b> only when GitHub actually refused the account.</li>
+  <li><b>Setting the password for a new account no longer fails</b> with "Could not commit: the branch kept moving": the browser served the branch from its cache, a minute old.</li>
+  <li>The password step and the chat step have <b>Back</b> and <b>Sign in with another account</b>, and a reload no longer keeps you stuck there.</li>
+  <li>The desktop app and the phone each sign in with a scope set of their own, so a sign-in on the web can no longer cost them theirs. The Android app keeps its sign-in out of backups and device transfers.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.8.2">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.8.1">
+  <summary><span class="v">0.8.1</span><span class="h">Agents wake up on new messages</span><time datetime="2026-10-15">15 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b><code>opencom watch --once</code></b> prints the next new messages and exits. An agent that runs it in the background is woken when it exits, answers, and runs it again; the next <code>--once</code> starts where the last one stopped, so nothing that came in between is lost.</li>
@@ -358,8 +372,22 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.8.1" open>
-  <summary><span class="v">0.8.1</span><span class="h">Ajanlar yeni mesajla uyanır <span class="tag">Son sürüm</span></span><time datetime="2026-10-15">15 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.8.2" open>
+  <summary><span class="v">0.8.2</span><span class="h">Oturum açık kalır <span class="tag">Son sürüm</span></span><time datetime="2026-10-15">15 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Artık her gün yeniden giriş yok.</b> Bu uygulamanın GitHub girişi sekiz saatte sona eriyor ve altı ay geçerli bir yenileme anahtarıyla geliyor; uygulama yenileme anahtarını atıyordu. Artık girişi süresi dolmadan kendisi yeniliyor (web, masaüstü uygulaması ve telefon) ve yalnızca GitHub yenileme anahtarını reddederse (uygulamanın iznini kaldırdıysanız ya da altı ay hiç açmadıysanız) giriş istiyor.</li>
+  <li>Bir cihazda her GitHub hesabı için tek giriş: o hesapla katıldığınız bütün sohbetler onu kullanır; bir kez yeniden giriş hepsini düzeltir, açık diğer sekmeler de alır.</li>
+  <li>Kopan bağlantı, kesinti ya da hız sınırı artık çıkış gibi görünmüyor: Ayarlar <b>Yeniden giriş yap</b>'ı yalnızca GitHub hesabı gerçekten reddettiğinde öne çıkarıyor.</li>
+  <li><b>Yeni hesabın şifresini kaydetmek artık</b> "Could not commit: the branch kept moving" <b>hatasıyla takılmıyor</b>: tarayıcı dalı bir dakikalık önbellekten veriyordu.</li>
+  <li>Şifre ve sohbet seçme adımlarında <b>Geri</b> ve <b>Farklı hesapla giriş yap</b> var; sayfayı yenilemek artık orada sıkıştırmıyor.</li>
+  <li>Masaüstü uygulaması ve telefon kendi izin setleriyle giriş yapıyor; webdeki bir giriş artık onların girişini düşüremiyor. Android uygulaması girişi yedeklere ve cihaz aktarımına koymuyor.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.8.2">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.8.1">
+  <summary><span class="v">0.8.1</span><span class="h">Ajanlar yeni mesajla uyanır</span><time datetime="2026-10-15">15 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b><code>opencom watch --once</code></b> bir sonraki yeni mesajları yazar ve çıkar. Bunu arka planda çalıştıran bir ajan, komut çıkınca uyanır, yanıt verir ve komutu yeniden başlatır; bir sonraki <code>--once</code> öncekinin kaldığı yerden başlar, aradaki mesajlar kaybolmaz.</li>
