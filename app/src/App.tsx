@@ -10,6 +10,7 @@ import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
 import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
+const PULL = 56; // how far (after damping) the chat list is pulled down before letting go refreshes it
 
 /* Back: an open dialog, picture or (on a phone) chat adds a browser history entry, so the phone's back
    gesture, the browser's Back and a mouse's back button close it instead of doing nothing or leaving. */
@@ -686,11 +687,39 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     });
   }, []);
 
+  // pull to refresh: the poll loop checks at once, and also scans the repository for anything GitHub's
+  // compare view left out
+  const [refreshing, setRefreshing] = useState(false);
+  const [pull, setPull] = useState(0);
+  const refreshRef = useRef(false);
+  const wakeRef = useRef(() => {});
+  const refresh = () => { refreshRef.current = true; setRefreshing(true); wakeRef.current(); setTimeout(() => setRefreshing(false), 15_000); };
+  const refreshFn = useRef(refresh); refreshFn.current = refresh;
+  const [navEl, setNavEl] = useState<HTMLElement | null>(null); // the chat list, once it is on screen
+  useEffect(() => {
+    const el = navEl;
+    if (!el) return;
+    let y0: number | null = null, d = 0;
+    const start = (e: TouchEvent) => { y0 = el.scrollTop <= 0 ? e.touches[0].clientY : null; d = 0; };
+    const move = (e: TouchEvent) => {
+      if (y0 === null) return;
+      d = Math.max(0, e.touches[0].clientY - y0) * 0.5;
+      if (d > 0 && el.scrollTop <= 0) { setPull(Math.min(d, 80)); if (e.cancelable) e.preventDefault(); }
+    };
+    const end = () => { if (y0 !== null && d >= PULL) refreshFn.current(); y0 = null; d = 0; setPull(0); };
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end);
+    el.addEventListener("touchcancel", end);
+    return () => { el.removeEventListener("touchstart", start); el.removeEventListener("touchmove", move); el.removeEventListener("touchend", end); el.removeEventListener("touchcancel", end); };
+  }, [navEl]);
+
   // start: directory + recent history of every channel, then poll
   useEffect(() => {
     let stop = false;
-    // coming back to the app checks at once instead of waiting out the interval
+    // coming back to the app (or a pull to refresh) checks at once instead of waiting out the interval
     let wake = () => {};
+    wakeRef.current = () => wake();
     const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); wake = () => { clearTimeout(t); r(); }; });
     const onVisible = () => { if (!document.hidden) wake(); };
     document.addEventListener("visibilitychange", onVisible);
@@ -732,8 +761,10 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       while (!stop) {
         await sleep(POLL_MS);
         if (stop) break;
+        const full = refreshRef.current;
+        refreshRef.current = false;
         try {
-          const fresh = await watcher.tick();
+          const fresh = await watcher.tick(full);
           seenHead();
           setDevices([...watcher.devices]); setGroups([...watcher.groups]);
           add(fresh);
@@ -755,8 +786,9 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           const problem = accountProblem(e, session.repo);
           if (problem) setAccount(problem);
           // phones drop a request now and then (network switch, app waking up); only a run of failures is news
-          else if (++failures >= 3) setStatus(S.connProblem((e as Error).message));
+          else if (++failures >= 3 || full) setStatus(S.connProblem((e as Error).message));
         }
+        if (full) setRefreshing(false);
       }
     })();
     return () => { stop = true; wake(); document.removeEventListener("visibilitychange", onVisible); };
@@ -977,7 +1009,12 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           </span>
         </button>
         <div className="filter"><input type="search" value={filter} placeholder={S.searchAll} aria-label={S.search} onChange={(e) => setFilter(e.target.value)} /></div>
-        <nav>
+        <nav ref={setNavEl}>
+          {(pull > 0 || refreshing) && (
+            <div className="pull" style={{ height: refreshing ? 36 : pull }} aria-live="polite">
+              {refreshing ? <><span className="spinner" aria-hidden="true" /> {S.refreshing}</> : pull >= PULL ? S.releaseToRefresh : S.pullToRefresh}
+            </div>
+          )}
           {shown(`#all ${S.everyone}`) && <ChannelRow avatar={<Avatar name="all" seed="all" shape="group" />} label="#all" preview={preview("all") || S.everyone} time={last("all")?.ts} quiet={quiet("all")} count={unread("all")} activeCh={active === "all"} onClick={() => open("all")} />}
           <div className="section">{S.groups} <button className="mini" onClick={() => setDialog("group")}>{S.newGroupButton}</button></div>
           {myGroups.length === 0 && <p className="muted small">{S.noGroups}</p>}

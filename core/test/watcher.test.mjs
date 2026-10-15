@@ -71,3 +71,24 @@ test("a head that is gone starts from now, without replaying history", async () 
   assert.equal(w.head, "c1");
   assert.deepEqual(await w.tick(), []);
 });
+
+// A notification arrives the moment the message is pushed, which is when compare can still miss it: the tick that
+// sees the branch move reads the commit's tree instead of leaving it to the once-a-minute scan.
+test("a message compare missed arrives on the tick that saw the branch move", async () => {
+  const bus = fakeBus({ [path(old)]: old });
+  const w = new Watcher(bus, me);
+  await w.start();
+  bus.push(lost);
+  assert.deepEqual((await w.tick()).map((m) => m.text), ["lost by compare"]);
+  assert.deepEqual(await w.tick(), []);
+});
+
+test("a full tick (pull to refresh) scans the tree even when the branch did not move", async () => {
+  const files = { [path(old)]: old };
+  const bus = fakeBus(files);
+  const w = new Watcher(bus, me);
+  await w.start();
+  files[path(lost)] = lost; // in the tree, but the head reads the same
+  assert.deepEqual(await w.tick(), []);
+  assert.deepEqual((await w.tick(true)).map((m) => m.text), ["lost by compare"]);
+});
