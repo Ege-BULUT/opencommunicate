@@ -985,9 +985,12 @@ export class Watcher {
     [this.devices, this.groups] = await Promise.all([this.bus.devices(this.head), this.bus.groups(this.head)]);
   }
 
-  async tick(): Promise<Message[]> {
+  /** New messages since the last tick; `full` also scans the tree for anything GitHub's compare view left out
+   *  (a pull to refresh). */
+  async tick(full = false): Promise<Message[]> {
     this.ticks++;
     const out: Message[] = [];
+    let empty = false; // the branch moved but compare brought nothing for this device
     const next = (await this.bus.headIfChanged()) ?? this.resume;
     this.resume = null;
     if (next && next !== this.head) {
@@ -996,6 +999,7 @@ export class Watcher {
         const res = await this.bus.changes(this.head, next, this.channels, this.seen);
         this.head = next;
         out.push(...res.messages);
+        empty = !res.messages.length && !res.metaChanged && !res.devicesChanged;
         if (res.metaChanged || res.devicesChanged) {
           const before = this.channels;
           await this.refresh();
@@ -1006,8 +1010,11 @@ export class Watcher {
       }
     }
     // Safety net: right after a push GitHub's compare view can come back without the new files, and a
-    // message skipped that way would never be read again. Once a minute, scan the tree for anything unseen.
-    if (this.head && this.ticks % 12 === 0) out.push(...(await this.reconcile()));
+    // message skipped that way would never be read again. The commit's own tree always has them, so it is
+    // scanned when the branch moved and compare brought nothing (just when a notification for that message
+    // arrives), on a pull to refresh, and once a minute.
+    // ponytail: one recursive tree read per such move; read only the changed channels' folders if repos grow large
+    if (this.head && (full || empty || this.ticks % 12 === 0)) out.push(...(await this.reconcile()));
     return out.sort((a, b) => a.id.localeCompare(b.id));
   }
 
