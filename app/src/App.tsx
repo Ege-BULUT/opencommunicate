@@ -7,7 +7,7 @@ import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
-import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, loadChats, saveChats, withChat, withoutChat, type Chats, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 
@@ -79,6 +79,18 @@ export default function App() {
   const [arrival, setArrival] = useState<Arrival>(() => arrivalFrom(location.href));
   const [adding, setAdding] = useState(false); // joining another chat, with the GitHub account already signed in
   useEffect(() => { loadChats().then(setChats).catch(() => setChats(null)); }, []);
+  // another tab changed the chats or the tokens: take them, so this tab never writes an old copy back over them
+  // (and a sign-out there signs this tab out too); this tab keeps its own open chat
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "oc.auth" || e.key === null) takeAuth(e.newValue);
+      if (e.key !== "oc.chats" && e.key !== null) return;
+      const c = e.newValue ? readStored() : null;
+      setChats((cur) => (c && cur?.active && c.chats.some((x) => x.repo === cur.active) ? { ...c, active: cur.active } : c));
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
   useEffect(() => {
     if (!native()) return;
     NativeApp.getLaunchUrl().then((u) => { if (u?.url) setArrival(arrivalFrom(u.url)); });
@@ -94,7 +106,8 @@ export default function App() {
   const forget = () => { setArrival(noArrival); if (location.hash.includes("invite=")) history.replaceState(null, "", location.pathname + location.search); };
   const joined = (s: Session) => { forget(); setAdding(false); commit(withChat(chats ?? null, s, true)); };
   const others = chats?.chats.length ?? 0;
-  const known = session ? { token: session.token, login: session.device.login ?? "" } : undefined;
+  // the account this device signed in with; the repository's device record can name another
+  const known = session ? { session, login: (session.account && !session.account.startsWith("repo:") ? session.account : session.device.login) ?? "" } : undefined;
   if (!session || adding) return <Onboarding arrival={arrival} known={known} onCancel={session ? () => { forget(); setAdding(false); } : undefined} onDone={joined} />;
   // an invitation to a chat this device is not in yet: join it as well (the other chats stay)
   if (arrival.invite) {
@@ -113,9 +126,10 @@ export default function App() {
     );
   }
   // a new token (signed in again, or another account) or another chat starts the chat view afresh
-  return <Chat key={`${session.repo}/${session.token}`} session={session} onSession={update} chats={chats!.chats} activity={activity}
+  // (a renewed token keeps the view: only signing in again changes session.token)
+  return <Chat key={`${session.repo}/${credKey(session)}/${session.token}`} session={session} onSession={update} chats={chats!.chats} activity={activity}
     onOpen={open} onAdd={session.source === "app" && canSignIn() ? () => setAdding(true) : undefined}
-    onSignOut={() => { const next = withoutChat(chats!, session.repo); if (next.chats.length) commit(next); else { clearChats(); setChats(null); } }} />;
+    onSignOut={() => { const next = withoutChat(chats!, session.repo); if (next.chats.length) { commit(next); pruneCreds(next); } else { clearChats(); setChats(null); } }} />;
 }
 
 /**
@@ -127,7 +141,7 @@ function useActivity(chats: Chats | null | undefined): Record<string, boolean> {
   const buses = useRef(new Map<string, Bus>());
   const heads = useRef(new Map<string, string>()); // the last head each bus saw (headIfChanged answers null while it stays)
   const list = chats?.chats ?? [];
-  const key = list.map((c) => `${c.repo}/${c.token}`).join(" ") + " " + (chats?.active ?? "");
+  const key = list.map((c) => `${c.repo}/${credKey(c)}`).join(" ") + " " + (chats?.active ?? "");
   useEffect(() => {
     if (list.length < 2) { setMoved({}); return; }
     let stop = false;
@@ -135,8 +149,8 @@ function useActivity(chats: Chats | null | undefined): Record<string, boolean> {
       const next: Record<string, boolean> = {};
       for (const c of list) {
         if (c.repo === chats?.active) continue;
-        const id = `${c.repo}/${c.token}`;
-        if (!buses.current.has(id)) buses.current.set(id, new Bus({ repo: c.repo, token: c.token }));
+        const id = `${c.repo}/${credKey(c)}`;
+        if (!buses.current.has(id)) buses.current.set(id, new Bus({ repo: c.repo, token: sourceFor(c) }));
         try {
           const head = (await buses.current.get(id)!.headIfChanged()) ?? heads.current.get(id);
           if (head) heads.current.set(id, head);
@@ -258,7 +272,7 @@ function copyText(text: string | Promise<string>): Promise<boolean> {
 }
 
 // GitHub device flow: copies the code, opens github.com/login/device, hands the token on
-function GitHubSignIn({ label, primary = true, onToken }: { label: string; primary?: boolean; onToken: (token: string) => Promise<void> }) {
+function GitHubSignIn({ label, primary = true, onToken }: { label: string; primary?: boolean; onToken: (cred: Cred) => Promise<void> }) {
   const [code, setCode] = useState<DeviceCode | null>(null);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -349,9 +363,10 @@ function repoGroups(repos: string[], picked: string): [string, string[]][] {
 // ---------------- sign-in + join (phone) ----------------
 /** Sign in with GitHub and join a chat; `known` is the GitHub account of a chat this device is already in, so
  *  adding another chat skips the sign-in, and `onCancel` goes back to the chats. */
-function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; known?: { token: string; login: string }; onCancel?: () => void; onDone: (s: Session) => void }) {
+function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; known?: { session: Session; login: string }; onCancel?: () => void; onDone: (s: Session) => void }) {
   const invite = arrival.invite;
-  const [resumed] = useState(() => readSignIn() ?? (known ? { ...known } : null)); // approved on GitHub before the tab closed, or already signed in
+  const [pending] = useState(readSignIn); // approved on GitHub before the tab closed
+  const [resumed] = useState(() => pending ?? (known ? { token: currentToken(known.session), login: known.login } : null)); // or already signed in
   const [token, setToken] = useState(resumed?.token ?? "");
   const [login, setLogin] = useState(resumed?.login ?? "");
   const [repo, setRepo] = useState(invite?.r ?? arrival.repo ?? "");
@@ -370,28 +385,37 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
   const [note, setNote] = useState("");
   const [joined, setJoined] = useState<Session | null>(resumed?.joined ?? null);
 
-  // a kept token that GitHub no longer accepts (revoked, expired) means signing in again
+  // a kept token that GitHub no longer accepts (revoked, and not renewable) means signing in again; a passing
+  // problem (offline, an outage) keeps it. What uses the token waits for this check, so it gets the renewed one.
+  const [checked, setChecked] = useState(!resumed);
   useEffect(() => {
-    if (resumed) githubLogin(resumed.token).then((l) => {
+    if (resumed) (async () => {
+      // the account's stored token (renewed first if it ran out), for a sign-in in progress as for a known chat
+      const s: Session = pending ? { repo: "", token: pending.token, device: { login: pending.login } as Device, source: "app", account: pending.login } : known!.session;
+      let t = await tokenFor(s);
+      let l = await githubLogin(t);
+      // a 401: renewed as a chat's Bus would (refresh token, then other chats' old tokens) before asking to sign in
+      if (!l) { const n = await renewCred(credKey(s), t); if (n) { t = n; l = await githubLogin(n); } }
+      if (t !== resumed.token) setToken(t);
       if (!l) { clearSignIn(); setToken(""); setJoined(null); setStage("signin"); }
-      else { setLogin((x) => x || l); setNick((x) => x || l.toLowerCase().slice(0, 12)); } // a known account whose login was not stored
-    }).catch(() => {});
+      else { setLogin(l); setNick((x) => x || l.toLowerCase().slice(0, 12)); } // GitHub's word on the account
+    })().catch(() => {}).finally(() => setChecked(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // the repositories to choose from; a likely chat first, or a new one when none looks like a chat
   useEffect(() => {
-    if (stage !== "join" || invite || !token || repos) return;
+    if (!checked || stage !== "join" || invite || !token || repos) return;
     listRepos(token).then(
       (names) => { const list = chatReposFirst(names); setRepos(list); setRepo((r) => r || (list.find(looksLikeChat) ?? NEW_REPO)); },
       () => { setReposFailed(true); setRepo((r) => r || `${login}/opencommunicate-chat`); },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, token]);
+  }, [stage, token, checked]);
 
   // invited: ask to be let in, then wait for an admin's app to add us and accept GitHub's invitation
   useEffect(() => {
-    if (stage !== "admit" || !invite) return;
+    if (!checked || stage !== "admit" || !invite) return;
     let stop = false;
     (async () => {
       const since = new Date(Date.now() - 60_000).toISOString();
@@ -410,7 +434,7 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
     })();
     return () => { stop = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage]);
+  }, [stage, token, checked]);
 
   if (!canSignIn() && !token) {
     return (
@@ -423,8 +447,11 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
     );
   }
 
-  const signedIn = async (t: string) => {
+  const signedIn = async (cred: Cred) => {
+    const t = cred.token;
     const l = await githubLogin(t);
+    if (!l) throw new Error(S.signInFailed);
+    putCred(l, cred); // the account's token (and refresh token) for every chat it signs in to
     saveSignIn({ token: t, login: l });
     setToken(t); setLogin(l); setNick(l.toLowerCase().slice(0, 12));
     setStage(invite ? "admit" : "join");
@@ -443,6 +470,9 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
   const newRepo = `${login}/${chatRepoName(newName)}`;
   const nameTaken = creating && [...(repos ?? []), ...taken].some((r) => r.toLowerCase() === newRepo.toLowerCase());
   const awaitPassword = (s: Session) => { saveSignIn({ token, login, joined: s }); setJoined(s); setStage("password"); };
+  // a way out of every step: pick another chat or nickname, or start over with another GitHub account
+  const back = () => { saveSignIn({ token, login }); setJoined(null); setError(""); setStage("join"); };
+  const otherAccount = () => { if (login && credKey(known?.session ?? { repo: "", device: {} as Device }) !== login.toLowerCase()) dropCred(login); clearSignIn(); setToken(""); setLogin(""); setJoined(null); setRepos(null); setReposFailed(false); setError(""); setStage("signin"); };
 
   const doJoin = async () => {
     setError(""); setBusy(true);
@@ -483,6 +513,7 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
         <>
           <p>{S.signedInAs(login)}</p>
           {!error && <p className="muted"><span className="spinner" aria-hidden="true" /> {note || S.admitting}</p>}
+          <div className="actions start"><button className="ghost" onClick={otherAccount}>{S.signInOther}</button></div>
         </>
       )}
       {stage === "join" && (
@@ -523,12 +554,17 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
             <p className="muted">{S.handleNote}</p>
             <button className="primary" disabled={busy || !nick.trim() || (creating ? !newName.trim() || nameTaken : !repo.includes("/"))} onClick={doJoin}>{busy ? S.connecting : creating ? S.createAndJoin : S.join}</button>
           </>}
+          <div className="actions start"><button className="ghost" disabled={busy} onClick={otherAccount}>{S.signInOther}</button></div>
         </>
       )}
       {stage === "password" && joined && (
         <>
           <p>{S.yourAccount(handle(joined.device))}</p>
           <PasswordForm username={handle(joined.device)} label={S.savePassword} onSave={async (pw) => { await setPassword(joined, pw); finish(joined); }} />
+          <div className="actions start">
+            {!invite && <button className="ghost" onClick={back}>{S.back}</button>}
+            <button className="ghost" onClick={otherAccount}>{S.signInOther}</button>
+          </div>
         </>
       )}
       {error && <p className="error">{error}</p>}
@@ -542,7 +578,8 @@ type Pending = Message & { pending?: boolean; failed?: boolean };
 
 function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }: { session: Session; onSession: (s: Session) => void; onSignOut: () => void; chats: Session[]; activity: Record<string, boolean>; onOpen: (repo: string) => void; onAdd?: () => void }) {
   // the bus and the watcher follow the chat and the token; a change to this device (picture, notifications) keeps them
-  const bus = useMemo(() => new Bus({ repo: session.repo, token: session.token }), [session.repo, session.token]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const bus = useMemo(() => new Bus({ repo: session.repo, token: sourceFor(session) }), [session.repo, credKey(session), session.source]);
   const [me, setMe] = useState<Device>(session.device);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device.id]);
@@ -632,6 +669,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const meRef = useRef(me);
+  const onSessionRef = useRef(onSession); onSessionRef.current = onSession; // the chat list as it is now, not at mount
   meRef.current = me;
 
   const replace = useCallback((m: Message) => setMessages((prev) => ({ ...prev, [m.channel]: (prev[m.channel] ?? []).map((x) => (x.id === m.id ? m : x)) })), []);
@@ -663,10 +701,11 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         try {
           await bus.gh(`/repos/${session.repo}`); // a repository this account can't see would otherwise look empty
           await watcher.start();
+          if (stop) return; // left this chat meanwhile: write nothing back
         setDevices(watcher.devices); setGroups(watcher.groups);
         // the repository's devices/<id>.json is the truth (another client may have changed it)
         const stored = watcher.devices.find((d) => d.id === session.device.id);
-          if (stored) { setMe(stored); onSession({ ...session, device: stored }); }
+          if (stored) { setMe(stored); onSessionRef.current({ ...session, device: stored }); }
           else if (watcher.devices.length) { setStatus(S.removedDevice); return; }
           const hist = await bus.histories([...watcher.channels], 60, watcher.head ?? undefined);
           for (const list of Object.values(hist)) list.forEach((m) => watcher.seen.add(msgPath(m)));
@@ -1618,20 +1657,25 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
   const [busy, setBusy] = useState(false);
   const [login, setLogin] = useState<string | null>(null);
   const [trouble, setTrouble] = useState<string | null>(problem);
+  // "Sign in again" only when GitHub refused the account; offline or an outage is not a reason to
+  const [mustSignIn, setMustSignIn] = useState(!!problem);
   useEffect(() => {
-    checkAccount(session.token, session.repo).then(
-      (l) => { setLogin(l); setTrouble(null); },
-      (e) => setTrouble(accountProblem(e, session.repo) ?? S.cantReachGitHub((e as Error).message)),
+    checkAccount(sourceFor(session), session.repo).then(
+      (l) => { setLogin(l); setTrouble(null); setMustSignIn(false); },
+      (e) => { const p = accountProblem(e, session.repo); setTrouble(p ?? S.cantReachGitHub((e as Error).message)); setMustSignIn(!!p); },
     );
   }, [session]);
-  // a new token must reach the chat repository before it replaces the old one
-  const adoptToken = async (token: string) => {
+  // a new token must reach the chat repository before it replaces the old one; it becomes the token of every
+  // chat signed in with that GitHub account
+  const adoptToken = async (cred: Cred) => {
     let l: string;
-    try { l = await checkAccount(token, session.repo); }
+    try { l = await checkAccount(cred.token, session.repo); }
     catch (e) { throw new Error(accountProblem(e, session.repo) ?? (e as Error).message); }
+    putCred(l, cred);
     const device = { ...me, login: l };
-    if (me.login !== l) await new Bus({ repo: session.repo, token }).updateDevice(device);
-    onSession({ ...session, token, device });
+    if (me.login !== l) await new Bus({ repo: session.repo, token: cred.token }).updateDevice(device);
+    onSession({ ...session, token: cred.token, device, account: l });
+    if (credKey(session) !== l.toLowerCase()) { const c = readStored(); if (c) pruneCreds(c); } // no token left behind for the account switched away from
   };
   // the password on record: undefined while it loads; signing in again takes nick#id and this password
   const [record, setRecord] = useState<PasswordRecord | null | undefined>(undefined);
@@ -1702,7 +1746,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         {trouble && <p className="error small">{trouble}</p>}
         {session.source === "app" ? (
           <div className="actions start">
-            <GitHubSignIn label={trouble ? S.signInAgain : S.signInOther} primary={!!trouble} onToken={adoptToken} />
+            <GitHubSignIn label={mustSignIn ? S.signInAgain : S.signInOther} primary={mustSignIn} onToken={adoptToken} />
             {!leaving && <button className="ghost danger" onClick={() => setLeaving(true)}>{S.signOut}</button>}
           </div>
         ) : (

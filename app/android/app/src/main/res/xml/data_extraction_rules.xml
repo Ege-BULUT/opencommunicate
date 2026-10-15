@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 31+: allowBackup="false" stops cloud backup only; this keeps the app's data (the GitHub token and its
+     refresh token, in oc-auth.json and the WebView's storage) out of device-to-device transfer as well -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>

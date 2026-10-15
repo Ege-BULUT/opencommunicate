@@ -243,7 +243,13 @@ export class ClaimError extends Error {
 }
 
 type Fetch = typeof fetch;
-export type BusOptions = { repo: string; token: string; branch?: string; fetch?: Fetch; api?: string };
+/**
+ * Where a Bus gets its GitHub token: a fixed string, or a source that can hand out a newer one. GitHub's
+ * tokens can expire (eight hours, with a refresh token); `renew` is asked once when GitHub answers 401 and
+ * returns the token to retry with, or null when only signing in again can help.
+ */
+export type TokenSource = { current(): string | Promise<string>; renew?(rejected: string): Promise<string | null> };
+export type BusOptions = { repo: string; token: string | TokenSource; branch?: string; fetch?: Fetch; api?: string };
 type Files = Record<string, Uint8Array | string | null>;
 type TreeEntry = { path: string; mode: "100644"; type: "blob"; sha: string | null };
 
@@ -255,7 +261,7 @@ export class GitHubError extends Error {
 export class Bus {
   readonly repo: string;
   readonly branch: string;
-  private token: string;
+  private auth: TokenSource;
   private f: Fetch;
   private api: string;
   private etags = new Map<string, string>();
@@ -264,33 +270,46 @@ export class Bus {
   constructor(o: BusOptions) {
     this.repo = o.repo;
     this.branch = o.branch ?? "main";
-    this.token = o.token;
+    const t = o.token;
+    this.auth = typeof t === "string" ? { current: () => t } : t;
     this.f = o.fetch ?? ((...a) => fetch(...a));
     this.api = o.api ?? "https://api.github.com";
   }
 
   // ---------- raw GitHub calls ----------
   async gh<T = any>(path: string, init: RequestInit & { raw?: boolean } = {}): Promise<{ status: number; data: T; headers: Headers }> {
-    const res = await this.f(`${this.api}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
-        ...(init.headers as Record<string, string>),
-      },
-    });
+    let token = await this.auth.current();
+    let res = await this.call(path, init, token);
+    // an expired token: renewed once, then the same request again
+    if (res.status === 401 && this.auth.renew) {
+      const next = await this.auth.renew(token);
+      if (next && next !== token) { token = next; res = await this.call(path, init, token); }
+    }
     if (res.status === 304) return { status: 304, data: undefined as T, headers: res.headers };
     const text = await res.text();
     const data = text ? JSON.parse(text) : undefined;
     if (!res.ok) throw new GitHubError(res.status, `GitHub ${res.status} ${path}: ${data?.message ?? text.slice(0, 200)}`);
     return { status: res.status, data, headers: res.headers };
   }
+  private call(path: string, init: RequestInit, token: string) {
+    return this.f(`${this.api}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(init.headers as Record<string, string>),
+      },
+    });
+  }
   private r = (p: string) => `/repos/${this.repo}${p}`;
 
   async head(branch = this.branch): Promise<string | null> {
-    try { return (await this.gh(this.r(`/git/ref/heads/${branch}`))).data.object.sha; }
+    // GitHub sends refs with max-age=60, so a plain read can come from the browser's cache: a commit made on a
+    // head a minute old is refused as not a fast-forward, every retry alike ("the branch kept moving", seen when
+    // setting the password right after joining a new chat)
+    try { return (await this.gh(this.r(`/git/ref/heads/${branch}`), { cache: "no-store" })).data.object.sha; }
     catch (e) { if (e instanceof GitHubError && (e.status === 404 || e.status === 409)) return null; throw e; }
   }
 
@@ -361,7 +380,7 @@ export class Bus {
 
   // ---------- repository setup ----------
   /** Creates the private repository with the template if it doesn't exist; returns true when created. */
-  static async ensureRepo(token: string, repo: string, fetchImpl?: Fetch): Promise<boolean> {
+  static async ensureRepo(token: string | TokenSource, repo: string, fetchImpl?: Fetch): Promise<boolean> {
     const bus = new Bus({ repo, token, fetch: fetchImpl });
     try {
       await bus.gh(`/repos/${repo}`);
