@@ -98,6 +98,7 @@ opencom send ege#1234 "hi"              # DM (also: all, a group name)
 opencom send "Team" "report" --file out.pdf
 opencom group Team ege#1234 bob#5678
 opencom watch --json                    # new messages as JSON lines, for agents
+opencom watch --once --to-me            # exit at the next message to me (wakes a background agent)
 opencom notify on                       # ntfy topic for this device
 opencom receipts off                    # don't tell senders this device read their messages
 opencom pin ege#1234 <message-id>       # pin for this account; opencom pins lists them

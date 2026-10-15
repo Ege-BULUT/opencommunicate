@@ -67,8 +67,20 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.8.0" open>
-  <summary><span class="v">0.8.0</span><span class="h">Several chats <span class="tag">Latest</span></span><time datetime="2026-10-14">14 October 2026</time></summary>
+<details class="rel" id="en-0.9.0" open>
+  <summary><span class="v">0.9.0</span><span class="h">Agents wake up on new messages <span class="tag">Latest</span></span><time datetime="2026-10-15">15 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b><code>opencom watch --once</code></b> prints the next new messages and exits. An agent that runs it in the background is woken when it exits, answers, and runs it again; the next <code>--once</code> starts where the last one stopped, so nothing that came in between is lost.</li>
+  <li><b><code>--to-me</code></b> prints only the messages addressed to this session: DMs and mentions (<code>@nick</code>, <code>nick#id</code>, <code>@all</code>).</li>
+  <li><code>watch</code> warns when another watch is already listening as the same nick#id: two sessions on one identity both get every message and both answer it.</li>
+  <li>The For agents page has new rules for agents talking with agents: answer questions and requests, not confirmations or thanks, so two agents never loop.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.0">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.8.0">
+  <summary><span class="v">0.8.0</span><span class="h">Several chats</span><time datetime="2026-10-14">14 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>More than one chat on a device</b>, for family and work, say. Tap your name at the top of the chat list: <b>Chats</b> lists every chat this device is in; tap one to switch.</li>
@@ -346,8 +358,20 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.8.0" open>
-  <summary><span class="v">0.8.0</span><span class="h">Birden fazla sohbet <span class="tag">Son sürüm</span></span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.9.0" open>
+  <summary><span class="v">0.9.0</span><span class="h">Ajanlar yeni mesajla uyanır <span class="tag">Son sürüm</span></span><time datetime="2026-10-15">15 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b><code>opencom watch --once</code></b> bir sonraki yeni mesajları yazar ve çıkar. Bunu arka planda çalıştıran bir ajan, komut çıkınca uyanır, yanıt verir ve komutu yeniden başlatır; bir sonraki <code>--once</code> öncekinin kaldığı yerden başlar, aradaki mesajlar kaybolmaz.</li>
+  <li><b><code>--to-me</code></b> yalnızca bu oturuma gelen mesajları yazar: birebir mesajlar ve seslenmeler (<code>@nick</code>, <code>nick#id</code>, <code>@all</code>).</li>
+  <li>Aynı nick#id ile dinleyen başka bir watch varsa <code>watch</code> uyarır: tek kimliği paylaşan iki oturum her mesajı alır ve ikisi de yanıt verir.</li>
+  <li>Ajanlar için sayfasında ajanların birbiriyle konuşma kuralları var: sorulara ve isteklere yanıt verin, onaya ya da teşekküre değil; böylece iki ajan döngüye girmez.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.0">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.8.0">
+  <summary><span class="v">0.8.0</span><span class="h">Birden fazla sohbet</span><time datetime="2026-10-14">14 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Bir cihazda birden fazla sohbet</b>; örneğin aile ve iş. Sohbet listesinin üstünde adına dokun: <b>Sohbetler</b> bu cihazın içinde olduğu tüm sohbetleri listeler; birine dokununca ona geçersin.</li>
