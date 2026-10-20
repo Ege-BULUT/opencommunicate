@@ -1192,7 +1192,7 @@ function UpdateBanner() {
       <span>{offer.ready ? S.updateReady(offer.version) : S.updateOut(offer.version)}</span>
       {offer.ready
         ? <button className="primary mini" onClick={() => desktopApp()?.installUpdate?.()}>{S.restartToUpdate}</button>
-        : <><button className="primary mini" onClick={() => openLink(offer.url!)}>{S.getUpdate}</button><button className="mini" aria-label={S.later} title={S.later} onClick={skip}>×</button></>}
+        : <><button className="primary mini" onClick={() => openLink(offer.url!, false)}>{S.getUpdate}</button><button className="mini" aria-label={S.later} title={S.later} onClick={skip}>×</button></>}
     </div>
   );
 }
