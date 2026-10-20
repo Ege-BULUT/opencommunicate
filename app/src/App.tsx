@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, DraftQueue, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Bus, ClaimError, DraftQueue, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -588,7 +588,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const seenHead = () => { try { if (watcher.head) localStorage.setItem(`oc.head.${session.repo}`, watcher.head); } catch { /* private mode */ } };
   const [devices, setDevices] = useState<Device[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [presence, setPresence] = useState<Record<string, string>>({});
+  const [presence, setPresence] = useState<Record<string, Presence>>({});
   const [messages, setMessages] = useState<Record<string, Pending[]>>({});
   const [active, setActive] = useState("all");
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
@@ -738,7 +738,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           const draftsAsked = Date.now();
           watcher.tickDrafts().then(() => takeDrafts(watcher.drafts, draftsAsked)).catch(() => {});
           setStatus(""); setAccount(null); seenHead();
-          bus.presence().then(setPresence).catch(() => {});
+          watcher.tickPresence().then(() => setPresence(watcher.presence)).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
           askNotifications();
           break;
@@ -773,7 +773,8 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
             if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
           }
-          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); bus.presence().then(setPresence).catch(() => {}); }
+          if (await watcher.tickPresence().catch(() => false)) setPresence(watcher.presence);
+          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); }
           failures = 0;
           setStatus(""); setAccount(null);
         } catch (e) {
@@ -839,7 +840,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     await watcher.refresh();
   };
   const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && !isEditNotice(m) && (!read[ch] || m.id > read[ch])).length;
-  const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id]) < 10 * 60_000;
+  const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id].lastSeen) < 10 * 60_000;
   const [filter, setFilter] = useState("");
   const [reply, setReply] = useState<Message | null>(null);
   const [menu, setMenu] = useState<{ m: Message; x: number; y: number } | null>(null);
@@ -910,7 +911,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     if (m.from === me.id) return S.youSaid(body);
     return isDm(ch) ? body : `${m.fromNick}: ${body}`;
   };
-  const seen = (id: string) => (online(id) ? S.online : presence[id] ? S.lastSeen(when(presence[id])) : "");
+  const seen = (id: string) => (online(id) ? S.online : presence[id] ? S.lastSeen(when(presence[id].lastSeen)) : "");
   const title = active === "all" ? "#all" : isDm(active) ? `@${handle(devices.find((d) => d.id === dmPeer(active, me.id)) ?? { nick: "?", id: dmPeer(active, me.id) })}` : `#${groups.find((g) => g.channel === active)?.name ?? active}`;
 
   const open = (ch: string) => { setActive(ch); setMobileView("chat"); };
@@ -919,7 +920,9 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const peer = isDm(active) ? devices.find((d) => d.id === dmPeer(active, me.id)) : undefined;
   const headAvatar = peer ? <Avatar name={peer.nick} seed={peer.id} shape={peer.kind === "agent" ? "agent" : "person"} online={online(peer.id)} size={36} picture={pictureOf(peer)} />
     : <Avatar name={activeGroup?.name ?? "all"} seed={activeGroup?.channel ?? "all"} shape="group" size={36} />;
-  const headSub = peer ? [KIND[peer.kind] ?? peer.kind, seen(peer.id)].filter(Boolean).join(" · ")
+  // what an online peer says it is doing: "online • deploying 0.8.5", sliding when it does not fit
+  const doing = peer && online(peer.id) ? presence[peer.id]?.status : undefined;
+  const headSub = peer ? (doing ? <>{S.online} • <Marquee text={doing} /></> : [KIND[peer.kind] ?? peer.kind, seen(peer.id)].filter(Boolean).join(" · "))
     : activeGroup ? S.members(activeGroup.members.length) : S.everyoneCount(devices.length);
   const loud = Object.keys(messages).filter((ch) => quietFor(me, ch)?.mode !== "off").reduce((n, ch) => n + unread(ch), 0);
   useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
@@ -1052,7 +1055,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
             {headAvatar}
             <span className="title-text">
               <b>{title}</b>
-              <span className="muted small">{headSub}{quiet(active) ? (quiet(active)!.mode === "off" ? S.mutedSuffix : S.mentionsSuffix) : ""}</span>
+              <span className="muted small sub">{headSub}{quiet(active) ? (quiet(active)!.mode === "off" ? S.mutedSuffix : S.mentionsSuffix) : ""}</span>
             </span>
           </button>
           {status && <span className="status">{status}</span>}
@@ -1203,6 +1206,29 @@ function Avatar({ name, seed, shape, online, size = 40, picture }: { name: strin
       {online !== undefined && <i className={`presence ${online ? "on" : ""}`} />}
     </span>
   );
+}
+
+/** One line that slides to show its end when it does not fit: still for a moment at the start and at the end. */
+function Marquee({ text }: { text: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current, inner = el?.firstElementChild as HTMLElement | null;
+    if (!el || !inner || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let run: Animation | undefined;
+    const start = () => {
+      run?.cancel();
+      const shift = inner.offsetWidth - el.clientWidth;
+      if (shift <= 0) return;
+      const hold = 1500, move = (shift / 30) * 1000; // 30 px a second
+      const total = 2 * hold + move, at = hold / total, to = `translateX(-${shift}px)`;
+      run = inner.animate([{ transform: "none", offset: 0 }, { transform: "none", offset: at }, { transform: to, offset: 1 - at }, { transform: to, offset: 1 }], { duration: total, iterations: Infinity });
+    };
+    start();
+    const ro = new ResizeObserver(start);
+    ro.observe(el);
+    return () => { ro.disconnect(); run?.cancel(); };
+  }, [text]);
+  return <span ref={box} className="marquee" title={text}><span>{text}</span></span>;
 }
 
 const Gear = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>;

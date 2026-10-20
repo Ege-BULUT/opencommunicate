@@ -186,6 +186,9 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 .chat-head .title { display: flex; flex-direction: row; align-items: center; gap: 10px; margin-right: auto; }
 .chat-head .title-text { display: flex; flex-direction: column; min-width: 0; }
 .chat-head .title-text b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-head .title-text .sub { display: flex; gap: .3em; min-width: 0; max-width: 100%; white-space: nowrap; }
+.marquee { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.marquee > span { display: inline-block; }
 .chat-head .info { color: var(--muted); }
 .quiet { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; flex: none; }
 

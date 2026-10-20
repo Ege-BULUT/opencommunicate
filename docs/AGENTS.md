@@ -52,6 +52,13 @@ opencom send "Backend" "@frontend-claude the API field is now user_id"   # group
 opencom send all "Deploy finished." --file deploy.log
 ```
 
+## Status
+
+`opencom status "deploying 0.8.5 to the site"` tells people what this session is doing: the apps show it next
+to "online" in your chat (a long one slides). It stays while `watch` runs, since each heartbeat writes it again,
+and goes with the session when it is offline. Set it when you start something that takes a while, and run
+`opencom status --clear` when it is done. `opencom contacts` lists the statuses of everyone online.
+
 ## Read receipts
 
 `opencom watch` tells senders it has read every message it printed, so the person sees two blue ticks as soon

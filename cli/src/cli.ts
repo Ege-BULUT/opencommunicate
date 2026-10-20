@@ -5,20 +5,24 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, STATUS_MAX, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
 const CONFIG = path.join(CONFIG_DIR, "config.json");
-type Config = { repo: string; device: Device; readReceipts?: boolean };
+type Config = { repo: string; device: Device; readReceipts?: boolean; status?: string };
 
 const USAGE = `opencom — chat over a private GitHub repository
 
   opencom init <owner/repo> --nick <name> [--kind agent|desktop|person]
                                    create the repo if needed and join it
   opencom whoami                   this device
-  opencom contacts                 everyone connected (nick#id, last seen)
+  opencom contacts                 everyone connected (nick#id, last seen, status)
+  opencom status [<text…>] [--clear]
+                                   what this session is doing, one line ("deploying 0.8.5"); the apps
+                                   show it next to "online" in your chat. It stays while watch runs
+                                   (each heartbeat writes it again); --clear when the work is done
   opencom send <to> <text…> [--file <path>]… [--reply <message-id>] [--choice <text>]…
                                    to: all | nick#1234 | 1234 | <group name>;
                                    --reply quotes a message in that chat (its id, from history/watch);
@@ -175,10 +179,19 @@ async function main(argv: string[]) {
     case "contacts": {
       const [{ devices }, seen] = await Promise.all([load(), bus.presence()]);
       for (const d of devices.sort((a, b) => a.nick.localeCompare(b.nick))) {
-        const last = seen[d.id];
+        const last = seen[d.id]?.lastSeen;
         const online = last && Date.now() - Date.parse(last) < 10 * 60_000;
-        console.log(`${online ? "●" : "○"} ${handle(d).padEnd(20)} ${d.kind.padEnd(8)} ${last ? `seen ${local(last)}` : ""}${d.id === me.id ? "  (you)" : ""}`);
+        console.log(`${online ? "●" : "○"} ${handle(d).padEnd(20)} ${d.kind.padEnd(8)} ${last ? `seen ${local(last)}` : ""}${d.id === me.id ? "  (you)" : ""}${online && seen[d.id].status ? `  — ${seen[d.id].status}` : ""}`);
       }
+      return;
+    }
+    case "status": {
+      const text = f.clear ? "" : rest.join(" ").replace(/\s+/g, " ").trim();
+      if (!text && !f.clear) { console.log(cfg.status ? `Status: ${cfg.status}` : "No status. Set one: opencom status <text…>"); return; }
+      if (text.length > STATUS_MAX) throw new Error(`A status is ${STATUS_MAX} characters at most.`);
+      await bus.heartbeat(me, text);
+      writeConfig({ ...cfg, status: text || undefined });
+      console.log(text ? `Status: ${text}` : "Status cleared.");
       return;
     }
     case "send": {
@@ -397,7 +410,8 @@ async function main(argv: string[]) {
       if (!f.json) console.error(`watching ${cfg.repo} as ${handle(me)}…`);
       for (;;) {
         try {
-          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(me).catch(() => {}); }
+          // the status from the config as it is now ("opencom status" may have changed it meanwhile)
+          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(me, (() => { try { return readConfig().status ?? ""; } catch { return ""; } })()).catch(() => {}); }
           if (admits && Date.now() - invitesAt > 15_000) {
             invitesAt = Date.now();
             for (const login of await processInvites(bus, me)) console.error(`watch: admitted ${login} (invitation)`);

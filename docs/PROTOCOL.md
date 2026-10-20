@@ -14,7 +14,9 @@ channels/dm-<a>-<b>/<message>.json       two devices, ids sorted ascending
 channels/g-<slug>-<rand>/meta.json       { channel, name, members: [id], admins: [id], createdBy, createdAt }
 channels/g-<slug>-<rand>/<message>.json
 channels/<channel>/files/<message id>-<name>   attachments
-branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, force-updated
+branch "presence": presence/<id>.json    { id, lastSeen, status? } — orphan commits, force-updated;
+                                         status (0.8.6): one line of 100 characters at most, what the
+                                         device says it is doing; a heartbeat without one keeps it
 branch "receipts": receipts/<id>.json    { id, channels: { <channel>: { delivered?, read? } } }
 branch "pins": pins/<id>.json            { id, pins: [{ channel, id, at }] }  newest first
 branch "reactions": reactions/<id>.json  { id, reactions: { "<channel>/<message id>": "👍" | "👎" | "🙂" | "❤️" } }

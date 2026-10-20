@@ -16,7 +16,7 @@
  *   channels/dm-<a>-<b>/<message>.json   two devices, ids sorted
  *   channels/g-<slug>-<rand>/meta.json   { name, members, admins, createdBy, createdAt } + messages
  *   channels/<ch>/files/<message id>-<name>   attachments
- *   branch "presence": presence/<id>.json   { id, lastSeen } — rewritten, never grows main's history
+ *   branch "presence": presence/<id>.json   { id, lastSeen, status? } — rewritten, never grows main's history
  *   branch "receipts": receipts/<id>.json   { id, channels: { <ch>: { delivered?, read? } } } — see Receipt
  *   branch "pins": pins/<id>.json           { id, pins: [{ channel, id, at }] }, see Pin
  *   branch "reactions": reactions/<id>.json { id, reactions: { "<channel>/<message id>": emoji } }, see Reaction
@@ -84,6 +84,10 @@ export function reactionsOn(m: Pick<Message, "channel" | "id">, all: Reactions):
  */
 export type Draft = { text: string; at: string };
 export type Drafts = Record<string, Draft>; // channel -> draft
+
+/** When a device was last seen, and what it says it is doing (an agent's "deploying 0.8.5"), if anything. */
+export type Presence = { lastSeen: string; status?: string };
+export const STATUS_MAX = 100;
 
 /** WhatsApp's ticks for one of my messages: sent (one), delivered to everyone (two), read by everyone (two blue). */
 export type Ticks = "sent" | "delivered" | "read";
@@ -705,8 +709,20 @@ export class Bus {
   }
 
   // ---------- presence (own branch, rewritten; never adds history to main) ----------
-  async heartbeat(me: Device): Promise<void> {
-    await this.commit({ [`presence/${me.id}.json`]: JSON.stringify({ id: me.id, lastSeen: new Date().toISOString() }) }, `presence: ${handle(me)}`, { branch: "presence", orphan: true });
+  /** Marks this device seen now. `status` sets what it says it is doing (one line, STATUS_MAX characters at most;
+   *  "" clears it); without one the status it has stays. */
+  async heartbeat(me: Pick<Device, "id" | "nick">, status?: string): Promise<void> {
+    const path = `presence/${me.id}.json`;
+    // ponytail: orphan commits are force-pushed, so a heartbeat landing at the same moment can undo a status;
+    // the CLI writes its status again with every heartbeat, which repairs it within minutes
+    await this.commit(async (parent) => {
+      let keep = status?.replace(/\s+/g, " ").trim().slice(0, STATUS_MAX);
+      if (keep === undefined && parent) {
+        const entry = (await this.tree(parent)).find((e) => e.path === path);
+        keep = entry ? (await this.json<{ status?: string }>(entry.sha)).status : undefined;
+      }
+      return { [path]: JSON.stringify({ id: me.id, lastSeen: new Date().toISOString(), ...(keep ? { status: keep } : {}) }) };
+    }, `presence: ${handle(me)}`, { branch: "presence", orphan: true });
   }
 
   /** Every device's receipts, as of the "receipts" branch head (or `at`). */
@@ -879,12 +895,13 @@ export class Bus {
     return /^[a-z0-9-]+$/.test(channel) && /^[\w-]+$/.test(id) ? this.readJson<Message>(msgPath({ channel, id })) : null;
   }
 
-  async presence(): Promise<Record<string, string>> {
-    const head = await this.head("presence");
+  /** Every device's presence, as of the "presence" branch head (or `at`). */
+  async presence(at?: string | null): Promise<Record<string, Presence>> {
+    const head = at ?? (await this.head("presence"));
     if (!head) return {};
     const entries = (await this.tree(head)).filter((e) => /^presence\/\d{4}\.json$/.test(e.path));
-    const all = await Promise.all(entries.map(async (e) => JSON.parse(dec.decode(await this.blob(e.sha))) as { id: string; lastSeen: string }));
-    return Object.fromEntries(all.map((p) => [p.id, p.lastSeen]));
+    const all = await Promise.all(entries.map((e) => this.json<{ id: string } & Presence>(e.sha)));
+    return Object.fromEntries(all.map(({ id, lastSeen, status }) => [id, status ? { lastSeen, status } : { lastSeen }]));
   }
 }
 
@@ -1048,6 +1065,15 @@ export class Watcher {
     const head = await this.bus.headIfChanged("drafts");
     if (!head) return false;
     this.drafts = await this.bus.drafts(this.me.id, head);
+    return true;
+  }
+
+  /** Everyone's presence; `tickPresence()` picks up a heartbeat or a new status (free while nothing moved). */
+  presence: Record<string, Presence> = {};
+  async tickPresence(): Promise<boolean> {
+    const head = await this.bus.headIfChanged("presence");
+    if (!head) return false;
+    this.presence = await this.bus.presence(head);
     return true;
   }
 
