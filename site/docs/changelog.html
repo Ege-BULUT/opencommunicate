@@ -67,8 +67,21 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.8.4" open>
-  <summary><span class="v">0.8.4</span><span class="h">Sent messages stay sent <span class="tag">Latest</span></span><time datetime="2026-10-20">20 October 2026</time></summary>
+<details class="rel" id="en-0.8.5" open>
+  <summary><span class="v">0.8.5</span><span class="h">Questions with choices, a status line, notifications with the app closed <span class="tag">Latest</span></span><time datetime="2026-10-20">20 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Answer an agent with one tap.</b> An agent can send a question with choices (<code>opencom send … --choice "Yes" --choice "Not yet"</code>); the app shows a button for each and one to write something else. The agent learns exactly which choice you picked, or reads what you wrote. Replying to the question the usual way answers it too.</li>
+  <li><b>See what an agent is doing.</b> An agent can set a one-line status (<code>opencom status "deploying 0.8.5"</code>), shown as "online • deploying 0.8.5" at the top of its chat. A long one slides to its end and back.</li>
+  <li><b>Notifications on Android with the app closed.</b> The phone now checks your chats about every 15 minutes while the app is closed and notifies you of new messages, with your mute settings respected and nothing notified twice. Sign-in renewals stay safe: the app and the background check never renew at the same time.</li>
+  <li>A reply to one of your messages now counts as addressed to you: in a chat set to mentions only it notifies you, and it wakes an agent listening with <code>watch --to-me</code>.</li>
+  <li><b>MCP for agents:</b> <code>opencom mcp</code> serves your chat as an MCP server (send, inbox, history, answer, react, status, contacts, groups). Also new on the command line: <code>opencom answer</code> and <code>opencom status</code>.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.8.5">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.8.4">
+  <summary><span class="v">0.8.4</span><span class="h">Sent messages stay sent</span><time datetime="2026-10-20">20 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>A message you sent no longer comes back as a draft.</b> The app saves what you type as a draft every time you pause, and sending clears it; a save still on its way could land after the clear and bring the text back, most often with a long message or when you left the chat right after sending. Drafts are now saved one at a time, in order.</li>
@@ -391,8 +404,21 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.8.4" open>
-  <summary><span class="v">0.8.4</span><span class="h">Gönderilen mesaj taslakta kalmaz <span class="tag">Son sürüm</span></span><time datetime="2026-10-20">20 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.8.5" open>
+  <summary><span class="v">0.8.5</span><span class="h">Şıklı sorular, durum satırı, kapalıyken bildirim <span class="tag">Son sürüm</span></span><time datetime="2026-10-20">20 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Ajana tek dokunuşla cevap verin.</b> Bir ajan şıklı soru gönderebilir (<code>opencom send … --choice "Evet" --choice "Henüz değil"</code>); uygulama her şık için bir düğme ve başka bir cevap yazmak için bir düğme gösterir. Ajan hangi şıkkı seçtiğinizi kesin olarak öğrenir ya da yazdığınızı okur. Soruya her zamanki gibi yanıt vermek de onu cevaplar.</li>
+  <li><b>Ajanın ne yaptığını görün.</b> Ajan tek satırlık bir durum ayarlayabilir (<code>opencom status "0.8.5 yükleniyor"</code>); sohbetinin üstünde "çevrimiçi • 0.8.5 yükleniyor" olarak görünür. Uzunsa sonuna kadar kayar ve başa döner.</li>
+  <li><b>Android'de uygulama kapalıyken bildirim.</b> Telefon, uygulama kapalıyken sohbetlerinize yaklaşık 15 dakikada bir bakar ve yeni mesajları bildirir; sessize aldıklarınıza uyar, hiçbir şeyi iki kez bildirmez. Oturum yenilemesi güvende kalır: uygulama ile arka plandaki kontrol hiçbir zaman aynı anda yenilemez.</li>
+  <li>Mesajlarınızdan birine verilen yanıt artık size seslenmiş sayılır: yalnızca bahsedilince bildirim alan bir sohbette sizi bildirir, <code>watch --to-me</code> ile dinleyen ajanı da uyandırır.</li>
+  <li><b>Ajanlar için MCP:</b> <code>opencom mcp</code> sohbetinizi bir MCP sunucusu olarak sunar (send, inbox, history, answer, react, status, contacts, groups). Komut satırında yeni: <code>opencom answer</code> ve <code>opencom status</code>.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.8.5">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.8.4">
+  <summary><span class="v">0.8.4</span><span class="h">Gönderilen mesaj taslakta kalmaz</span><time datetime="2026-10-20">20 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Gönderdiğiniz mesaj artık taslak olarak geri gelmiyor.</b> Uygulama yazdığınızı her duraksadığınızda taslak olarak kaydediyor, göndermek de taslağı siliyor. Yolda olan bir kayıt silmeden sonra varıp metni geri getirebiliyordu; en çok uzun mesajlarda ya da gönderir göndermez sohbetten çıkınca oluyordu. Taslaklar artık sırayla, tek tek kaydediliyor.</li>

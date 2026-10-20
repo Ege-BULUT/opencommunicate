@@ -16,7 +16,7 @@
  *   channels/dm-<a>-<b>/<message>.json   two devices, ids sorted
  *   channels/g-<slug>-<rand>/meta.json   { name, members, admins, createdBy, createdAt } + messages
  *   channels/<ch>/files/<message id>-<name>   attachments
- *   branch "presence": presence/<id>.json   { id, lastSeen } — rewritten, never grows main's history
+ *   branch "presence": presence/<id>.json   { id, lastSeen, status? } — rewritten, never grows main's history
  *   branch "receipts": receipts/<id>.json   { id, channels: { <ch>: { delivered?, read? } } } — see Receipt
  *   branch "pins": pins/<id>.json           { id, pins: [{ channel, id, at }] }, see Pin
  *   branch "reactions": reactions/<id>.json { id, reactions: { "<channel>/<message id>": emoji } }, see Reaction
@@ -85,6 +85,10 @@ export function reactionsOn(m: Pick<Message, "channel" | "id">, all: Reactions):
 export type Draft = { text: string; at: string };
 export type Drafts = Record<string, Draft>; // channel -> draft
 
+/** When a device was last seen, and what it says it is doing (an agent's "deploying 0.8.5"), if anything. */
+export type Presence = { lastSeen: string; status?: string };
+export const STATUS_MAX = 100;
+
 /** WhatsApp's ticks for one of my messages: sent (one), delivered to everyone (two), read by everyone (two blue). */
 export type Ticks = "sent" | "delivered" | "read";
 export type Message = {
@@ -101,6 +105,9 @@ export type Message = {
   edited?: string;              // when the text was last changed; `edits` keeps what it said before, oldest first
   edits?: { text: string; at: string }[];
   deleted?: string;             // when its author deleted it: text, files and edits are gone, the rest stays
+  ask?: string[];               // choices to pick from (an agent's question): the apps show a button for each, and one to write something else
+  answer?: { choice: number | null }; // this message answers `replyTo`, an ask: the index of the choice picked (the text is that choice word
+                                // for word), or null when the answer was written
   /** A notice: someone joined, made or changed a group, or edited or deleted message `target` of this channel. */
   system?: { type: "join" | "group" | "change" | "edit" | "delete"; device?: Device; group?: Group; change?: GroupChange; target?: string };
 };
@@ -164,9 +171,13 @@ export function applyGroupChange(g: Group, change: GroupChange, by: string): Gro
   }
 }
 
-/** True when a message is meant for this device: a DM, a mention of @nick / nick#id, or @all / @herkes. */
+/** The device that wrote message `id` (ids are <time>-<device id>-<random>). */
+export const authorOf = (id: string) => id.split("-")[1];
+
+/** True when a message is meant for this device: a DM, a reply to one of its messages, a mention of @nick /
+ *  nick#id, or @all / @herkes. */
 export function addressedTo(m: Message, me: Pick<Device, "nick" | "id">): boolean {
-  if (isDm(m.channel)) return true;
+  if (isDm(m.channel) || (m.replyTo && authorOf(m.replyTo) === me.id)) return true;
   const nick = me.nick.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^\\w])(@(${nick}(#${me.id})?|all|herkes|everyone)(?![\\w])|${nick}#${me.id}(?!\\d))`, "i").test(m.text ?? "");
 }
@@ -181,6 +192,34 @@ export function quietFor(d: Pick<Device, "quiet">, channel: string, now = Date.n
 export function wantsNotice(d: Pick<Device, "nick" | "id" | "quiet">, m: Message, now = Date.now()): boolean {
   const q = quietFor(d, m.channel, now);
   return !q || (q.mode === "mentions" && addressedTo(m, d));
+}
+
+export const ASK_MAX = 10;
+/** Choices for an ask, as given: 1 to ASK_MAX of them, each a different, non-empty line of 80 characters at most.
+ *  They are not trimmed or reordered, so an answer's index always means what the asker wrote. */
+export function checkChoices(choices: string[]): string[] {
+  if (!choices.length || choices.length > ASK_MAX) throw new Error(`An ask has 1 to ${ASK_MAX} choices.`);
+  for (const c of choices) if (!c.trim() || c.length > 80 || /\n/.test(c)) throw new Error(`A choice is one line of 1 to 80 characters: "${c}".`);
+  if (new Set(choices.map((c) => c.trim().toLowerCase())).size !== choices.length) throw new Error("Two choices are the same.");
+  return choices;
+}
+
+/** The answer an `ask` message gets from `text`: the choice it is (ignoring case and spaces around), or written. */
+export function answerFor(ask: Pick<Message, "ask">, text: string, locale?: string): { choice: number | null } {
+  const t = text.trim().toLocaleLowerCase(locale);
+  const i = (ask.ask ?? []).findIndex((c) => c.trim().toLocaleLowerCase(locale) === t);
+  return { choice: i < 0 ? null : i };
+}
+
+/** Everyone's answer to `ask` among `list` (the channel's messages): device id → its newest answer, a choice index
+ *  or null for a written one. A deleted answer counts as taken back. */
+export function answersTo(ask: Pick<Message, "id">, list: Message[]): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  for (const m of [...list].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (m.replyTo !== ask.id || !m.answer) continue;
+    if (m.deleted) delete out[m.from]; else out[m.from] = m.answer.choice;
+  }
+  return out;
 }
 
 const rand = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => (b % 36).toString(36)).join("");
@@ -511,11 +550,14 @@ export class Bus {
     return { v: 1, id: `${stamp()}-${from.id}-${rand(6)}`, channel, from: from.id, fromNick: from.nick, ts: new Date().toISOString(), text, ...extra };
   }
 
-  async send(channel: string, from: Device, text: string, files: Upload[] = [], opts: string | { replyTo?: string; forwarded?: boolean } = {}): Promise<Message> {
+  /** `ask`: choices for the reader to pick from (see checkChoices); `answer`: this answers `replyTo`, an ask. */
+  async send(channel: string, from: Device, text: string, files: Upload[] = [], opts: string | { replyTo?: string; forwarded?: boolean; ask?: string[]; answer?: { choice: number | null } } = {}): Promise<Message> {
     const o = typeof opts === "string" ? { replyTo: opts } : opts;
     const extra: Partial<Message> = {};
     if (o.replyTo) extra.replyTo = o.replyTo;
     if (o.forwarded) extra.forwarded = true;
+    if (o.ask) extra.ask = checkChoices(o.ask);
+    if (o.answer) { if (!o.replyTo) throw new Error("An answer replies to the ask it answers."); extra.answer = { choice: o.answer.choice }; }
     const msg = this.newMessage(channel, from, text, extra);
     const out: Record<string, Uint8Array | string> = {};
     if (files.length) {
@@ -667,8 +709,20 @@ export class Bus {
   }
 
   // ---------- presence (own branch, rewritten; never adds history to main) ----------
-  async heartbeat(me: Device): Promise<void> {
-    await this.commit({ [`presence/${me.id}.json`]: JSON.stringify({ id: me.id, lastSeen: new Date().toISOString() }) }, `presence: ${handle(me)}`, { branch: "presence", orphan: true });
+  /** Marks this device seen now. `status` sets what it says it is doing (one line, STATUS_MAX characters at most;
+   *  "" clears it); without one the status it has stays. */
+  async heartbeat(me: Pick<Device, "id" | "nick">, status?: string): Promise<void> {
+    const path = `presence/${me.id}.json`;
+    // ponytail: orphan commits are force-pushed, so a heartbeat landing at the same moment can undo a status;
+    // the CLI writes its status again with every heartbeat, which repairs it within minutes
+    await this.commit(async (parent) => {
+      let keep = status?.replace(/\s+/g, " ").trim().slice(0, STATUS_MAX);
+      if (keep === undefined && parent) {
+        const entry = (await this.tree(parent)).find((e) => e.path === path);
+        keep = entry ? (await this.json<{ status?: string }>(entry.sha)).status : undefined;
+      }
+      return { [path]: JSON.stringify({ id: me.id, lastSeen: new Date().toISOString(), ...(keep ? { status: keep } : {}) }) };
+    }, `presence: ${handle(me)}`, { branch: "presence", orphan: true });
   }
 
   /** Every device's receipts, as of the "receipts" branch head (or `at`). */
@@ -789,13 +843,14 @@ export class Bus {
       const files: Files = {};
       let message: Message;
       if (text === null) {
-        const { files: attached, edits: _e, edited: _d, ...rest } = cur;
+        const { files: attached, edits: _e, edited: _d, ask: _a, ...rest } = cur;
         message = { ...rest, text: "", deleted: now };
         for (const f of attached ?? []) if (f.path.startsWith(`channels/${cur.channel}/files/${cur.id}-`)) files[f.path] = null; // a forwarded file stays with its original
       } else {
         if (!text.trim()) throw new Error("An edit needs some text.");
         if (text === cur.text) throw new Error("Nothing changed.");
         message = { ...cur, text, edited: now, edits: [...(cur.edits ?? []), { text: cur.text, at: cur.edited ?? cur.ts }] };
+        if (cur.answer) message.answer = { choice: null }; // an edited answer is a written one now
       }
       const notice = this.newMessage(cur.channel, me, text === null ? `${handle(me)} deleted a message` : `${handle(me)} edited a message: ${text}`,
         { system: { type: text === null ? "delete" : "edit", target: cur.id } });
@@ -840,12 +895,13 @@ export class Bus {
     return /^[a-z0-9-]+$/.test(channel) && /^[\w-]+$/.test(id) ? this.readJson<Message>(msgPath({ channel, id })) : null;
   }
 
-  async presence(): Promise<Record<string, string>> {
-    const head = await this.head("presence");
+  /** Every device's presence, as of the "presence" branch head (or `at`). */
+  async presence(at?: string | null): Promise<Record<string, Presence>> {
+    const head = at ?? (await this.head("presence"));
     if (!head) return {};
     const entries = (await this.tree(head)).filter((e) => /^presence\/\d{4}\.json$/.test(e.path));
-    const all = await Promise.all(entries.map(async (e) => JSON.parse(dec.decode(await this.blob(e.sha))) as { id: string; lastSeen: string }));
-    return Object.fromEntries(all.map((p) => [p.id, p.lastSeen]));
+    const all = await Promise.all(entries.map((e) => this.json<{ id: string } & Presence>(e.sha)));
+    return Object.fromEntries(all.map(({ id, lastSeen, status }) => [id, status ? { lastSeen, status } : { lastSeen }]));
   }
 }
 
@@ -1009,6 +1065,15 @@ export class Watcher {
     const head = await this.bus.headIfChanged("drafts");
     if (!head) return false;
     this.drafts = await this.bus.drafts(this.me.id, head);
+    return true;
+  }
+
+  /** Everyone's presence; `tickPresence()` picks up a heartbeat or a new status (free while nothing moved). */
+  presence: Record<string, Presence> = {};
+  async tickPresence(): Promise<boolean> {
+    const head = await this.bus.headIfChanged("presence");
+    if (!head) return false;
+    this.presence = await this.bus.presence(head);
     return true;
   }
 

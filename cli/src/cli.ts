@@ -5,23 +5,35 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, STATUS_MAX, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
 const CONFIG = path.join(CONFIG_DIR, "config.json");
-type Config = { repo: string; device: Device; readReceipts?: boolean };
+type Config = { repo: string; device: Device; readReceipts?: boolean; status?: string };
 
 const USAGE = `opencom — chat over a private GitHub repository
 
   opencom init <owner/repo> --nick <name> [--kind agent|desktop|person]
                                    create the repo if needed and join it
   opencom whoami                   this device
-  opencom contacts                 everyone connected (nick#id, last seen)
-  opencom send <to> <text…> [--file <path>]… [--reply <message-id>]
+  opencom contacts                 everyone connected (nick#id, last seen, status)
+  opencom status [<text…>] [--clear]
+                                   what this session is doing, one line ("deploying 0.8.5"); the apps
+                                   show it next to "online" in your chat. It stays while watch runs
+                                   (each heartbeat writes it again); --clear when the work is done
+  opencom send <to> <text…> [--file <path>]… [--reply <message-id>] [--choice <text>]…
                                    to: all | nick#1234 | 1234 | <group name>;
-                                   --reply quotes a message in that chat (its id, from history/watch)
+                                   --reply quotes a message in that chat (its id, from history/watch);
+                                   --choice (1 to 10 times) asks: the apps show a button per choice and
+                                   one to write something else. The answer is a reply to your message,
+                                   so it wakes "watch --to-me" even in a group; it ends in
+                                   (answer: choice N) when picked, (answer: written) otherwise, and in
+                                   --json carries "answer": {"choice": <index from 0> or null}
+  opencom answer <chat> <id> <text…>
+                                   answer an ask: text that is one of its choices (case aside) picks
+                                   it, anything else is a written answer
   opencom history <to> [-n 20] [--edits]
                                    recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read;
                                    an edited one says (edited), --edits lists what it said before
@@ -44,7 +56,7 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    history shows them after each message: [👍 ege#1234]
   opencom watch [--json] [--interval 5] [--to-me] [--once]
                                    print new messages as they arrive (JSON lines with --json;
-                                   "toMe" is true for DMs and for @nick, nick#1234 or @all);
+                                   "toMe" is true for DMs, replies to you and @nick, nick#1234 or @all);
                                    --to-me prints only those; --once exits after the first new
                                    messages, and the next --once starts where it stopped, so an
                                    agent can run it in the background and be woken when it exits
@@ -69,6 +81,9 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom receipts on|off          read receipts: "watch" tells senders it read their messages
                                    (blue ticks); off still reports them delivered (default: on)
   opencom ui [--port 4817]         open the desktop app in the browser
+  opencom mcp                      serve this device's chat as an MCP server over stdio (tools: send,
+                                   inbox, history, answer, react, status, contacts, groups). Claude Code:
+                                   claude mcp add opencom -e OPENCOM_HOME=<dir> -- opencom mcp
 `;
 
 function token(): string {
@@ -132,7 +147,9 @@ const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted
   const rs = reactions ? reactionsOn(m, reactions) : [];
   const reacted = rs.length ? `  [${rs.map((r) => `${r.emoji} ${r.ids.map(name).join(", ")}`).join(" · ")}]` : "";
   const body = m.deleted ? "(deleted)" : `${m.text}${m.edited ? " (edited)" : ""}`;
-  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${body}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${reacted}`;
+  const ask = m.ask && !m.deleted ? `  [choices: ${m.ask.map((c, i) => `${i + 1} ${c}`).join(" | ")}; answer: opencom answer <chat> ${m.id} <text>]` : "";
+  const answer = m.answer && !m.deleted ? `  (answer: ${m.answer.choice === null ? "written" : `choice ${m.answer.choice + 1}`})` : "";
+  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${body}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${answer}${ask}${reacted}`;
 };
 
 async function main(argv: string[]) {
@@ -165,10 +182,19 @@ async function main(argv: string[]) {
     case "contacts": {
       const [{ devices }, seen] = await Promise.all([load(), bus.presence()]);
       for (const d of devices.sort((a, b) => a.nick.localeCompare(b.nick))) {
-        const last = seen[d.id];
+        const last = seen[d.id]?.lastSeen;
         const online = last && Date.now() - Date.parse(last) < 10 * 60_000;
-        console.log(`${online ? "●" : "○"} ${handle(d).padEnd(20)} ${d.kind.padEnd(8)} ${last ? `seen ${local(last)}` : ""}${d.id === me.id ? "  (you)" : ""}`);
+        console.log(`${online ? "●" : "○"} ${handle(d).padEnd(20)} ${d.kind.padEnd(8)} ${last ? `seen ${local(last)}` : ""}${d.id === me.id ? "  (you)" : ""}${online && seen[d.id].status ? `  — ${seen[d.id].status}` : ""}`);
       }
+      return;
+    }
+    case "status": {
+      const text = f.clear ? "" : rest.join(" ").replace(/\s+/g, " ").trim();
+      if (!text && !f.clear) { console.log(cfg.status ? `Status: ${cfg.status}` : "No status. Set one: opencom status <text…>"); return; }
+      if (text.length > STATUS_MAX) throw new Error(`A status is ${STATUS_MAX} characters at most.`);
+      await bus.heartbeat(me, text);
+      writeConfig({ ...cfg, status: text || undefined });
+      console.log(text ? `Status: ${text}` : "Status cleared.");
       return;
     }
     case "send": {
@@ -179,7 +205,7 @@ async function main(argv: string[]) {
       if (!text && !files.length) throw new Error("Nothing to send.");
       const { devices, groups } = await load();
       const channel = resolveTarget(to, me, devices, groups);
-      const msg = await bus.send(channel, me, text, files, f.reply ? { replyTo: f.reply[0] } : {});
+      const msg = await bus.send(channel, me, text, files, { replyTo: f.reply?.[0], ask: f.choice });
       await notifyRecipients(msg, me, devices, groups).catch(() => {});
       console.log(`sent to ${label(channel, me, devices, groups)}`);
       return;
@@ -333,6 +359,19 @@ async function main(argv: string[]) {
       console.log(`${cmd === "edit" ? "edited" : "deleted"} in ${label(channel, me, devices, groups)}`);
       return;
     }
+    case "answer": {
+      const [to, id, ...words] = rest;
+      if (!to || !id || !words.length) throw new Error("Usage: opencom answer <chat> <message-id> <text…>");
+      const { devices, groups } = await load();
+      const channel = resolveTarget(to, me, devices, groups);
+      const ask = (await bus.history(channel, 200)).find((x) => x.id === id || x.id.endsWith(id));
+      if (!ask?.ask || ask.deleted) throw new Error(`No ask ${id} in ${label(channel, me, devices, groups)} (last 200).`);
+      const answer = answerFor(ask, words.join(" "));
+      const msg = await bus.send(channel, me, answer.choice === null ? words.join(" ") : ask.ask[answer.choice], [], { replyTo: ask.id, answer });
+      await notifyRecipients(msg, me, devices, groups).catch(() => {});
+      console.log(`answered ${answer.choice === null ? "(written)" : `choice ${answer.choice + 1} "${msg.text}"`} in ${label(channel, me, devices, groups)}`);
+      return;
+    }
     case "react": {
       const [to, id, word] = rest;
       if (!to || !id || (!word && !f.off)) throw new Error(`Usage: opencom react <chat> <message-id> <${Object.keys(REACTION_NAMES).join("|")}> [--off]`);
@@ -374,7 +413,8 @@ async function main(argv: string[]) {
       if (!f.json) console.error(`watching ${cfg.repo} as ${handle(me)}…`);
       for (;;) {
         try {
-          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(me).catch(() => {}); }
+          // the status from the config as it is now ("opencom status" may have changed it meanwhile)
+          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(me, (() => { try { return readConfig().status ?? ""; } catch { return ""; } })()).catch(() => {}); }
           if (admits && Date.now() - invitesAt > 15_000) {
             invitesAt = Date.now();
             for (const login of await processInvites(bus, me)) console.error(`watch: admitted ${login} (invitation)`);
@@ -403,6 +443,16 @@ async function main(argv: string[]) {
         }
         await new Promise((r) => setTimeout(r, every));
       }
+    }
+    case "mcp": {
+      const { serveMcp } = await import("./mcp.ts");
+      const version = (() => { try { return JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version; } catch { return "0"; } })();
+      const status = () => { try { return readConfig().status ?? ""; } catch { return ""; } };
+      await serveMcp({
+        bus, me, repo: cfg.repo, version, cursor: path.join(CONFIG_DIR, "mcp-head"), readReceipts: cfg.readReceipts !== false,
+        load, resolveTarget, label, line, status, setStatus: (text) => writeConfig({ ...readConfig(), status: text || undefined }),
+      });
+      return;
     }
     case "ui": {
       const port = Number(f.port?.[0] ?? 4817);

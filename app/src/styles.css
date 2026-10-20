@@ -186,6 +186,9 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 .chat-head .title { display: flex; flex-direction: row; align-items: center; gap: 10px; margin-right: auto; }
 .chat-head .title-text { display: flex; flex-direction: column; min-width: 0; }
 .chat-head .title-text b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-head .title-text .sub { display: flex; gap: .3em; min-width: 0; max-width: 100%; white-space: nowrap; }
+.marquee { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.marquee > span { display: inline-block; }
 .chat-head .info { color: var(--muted); }
 .quiet { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; flex: none; }
 
@@ -297,6 +300,12 @@ a.ghost { display: inline-flex; align-items: center; color: inherit; text-decora
 .react { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; line-height: 1; padding: 3px 7px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--line); color: var(--ink); }
 .react span { font-size: 11px; color: var(--muted); }
 .react.mine { border-color: var(--accent); }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.choice { font: inherit; font-size: 14px; line-height: 1.25; padding: 7px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--accent); color: var(--accent); text-align: left; cursor: pointer; }
+.choice.other { border-style: dashed; border-color: var(--line); color: var(--muted); }
+.choice.on { background: var(--accent); color: var(--accent-ink); border-style: solid; }
+.choice:disabled { cursor: default; opacity: 1; }
+.choice span { margin-left: 6px; font-size: 12px; opacity: .8; }
 .unsent { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }
 /* edits and deletes */
 .text.deleted { font-style: italic; color: var(--muted); }

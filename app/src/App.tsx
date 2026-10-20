@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, DraftQueue, PALETTES, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Bus, ClaimError, DraftQueue, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -7,7 +7,7 @@ import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
-import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, noteHead, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 const PULL = 56; // how far (after damping) the chat list is pulled down before letting go refreshes it
@@ -585,10 +585,14 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device.id]);
   const READ_KEY = `oc.read.${session.repo}`; // read markers per chat: channel names ("all") repeat across chats
-  const seenHead = () => { try { if (watcher.head) localStorage.setItem(`oc.head.${session.repo}`, watcher.head); } catch { /* private mode */ } };
+  const seenHead = () => {
+    if (!watcher.head) return;
+    try { localStorage.setItem(`oc.head.${session.repo}`, watcher.head); } catch { /* private mode */ }
+    noteHead(session.repo, watcher.head);
+  };
   const [devices, setDevices] = useState<Device[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [presence, setPresence] = useState<Record<string, string>>({});
+  const [presence, setPresence] = useState<Record<string, Presence>>({});
   const [messages, setMessages] = useState<Record<string, Pending[]>>({});
   const [active, setActive] = useState("all");
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
@@ -738,7 +742,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           const draftsAsked = Date.now();
           watcher.tickDrafts().then(() => takeDrafts(watcher.drafts, draftsAsked)).catch(() => {});
           setStatus(""); setAccount(null); seenHead();
-          bus.presence().then(setPresence).catch(() => {});
+          watcher.tickPresence().then(() => setPresence(watcher.presence)).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
           askNotifications();
           break;
@@ -773,7 +777,8 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
             if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
           }
-          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); bus.presence().then(setPresence).catch(() => {}); }
+          if (await watcher.tickPresence().catch(() => false)) setPresence(watcher.presence);
+          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); }
           failures = 0;
           setStatus(""); setAccount(null);
         } catch (e) {
@@ -839,7 +844,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     await watcher.refresh();
   };
   const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && !isEditNotice(m) && (!read[ch] || m.id > read[ch])).length;
-  const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id]) < 10 * 60_000;
+  const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id].lastSeen) < 10 * 60_000;
   const [filter, setFilter] = useState("");
   const [reply, setReply] = useState<Message | null>(null);
   const [menu, setMenu] = useState<{ m: Message; x: number; y: number } | null>(null);
@@ -910,7 +915,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     if (m.from === me.id) return S.youSaid(body);
     return isDm(ch) ? body : `${m.fromNick}: ${body}`;
   };
-  const seen = (id: string) => (online(id) ? S.online : presence[id] ? S.lastSeen(when(presence[id])) : "");
+  const seen = (id: string) => (online(id) ? S.online : presence[id] ? S.lastSeen(when(presence[id].lastSeen)) : "");
   const title = active === "all" ? "#all" : isDm(active) ? `@${handle(devices.find((d) => d.id === dmPeer(active, me.id)) ?? { nick: "?", id: dmPeer(active, me.id) })}` : `#${groups.find((g) => g.channel === active)?.name ?? active}`;
 
   const open = (ch: string) => { setActive(ch); setMobileView("chat"); };
@@ -919,19 +924,22 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const peer = isDm(active) ? devices.find((d) => d.id === dmPeer(active, me.id)) : undefined;
   const headAvatar = peer ? <Avatar name={peer.nick} seed={peer.id} shape={peer.kind === "agent" ? "agent" : "person"} online={online(peer.id)} size={36} picture={pictureOf(peer)} />
     : <Avatar name={activeGroup?.name ?? "all"} seed={activeGroup?.channel ?? "all"} shape="group" size={36} />;
-  const headSub = peer ? [KIND[peer.kind] ?? peer.kind, seen(peer.id)].filter(Boolean).join(" · ")
+  // what an online peer says it is doing: "online • deploying 0.8.5", sliding when it does not fit
+  const doing = peer && online(peer.id) ? presence[peer.id]?.status : undefined;
+  const headSub = peer ? (doing ? <>{S.online} • <Marquee text={doing} /></> : [KIND[peer.kind] ?? peer.kind, seen(peer.id)].filter(Boolean).join(" · "))
     : activeGroup ? S.members(activeGroup.members.length) : S.everyoneCount(devices.length);
   const loud = Object.keys(messages).filter((ch) => quietFor(me, ch)?.mode !== "off").reduce((n, ch) => n + unread(ch), 0);
   useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
 
   // what a failed message needs to go again, by its draft id; kept in memory, so a reload drops it
-  const unsent = useRef<Record<string, { channel: string; text: string; payload: Upload[]; replyTo?: string }>>({});
+  type SendOpts = { replyTo?: string; answer?: { choice: number | null } };
+  const unsent = useRef<Record<string, { channel: string; text: string; payload: Upload[]; opts: SendOpts }>>({});
   const drop = (channel: string, id: string) => setMessages((prev) => ({ ...prev, [channel]: (prev[channel] ?? []).filter((x) => x.id !== id) }));
-  const deliver = async (channel: string, text: string, payload: Upload[], replyTo?: string) => {
-    const draft: Pending = { ...bus.newMessage(channel, me, text, replyTo ? { replyTo } : {}), pending: true, files: payload.map(({ data, ...f }) => ({ ...f, path: "", size: data.length })) };
+  const deliver = async (channel: string, text: string, payload: Upload[], opts: SendOpts = {}) => {
+    const draft: Pending = { ...bus.newMessage(channel, me, text, opts), pending: true, files: payload.map(({ data, ...f }) => ({ ...f, path: "", size: data.length })) };
     add([draft]);
     try {
-      const sent = await bus.send(channel, me, text, payload, replyTo ? { replyTo } : {});
+      const sent = await bus.send(channel, me, text, payload, opts);
       const modes = mediaModes();
       sent.files?.forEach((f, i) => { const k = kindOf(f); remember(f.path, payload[i].data, !!k && modes[k] === "save"); });
       watcher.seen.add(msgPath(sent));
@@ -939,7 +947,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       notifyRecipients(sent, me, devices, groups).catch(() => {});
       setStatus((s) => (s.startsWith(S.cantSend("")) ? "" : s));
     } catch (e) {
-      unsent.current[draft.id] = { channel, text, payload, replyTo };
+      unsent.current[draft.id] = { channel, text, payload, opts };
       setMessages((prev) => ({ ...prev, [channel]: (prev[channel] ?? []).map((x) => (x.id === draft.id ? { ...x, pending: false, failed: true } : x)) }));
       const problem = accountProblem(e, session.repo);
       if (problem) setAccount(problem); else setStatus(S.cantSend((e as Error).message));
@@ -947,10 +955,16 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   };
   const send = async (text: string, files: File[]) => {
     const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()), ...(await describe(f)) })));
-    const replyTo = reply?.id;
+    const q = reply;
     setReply(null);
     saveDraft(active, "");
-    await deliver(active, text, payload, replyTo);
+    // a reply to an ask answers it: with the choice its text is, or as a written answer
+    await deliver(active, text, payload, q ? { replyTo: q.id, ...(q.ask && !q.deleted ? { answer: answerFor(q, text) } : {}) } : {});
+  };
+  /** Picks choice `i` of an ask, or with null starts a written answer (a reply to it). */
+  const answer = (m: Message, i: number | null) => {
+    if (i === null) { setReply(m); return; }
+    return deliver(m.channel, m.ask![i], [], { replyTo: m.id, answer: { choice: i } });
   };
   /** A failed message goes again as a new one (new time, at the end of the chat); discard forgets it. */
   const resend = (m: Message) => {
@@ -958,7 +972,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     if (!u) return;
     delete unsent.current[m.id];
     drop(u.channel, m.id);
-    return deliver(u.channel, u.text, u.payload, u.replyTo);
+    return deliver(u.channel, u.text, u.payload, u.opts);
   };
   const [editing, setEditing] = useState<Message | null>(null);
   useEffect(() => { setEditing(null); flushDrafts(); }, [active, flushDrafts]);
@@ -1045,7 +1059,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
             {headAvatar}
             <span className="title-text">
               <b>{title}</b>
-              <span className="muted small">{headSub}{quiet(active) ? (quiet(active)!.mode === "off" ? S.mutedSuffix : S.mentionsSuffix) : ""}</span>
+              <span className="muted small sub">{headSub}{quiet(active) ? (quiet(active)!.mode === "off" ? S.mutedSuffix : S.mentionsSuffix) : ""}</span>
             </span>
           </button>
           {status && <span className="status">{status}</span>}
@@ -1054,7 +1068,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
-          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
+          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} answers={(m) => answersTo(m, (messages[m.channel] ?? []).filter((x) => !x.failed))} onAnswer={answer} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
           selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} onResend={resend} onDiscard={discard} />
         {selected !== null
           ? <div className="select-bar">
@@ -1196,6 +1210,29 @@ function Avatar({ name, seed, shape, online, size = 40, picture }: { name: strin
       {online !== undefined && <i className={`presence ${online ? "on" : ""}`} />}
     </span>
   );
+}
+
+/** One line that slides to show its end when it does not fit: still for a moment at the start and at the end. */
+function Marquee({ text }: { text: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current, inner = el?.firstElementChild as HTMLElement | null;
+    if (!el || !inner || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let run: Animation | undefined;
+    const start = () => {
+      run?.cancel();
+      const shift = inner.offsetWidth - el.clientWidth;
+      if (shift <= 0) return;
+      const hold = 1500, move = (shift / 30) * 1000; // 30 px a second
+      const total = 2 * hold + move, at = hold / total, to = `translateX(-${shift}px)`;
+      run = inner.animate([{ transform: "none", offset: 0 }, { transform: "none", offset: at }, { transform: to, offset: 1 - at }, { transform: to, offset: 1 }], { duration: total, iterations: Infinity });
+    };
+    start();
+    const ro = new ResizeObserver(start);
+    ro.observe(el);
+    return () => { ro.disconnect(); run?.cancel(); };
+  }, [text]);
+  return <span ref={box} className="marquee" title={text}><span>{text}</span></span>;
 }
 
 const Gear = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>;
@@ -1341,7 +1378,7 @@ function TickMark({ state }: { state: Ticks }) {
   );
 }
 
-function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, reactions, onReact, onReply, onJump, onMenu, selecting, selected, onToggle, onResend, onDiscard }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; reactions: (m: Message) => { emoji: Reaction; ids: string[] }[]; onReact: (m: Message, e: Reaction) => void; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void; onResend: (m: Message) => void; onDiscard: (m: Message) => void }) {
+function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, reactions, onReact, answers, onAnswer, onReply, onJump, onMenu, selecting, selected, onToggle, onResend, onDiscard }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; reactions: (m: Message) => { emoji: Reaction; ids: string[] }[]; onReact: (m: Message, e: Reaction) => void; answers: (m: Message) => Record<string, number | null>; onAnswer: (m: Message, i: number | null) => void; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void; onResend: (m: Message) => void; onDiscard: (m: Message) => void }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
   // messages showing their earlier versions (tap "edited")
@@ -1382,6 +1419,21 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.edits && openEdits.has(m.id) && <div className="edits" aria-label={S.earlier}>{m.edits.map((e, i) => <div key={i}><span className="muted">{when(e.at)}</span> {e.text}</div>)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
+              {m.ask && still && (() => {
+                // one button per choice and one to write something else; ✓ marks my answer (the asker sees what others picked)
+                const got = answers(m);
+                const who = (ids: string[]) => ids.map((id) => (id === me.id ? S.you : handle(devices.find((d) => d.id === id) ?? { nick: "?", id }))).join(", ");
+                const pick = (i: number | null) => (e: React.MouseEvent) => { e.stopPropagation(); if (!selecting) onAnswer(m, i); };
+                return <div className="choices" role="group" aria-label={S.choices}>
+                  {[...m.ask.map((c, i) => [c, i] as const), ...(mine ? [] : [[S.writeAnswer, null] as const])].map(([c, i]) => {
+                    const ids = Object.keys(got).filter((id) => got[id] === i);
+                    const on = mine ? ids.length > 0 : me.id in got && got[me.id] === i;
+                    return <button key={i ?? "other"} className={`choice ${i === null ? "other" : ""} ${on ? "on" : ""}`} disabled={mine} title={who(ids) || undefined} onClick={pick(i)}>
+                      {on && "✓ "}{c}{(ids.length > 1 || (authors && ids.length > 0)) && <span>{ids.length}</span>}
+                    </button>;
+                  })}
+                </div>;
+              })()}
               <div className="meta">{isPinned(m) && <span title={S.pinned}><PinIcon /></span>}{m.edited && <button className="edited" title={S.showEarlier} onClick={(e) => { e.stopPropagation(); toggleEdits(m.id); }}>{S.edited}</button>}{m.failed ? S.notSent : m.pending ? S.sending : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
               {m.failed && <div className="unsent">
                 <button className="mini" onClick={(e) => { e.stopPropagation(); onResend(m); }}>{S.resend}</button>

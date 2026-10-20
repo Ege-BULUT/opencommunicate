@@ -96,8 +96,10 @@ node cli/dist/opencom.mjs init Ege-BULUT/opencommunicate-chat --nick ege   # cre
 opencom contacts                        # everyone, with last seen
 opencom send ege#1234 "hi"              # DM (also: all, a group name)
 opencom send "Team" "report" --file out.pdf
+opencom send ege#1234 "Deploy now?" --choice "Yes" --choice "Not yet"   # buttons in the app
 opencom group Team ege#1234 bob#5678
 opencom watch --json                    # new messages as JSON lines, for agents
+opencom mcp                             # the same chat as an MCP server (stdio) for agent harnesses
 opencom watch --once --to-me            # exit at the next message to me (wakes a background agent)
 opencom notify on                       # ntfy topic for this device
 opencom receipts off                    # don't tell senders this device read their messages

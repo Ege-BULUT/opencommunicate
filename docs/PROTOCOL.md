@@ -14,7 +14,9 @@ channels/dm-<a>-<b>/<message>.json       two devices, ids sorted ascending
 channels/g-<slug>-<rand>/meta.json       { channel, name, members: [id], admins: [id], createdBy, createdAt }
 channels/g-<slug>-<rand>/<message>.json
 channels/<channel>/files/<message id>-<name>   attachments
-branch "presence": presence/<id>.json    { id, lastSeen } — orphan commits, force-updated
+branch "presence": presence/<id>.json    { id, lastSeen, status? } — orphan commits, force-updated;
+                                         status (0.8.6): one line of 100 characters at most, what the
+                                         device says it is doing; a heartbeat without one keeps it
 branch "receipts": receipts/<id>.json    { id, channels: { <channel>: { delivered?, read? } } }
 branch "pins": pins/<id>.json            { id, pins: [{ channel, id, at }] }  newest first
 branch "reactions": reactions/<id>.json  { id, reactions: { "<channel>/<message id>": "👍" | "👎" | "🙂" | "❤️" } }
@@ -30,7 +32,7 @@ branch "drafts": drafts/<id>.json        { id, drafts: { <channel>: { text, at }
   GitHub login in its device file, which is then asked to set one. Everyone with access to the repository can
   read the hashes, hence the slow hash; and like the group rules, these checks are kept by the clients.
 - **message file name**: `<UTC yyyymmddThhmmssmmmZ>-<sender id>-<6 random [a-z0-9]>.json`, so names sort by time.
-- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, edited?, edits?, deleted?, system? }`.
+- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, edited?, edits?, deleted?, ask?, answer?, system? }`.
 - **edit / delete** (0.7.3): the author rewrites the message file in place. An edit sets `text`, `edited` (ISO
   time) and appends the previous text to `edits: [{ text, at }]` (oldest first; `at` is when that version was
   written). A delete keeps the id, sender and time, sets `deleted` (ISO time), empties `text`, drops `files`,
@@ -57,8 +59,16 @@ branch "drafts": drafts/<id>.json        { id, drafts: { <channel>: { text, at }
   | { type: "rename", name } | { type: "leave" }`. **These rules are kept by the clients**: the repository
   has no server, so anyone with write access could still edit `meta.json` by hand. The privacy boundary is
   the repository, not the group.
-- **addressed to a device**: a DM, or a message whose text has `@nick`, `@nick#id`, `nick#id`, `@all`,
-  `@herkes` or `@everyone`. The CLI marks these with `toMe: true`.
+- **addressed to a device**: a DM, a reply to one of its messages (`replyTo` names a message id, which holds
+  its sender's id), or a message whose text has `@nick`, `@nick#id`, `nick#id`, `@all`, `@herkes` or
+  `@everyone`. The CLI marks these with `toMe: true`.
+- **asks** (0.8.5): `ask: ["Yes, push", "Not yet"]` (1 to 10 different one-line choices, 80 characters at most,
+  stored as given) makes a message a question with choices; the apps show a button per choice and one to write
+  something else. An answer is a reply (`replyTo` = the ask's id) with `answer: { choice }`: the index of the
+  choice picked, its `text` being that choice word for word, or `null` for a written answer (a reply typed to
+  the ask; text equal to a choice, case and surrounding spaces aside, counts as picking it). A person's newest
+  answer counts; deleting it takes it back, and editing it makes it a written one (`choice: null`). A deleted
+  ask drops `ask`.
 - **writes**: one commit per action (message + its attachments together), made through the Git Data API
   on the current head; if the branch moved, the commit is rebuilt on the new head and retried.
 - **reads**: poll `GET /git/ref/heads/main` with `If-None-Match`; on change, `GET /compare/<old>...<new>`
