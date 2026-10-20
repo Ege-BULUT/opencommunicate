@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, DraftQueue, PALETTES, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, DraftQueue, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -925,13 +925,14 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
 
   // what a failed message needs to go again, by its draft id; kept in memory, so a reload drops it
-  const unsent = useRef<Record<string, { channel: string; text: string; payload: Upload[]; replyTo?: string }>>({});
+  type SendOpts = { replyTo?: string; answer?: { choice: number | null } };
+  const unsent = useRef<Record<string, { channel: string; text: string; payload: Upload[]; opts: SendOpts }>>({});
   const drop = (channel: string, id: string) => setMessages((prev) => ({ ...prev, [channel]: (prev[channel] ?? []).filter((x) => x.id !== id) }));
-  const deliver = async (channel: string, text: string, payload: Upload[], replyTo?: string) => {
-    const draft: Pending = { ...bus.newMessage(channel, me, text, replyTo ? { replyTo } : {}), pending: true, files: payload.map(({ data, ...f }) => ({ ...f, path: "", size: data.length })) };
+  const deliver = async (channel: string, text: string, payload: Upload[], opts: SendOpts = {}) => {
+    const draft: Pending = { ...bus.newMessage(channel, me, text, opts), pending: true, files: payload.map(({ data, ...f }) => ({ ...f, path: "", size: data.length })) };
     add([draft]);
     try {
-      const sent = await bus.send(channel, me, text, payload, replyTo ? { replyTo } : {});
+      const sent = await bus.send(channel, me, text, payload, opts);
       const modes = mediaModes();
       sent.files?.forEach((f, i) => { const k = kindOf(f); remember(f.path, payload[i].data, !!k && modes[k] === "save"); });
       watcher.seen.add(msgPath(sent));
@@ -939,7 +940,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       notifyRecipients(sent, me, devices, groups).catch(() => {});
       setStatus((s) => (s.startsWith(S.cantSend("")) ? "" : s));
     } catch (e) {
-      unsent.current[draft.id] = { channel, text, payload, replyTo };
+      unsent.current[draft.id] = { channel, text, payload, opts };
       setMessages((prev) => ({ ...prev, [channel]: (prev[channel] ?? []).map((x) => (x.id === draft.id ? { ...x, pending: false, failed: true } : x)) }));
       const problem = accountProblem(e, session.repo);
       if (problem) setAccount(problem); else setStatus(S.cantSend((e as Error).message));
@@ -947,10 +948,16 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   };
   const send = async (text: string, files: File[]) => {
     const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()), ...(await describe(f)) })));
-    const replyTo = reply?.id;
+    const q = reply;
     setReply(null);
     saveDraft(active, "");
-    await deliver(active, text, payload, replyTo);
+    // a reply to an ask answers it: with the choice its text is, or as a written answer
+    await deliver(active, text, payload, q ? { replyTo: q.id, ...(q.ask && !q.deleted ? { answer: answerFor(q, text) } : {}) } : {});
+  };
+  /** Picks choice `i` of an ask, or with null starts a written answer (a reply to it). */
+  const answer = (m: Message, i: number | null) => {
+    if (i === null) { setReply(m); return; }
+    return deliver(m.channel, m.ask![i], [], { replyTo: m.id, answer: { choice: i } });
   };
   /** A failed message goes again as a new one (new time, at the end of the chat); discard forgets it. */
   const resend = (m: Message) => {
@@ -958,7 +965,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     if (!u) return;
     delete unsent.current[m.id];
     drop(u.channel, m.id);
-    return deliver(u.channel, u.text, u.payload, u.replyTo);
+    return deliver(u.channel, u.text, u.payload, u.opts);
   };
   const [editing, setEditing] = useState<Message | null>(null);
   useEffect(() => { setEditing(null); flushDrafts(); }, [active, flushDrafts]);
@@ -1054,7 +1061,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
-          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
+          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} answers={(m) => answersTo(m, messages[m.channel] ?? [])} onAnswer={answer} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
           selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} onResend={resend} onDiscard={discard} />
         {selected !== null
           ? <div className="select-bar">
@@ -1341,7 +1348,7 @@ function TickMark({ state }: { state: Ticks }) {
   );
 }
 
-function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, reactions, onReact, onReply, onJump, onMenu, selecting, selected, onToggle, onResend, onDiscard }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; reactions: (m: Message) => { emoji: Reaction; ids: string[] }[]; onReact: (m: Message, e: Reaction) => void; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void; onResend: (m: Message) => void; onDiscard: (m: Message) => void }) {
+function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, reactions, onReact, answers, onAnswer, onReply, onJump, onMenu, selecting, selected, onToggle, onResend, onDiscard }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; reactions: (m: Message) => { emoji: Reaction; ids: string[] }[]; onReact: (m: Message, e: Reaction) => void; answers: (m: Message) => Record<string, number | null>; onAnswer: (m: Message, i: number | null) => void; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void; onResend: (m: Message) => void; onDiscard: (m: Message) => void }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
   // messages showing their earlier versions (tap "edited")
@@ -1382,6 +1389,21 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.edits && openEdits.has(m.id) && <div className="edits" aria-label={S.earlier}>{m.edits.map((e, i) => <div key={i}><span className="muted">{when(e.at)}</span> {e.text}</div>)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
+              {m.ask && still && (() => {
+                // one button per choice and one to write something else; ✓ marks my answer (the asker sees what others picked)
+                const got = answers(m);
+                const who = (ids: string[]) => ids.map((id) => (id === me.id ? S.you : handle(devices.find((d) => d.id === id) ?? { nick: "?", id }))).join(", ");
+                const pick = (i: number | null) => (e: React.MouseEvent) => { e.stopPropagation(); if (!selecting) onAnswer(m, i); };
+                return <div className="choices" role="group" aria-label={S.choices}>
+                  {[...m.ask.map((c, i) => [c, i] as const), ...(mine ? [] : [[S.writeAnswer, null] as const])].map(([c, i]) => {
+                    const ids = Object.keys(got).filter((id) => got[id] === i);
+                    const on = mine ? ids.length > 0 : me.id in got && got[me.id] === i;
+                    return <button key={i ?? "other"} className={`choice ${i === null ? "other" : ""} ${on ? "on" : ""}`} disabled={mine} title={who(ids) || undefined} onClick={pick(i)}>
+                      {on && "✓ "}{c}{(ids.length > 1 || (authors && ids.length > 0)) && <span>{ids.length}</span>}
+                    </button>;
+                  })}
+                </div>;
+              })()}
               <div className="meta">{isPinned(m) && <span title={S.pinned}><PinIcon /></span>}{m.edited && <button className="edited" title={S.showEarlier} onClick={(e) => { e.stopPropagation(); toggleEdits(m.id); }}>{S.edited}</button>}{m.failed ? S.notSent : m.pending ? S.sending : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
               {m.failed && <div className="unsent">
                 <button className="mini" onClick={(e) => { e.stopPropagation(); onResend(m); }}>{S.resend}</button>

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
@@ -19,9 +19,17 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    create the repo if needed and join it
   opencom whoami                   this device
   opencom contacts                 everyone connected (nick#id, last seen)
-  opencom send <to> <text…> [--file <path>]… [--reply <message-id>]
+  opencom send <to> <text…> [--file <path>]… [--reply <message-id>] [--choice <text>]…
                                    to: all | nick#1234 | 1234 | <group name>;
-                                   --reply quotes a message in that chat (its id, from history/watch)
+                                   --reply quotes a message in that chat (its id, from history/watch);
+                                   --choice (1 to 10 times) asks: the apps show a button per choice and
+                                   one to write something else. The answer is a reply to your message,
+                                   so it wakes "watch --to-me" even in a group; it ends in
+                                   (answer: choice N) when picked, (answer: written) otherwise, and in
+                                   --json carries "answer": {"choice": <index from 0> or null}
+  opencom answer <chat> <id> <text…>
+                                   answer an ask: text that is one of its choices (case aside) picks
+                                   it, anything else is a written answer
   opencom history <to> [-n 20] [--edits]
                                    recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read;
                                    an edited one says (edited), --edits lists what it said before
@@ -44,7 +52,7 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    history shows them after each message: [👍 ege#1234]
   opencom watch [--json] [--interval 5] [--to-me] [--once]
                                    print new messages as they arrive (JSON lines with --json;
-                                   "toMe" is true for DMs and for @nick, nick#1234 or @all);
+                                   "toMe" is true for DMs, replies to you and @nick, nick#1234 or @all);
                                    --to-me prints only those; --once exits after the first new
                                    messages, and the next --once starts where it stopped, so an
                                    agent can run it in the background and be woken when it exits
@@ -132,7 +140,9 @@ const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted
   const rs = reactions ? reactionsOn(m, reactions) : [];
   const reacted = rs.length ? `  [${rs.map((r) => `${r.emoji} ${r.ids.map(name).join(", ")}`).join(" · ")}]` : "";
   const body = m.deleted ? "(deleted)" : `${m.text}${m.edited ? " (edited)" : ""}`;
-  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${body}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${reacted}`;
+  const ask = m.ask && !m.deleted ? `  [choices: ${m.ask.map((c, i) => `${i + 1} ${c}`).join(" | ")}; answer: opencom answer <chat> ${m.id} <text>]` : "";
+  const answer = m.answer && !m.deleted ? `  (answer: ${m.answer.choice === null ? "written" : `choice ${m.answer.choice + 1}`})` : "";
+  return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${body}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${answer}${ask}${reacted}`;
 };
 
 async function main(argv: string[]) {
@@ -179,7 +189,7 @@ async function main(argv: string[]) {
       if (!text && !files.length) throw new Error("Nothing to send.");
       const { devices, groups } = await load();
       const channel = resolveTarget(to, me, devices, groups);
-      const msg = await bus.send(channel, me, text, files, f.reply ? { replyTo: f.reply[0] } : {});
+      const msg = await bus.send(channel, me, text, files, { replyTo: f.reply?.[0], ask: f.choice });
       await notifyRecipients(msg, me, devices, groups).catch(() => {});
       console.log(`sent to ${label(channel, me, devices, groups)}`);
       return;
@@ -331,6 +341,19 @@ async function main(argv: string[]) {
       if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`);
       await bus.amend(me, m, cmd === "edit" ? words.join(" ") : null);
       console.log(`${cmd === "edit" ? "edited" : "deleted"} in ${label(channel, me, devices, groups)}`);
+      return;
+    }
+    case "answer": {
+      const [to, id, ...words] = rest;
+      if (!to || !id || !words.length) throw new Error("Usage: opencom answer <chat> <message-id> <text…>");
+      const { devices, groups } = await load();
+      const channel = resolveTarget(to, me, devices, groups);
+      const ask = (await bus.history(channel, 200)).find((x) => x.id === id || x.id.endsWith(id));
+      if (!ask?.ask || ask.deleted) throw new Error(`No ask ${id} in ${label(channel, me, devices, groups)} (last 200).`);
+      const answer = answerFor(ask, words.join(" "));
+      const msg = await bus.send(channel, me, answer.choice === null ? words.join(" ") : ask.ask[answer.choice], [], { replyTo: ask.id, answer });
+      await notifyRecipients(msg, me, devices, groups).catch(() => {});
+      console.log(`answered ${answer.choice === null ? "(written)" : `choice ${answer.choice + 1} "${msg.text}"`} in ${label(channel, me, devices, groups)}`);
       return;
     }
     case "react": {

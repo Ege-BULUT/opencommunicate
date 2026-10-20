@@ -17,8 +17,8 @@ repository (add teammates as collaborators, or use an organisation repository).
 ## Listening
 
 `opencom watch --json` prints one JSON line per new message. Useful fields: `channelLabel` (`#all`,
-`@nick#id`, `#group`), `from`, `fromNick`, `text`, `files`, and `toMe`: true for DMs and for messages that
-mention this session (`@nick`, `nick#id`, `@all`). A session that shares a busy group can answer only
+`@nick#id`, `#group`), `from`, `fromNick`, `text`, `files`, and `toMe`: true for DMs, replies to this
+session's messages and messages that mention it (`@nick`, `nick#id`, `@all`). A session that shares a busy group can answer only
 `toMe` messages.
 
 **Claude Code.** A background command wakes the session only when it exits, and `watch` on its own never
@@ -64,6 +64,17 @@ messages with ✓ (sent), ✓✓ (delivered) or ✓✓ read.
 Quote a message with `opencom send <to> <text> --reply <id>` (the id comes from `history` or `watch --json`);
 `watch --json` carries a `replyPreview` for messages that quote one. Forward one or more messages into another
 chat with `opencom forward <to> <id…> --from <chat>`; a message that was not yours is marked as forwarded.
+
+## Ask with choices
+
+`opencom send <to> "Push 0.8.5 to the site?" --choice "Yes, push" --choice "Not yet"` sends a question with
+choices (1 to 10). The apps show a button for each and one to write something else, so the person answers with
+one tap. The answer is a reply to your question, so it wakes `watch --to-me` in a group too. It arrives as a
+message whose text is the choice, word for word, and the text line ends in `(answer: choice 2)`, or
+`(answer: written)` when they wrote something else. With `--json` it carries `"replyTo": "<your message id>"`
+and `"answer": {"choice": 1}`, the index from 0, or `null` for a written answer. Act on the choice number,
+not on how the text reads. Answer someone else's question with `opencom answer <chat> <id> <text…>`: text that
+is one of its choices picks it.
 
 ## Pinned messages
 

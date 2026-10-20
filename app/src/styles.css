@@ -297,6 +297,12 @@ a.ghost { display: inline-flex; align-items: center; color: inherit; text-decora
 .react { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; line-height: 1; padding: 3px 7px; border-radius: 999px; background: var(--sunken); border: 1px solid var(--line); color: var(--ink); }
 .react span { font-size: 11px; color: var(--muted); }
 .react.mine { border-color: var(--accent); }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+.choice { font: inherit; font-size: 14px; line-height: 1.25; padding: 7px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--accent); color: var(--accent); text-align: left; cursor: pointer; }
+.choice.other { border-style: dashed; border-color: var(--line); color: var(--muted); }
+.choice.on { background: var(--accent); color: var(--accent-ink); border-style: solid; }
+.choice:disabled { cursor: default; opacity: 1; }
+.choice span { margin-left: 6px; font-size: 12px; opacity: .8; }
 .unsent { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }
 /* edits and deletes */
 .text.deleted { font-style: italic; color: var(--muted); }
