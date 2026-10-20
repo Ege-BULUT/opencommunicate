@@ -1028,13 +1028,13 @@ export class Watcher {
   async start(from?: string | null): Promise<void> {
     const now = await this.bus.head();
     this.head = from || now;
-    await this.refresh();
     // everything already in this device's channels counts as seen; only new messages are delivered
     if (this.head) {
-      const mine = this.channels;
       let tree;
       try { tree = await this.bus.tree(this.head); }
       catch { this.head = now; tree = now ? await this.bus.tree(now) : []; } // that head is gone: start from now
+      await this.refresh();
+      const mine = this.channels;
       for (const e of tree) if (isMessagePath(e.path) && mine.has(e.path.split("/")[1])) this.seen.add(e.path);
     }
     await this.bus.headIfChanged(); // prime the ETag
@@ -1103,16 +1103,24 @@ export class Watcher {
       if (!this.head) { this.head = next; await this.refresh(); }
       else {
         const res = await this.bus.changes(this.head, next, this.channels, this.seen);
+        const prev = this.head, got = [...res.messages];
         this.head = next;
-        out.push(...res.messages);
-        empty = !res.messages.length && !res.metaChanged && !res.devicesChanged;
-        if (res.metaChanged || res.devicesChanged) {
-          const before = this.channels;
-          await this.refresh();
-          // a group this device was just added to: include messages already in it
-          const added = [...this.channels].filter((c) => !before.has(c));
-          for (const ch of added) for (const m of await this.bus.history(ch, 50, next)) if (!this.seen.has(msgPath(m))) { this.seen.add(msgPath(m)); out.push(m); }
+        try {
+          if (res.metaChanged || res.devicesChanged) {
+            const before = this.channels;
+            await this.refresh();
+            // a group this device was just added to: include messages already in it
+            const added = [...this.channels].filter((c) => !before.has(c));
+            for (const ch of added) for (const m of await this.bus.history(ch, 50, next)) if (!this.seen.has(msgPath(m))) { this.seen.add(msgPath(m)); got.push(m); }
+          }
+        } catch (e) {
+          // the next tick starts this move again, so what it read is not lost
+          this.head = prev; this.resume = next;
+          for (const m of got) this.seen.delete(msgPath(m));
+          throw e;
         }
+        out.push(...got);
+        empty = !res.messages.length && !res.metaChanged && !res.devicesChanged;
       }
     }
     // Safety net: right after a push GitHub's compare view can come back without the new files, and a
@@ -1120,7 +1128,9 @@ export class Watcher {
     // scanned when the branch moved and compare brought nothing (just when a notification for that message
     // arrives), on a pull to refresh, and once a minute.
     // ponytail: one recursive tree read per such move; read only the changed channels' folders if repos grow large
-    if (this.head && (full || empty || this.ticks % 12 === 0)) out.push(...(await this.reconcile()));
+    if (this.head && (full || empty || this.ticks % 12 === 0)) {
+      try { out.push(...(await this.reconcile())); } catch { /* a safety net: the next one tries again, and what this tick read still goes out */ }
+    }
     return out.sort((a, b) => a.id.localeCompare(b.id));
   }
 

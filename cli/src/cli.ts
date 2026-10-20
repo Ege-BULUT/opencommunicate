@@ -31,6 +31,15 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    so it wakes "watch --to-me" even in a group; it ends in
                                    (answer: choice N) when picked, (answer: written) otherwise, and in
                                    --json carries "answer": {"choice": <index from 0> or null}
+                                   --wait: stay until someone replies, then print the reply (for an ask,
+                                   the choice picked, as written in --choice) and exit; --json prints
+                                   {"id","from","fromNick","text","choice"}; --timeout <s> gives up
+                                   (exit 1) after that long
+  opencom approve <to> [--timeout 540] [--lang en|tr]
+                                   a Claude Code PermissionRequest hook: each permission prompt is sent
+                                   to <to> as an ask (Allow / Deny); the answer is the hook's decision,
+                                   a written answer denies with its text as the reason. The terminal
+                                   prompt still shows; the first answer counts. See docs/AGENTS.md
   opencom answer <chat> <id> <text…>
                                    answer an ask: text that is one of its choices (case aside) picks
                                    it, anything else is a written answer
@@ -99,6 +108,8 @@ const readText = (p: string) => { try { return fs.readFileSync(p, "utf8").trim()
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
 const writeConfig = (c: Config) => { fs.mkdirSync(CONFIG_DIR, { recursive: true }); fs.writeFileSync(CONFIG, JSON.stringify(c, null, 2), { mode: 0o600 }); };
 
+// flags that take no value, so "send ege --wait hi" still sends "hi"
+const SWITCHES = new Set(["help", "wait", "json", "once", "to-me", "all", "edits", "off", "clear", "random", "reset"]);
 function flags(args: string[]) {
   const out: Record<string, string[]> = {}, rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -106,7 +117,7 @@ function flags(args: string[]) {
     if (a.startsWith("--") || /^-[a-z]$/.test(a)) {
       const k = a.replace(/^-+/, "");
       const next = args[i + 1];
-      if (next === undefined || next.startsWith("-")) (out[k] ??= []).push("true");
+      if (SWITCHES.has(k) || next === undefined || next.startsWith("-")) (out[k] ??= []).push("true");
       else { (out[k] ??= []).push(next); i++; }
     } else rest.push(a);
   }
@@ -174,6 +185,29 @@ async function main(argv: string[]) {
   const bus = new Bus({ repo: cfg.repo, token: token() });
   const me = cfg.device;
   const load = async () => { const head = await bus.head(); return { devices: await bus.devices(head ?? undefined), groups: await bus.groups(head ?? undefined) }; };
+  const seconds = (fallback: number) => {
+    const n = Number(f.timeout?.[0] ?? fallback);
+    if (!(n >= 0)) throw new Error("--timeout is a number of seconds.");
+    return n;
+  };
+  const watching = async () => { const w = new Watcher(bus, me); await w.start(); return w; };
+  // the first reply to `asked` from someone else (marked read), or null once `seconds` (0: no limit) have passed
+  const replyTo = async (asked: Message, w: Watcher, seconds: number): Promise<Message | null> => {
+    const until = seconds > 0 ? Date.now() + seconds * 1000 : Infinity;
+    for (;;) {
+      try {
+        const m = (await w.tick()).find((x) => x.replyTo === asked.id && x.from !== me.id && !x.deleted);
+        if (m) {
+          await bus.markReceipts(me, { [m.channel]: cfg.readReceipts !== false ? { read: m.id } : { delivered: m.id } }).catch(() => {});
+          return m;
+        }
+      } catch (e) { console.error(`wait: ${(e as Error).message}`); }
+      if (Date.now() + 3000 > until) return null;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  };
+  // a reply sent without an answer field (an older app, a plain --reply) still picks a choice it spells out
+  const answerOf = (asked: Message, reply: Message) => reply.answer ?? (asked.ask ? answerFor(asked, reply.text) : { choice: null });
 
   switch (cmd) {
     case "whoami":
@@ -205,9 +239,44 @@ async function main(argv: string[]) {
       if (!text && !files.length) throw new Error("Nothing to send.");
       const { devices, groups } = await load();
       const channel = resolveTarget(to, me, devices, groups);
+      const limit = seconds(0);
+      const w = f.wait ? await watching() : null; // before sending, so no reply is missed
       const msg = await bus.send(channel, me, text, files, { replyTo: f.reply?.[0], ask: f.choice });
       await notifyRecipients(msg, me, devices, groups).catch(() => {});
-      console.log(`sent to ${label(channel, me, devices, groups)}`);
+      (w ? console.error : console.log)(`sent to ${label(channel, me, devices, groups)}`);
+      if (!w) return;
+      const reply = await replyTo(msg, w, limit);
+      if (!reply) throw new Error(`No answer within ${limit} s.`);
+      const { choice } = answerOf(msg, reply);
+      const said = choice === null ? reply.text : msg.ask![choice];
+      console.log(f.json ? JSON.stringify({ id: reply.id, from: reply.from, fromNick: reply.fromNick, text: said, choice }) : said);
+      return;
+    }
+    case "approve": {
+      // A Claude Code PermissionRequest hook: the permission prompt goes to the phone as an ask, and the
+      // answer goes back as the hook's decision. A written answer denies, with its text as the reason.
+      const [to] = rest;
+      if (!to) throw new Error("Usage: opencom approve <to> [--timeout 540] [--lang en|tr]  (reads the hook's JSON on stdin)");
+      const lang = f.lang?.[0] ?? (/^tr/i.test(process.env.LC_ALL || process.env.LANG || "") ? "tr" : "en");
+      const req = JSON.parse(fs.readFileSync(0, "utf8") || "{}");
+      if (!req.tool_name) throw new Error("approve reads Claude Code's PermissionRequest hook input on stdin.");
+      const limit = seconds(540);
+      const input = req.tool_input ?? {};
+      const what = String(input.command ?? input.file_path ?? input.notebook_path ?? input.url ?? JSON.stringify(input)).slice(0, 1500);
+      const project = path.basename(req.cwd ?? process.cwd());
+      const tool = String(req.tool_name);
+      const text = `${lang === "tr" ? `${project}: ${tool} için izin veriyor musun?` : `${project}: allow ${tool}?`}\n${what}${input.description ? `\n(${input.description})` : ""}`;
+      const { devices, groups } = await load();
+      const channel = resolveTarget(to, me, devices, groups);
+      const w = await watching();
+      const msg = await bus.send(channel, me, text, [], { ask: lang === "tr" ? ["İzin ver", "Reddet"] : ["Allow", "Deny"] });
+      await notifyRecipients(msg, me, devices, groups).catch(() => {});
+      const reply = await replyTo(msg, w, limit);
+      if (!reply) return; // no answer in time: no decision; the terminal prompt, open all along, stays
+      const { choice } = answerOf(msg, reply);
+      const decision = choice === 0 ? { behavior: "allow" }
+        : { behavior: "deny", message: choice === 1 ? `${handle({ nick: reply.fromNick, id: reply.from })} denied this.` : `${handle({ nick: reply.fromNick, id: reply.from })}: ${reply.text}` };
+      console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }));
       return;
     }
     case "history": {

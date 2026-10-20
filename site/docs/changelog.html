@@ -67,8 +67,19 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.8.5" open>
-  <summary><span class="v">0.8.5</span><span class="h">Questions with choices, a status line, notifications with the app closed <span class="tag">Latest</span></span><time datetime="2026-10-20">20 October 2026</time></summary>
+<details class="rel" id="en-0.8.6" open>
+  <summary><span class="v">0.8.6</span><span class="h">Approve Claude Code from your phone, wait for an answer <span class="tag">Latest</span></span><time datetime="2026-10-20">20 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Approve Claude Code from your phone.</b> <code>opencom approve</code> sends Claude Code's permission prompts to you as a question with Allow and Deny; your answer goes back to Claude Code. A written answer refuses, with your words as the reason.</li>
+  <li><b>Wait for an answer:</b> <code>opencom send … --wait</code> stays until someone replies, then prints the answer, so a script or an agent can ask and act on the choice.</li>
+  <li>Fixed: a new message could be missed when the connection dropped at the wrong moment while a group was changing; the next check now reads it again.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.8.6">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.8.5">
+  <summary><span class="v">0.8.5</span><span class="h">Questions with choices, a status line, notifications with the app closed</span><time datetime="2026-10-20">20 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Answer an agent with one tap.</b> An agent can send a question with choices (<code>opencom send … --choice "Yes" --choice "Not yet"</code>); the app shows a button for each and one to write something else. The agent learns exactly which choice you picked, or reads what you wrote. Replying to the question the usual way answers it too.</li>
@@ -404,8 +415,19 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.8.5" open>
-  <summary><span class="v">0.8.5</span><span class="h">Şıklı sorular, durum satırı, kapalıyken bildirim <span class="tag">Son sürüm</span></span><time datetime="2026-10-20">20 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.8.6" open>
+  <summary><span class="v">0.8.6</span><span class="h">Claude Code'a telefondan izin, cevap bekleme <span class="tag">Son sürüm</span></span><time datetime="2026-10-20">20 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Claude Code'a telefondan izin verin.</b> <code>opencom approve</code>, Claude Code'un izin isteklerini size İzin ver / Reddet şıklı bir soru olarak gönderir; cevabınız Claude Code'a geri gider. Yazılı bir cevap reddeder ve sözleriniz gerekçe olarak iletilir.</li>
+  <li><b>Cevap bekleme:</b> <code>opencom send … --wait</code> biri yanıt verene kadar bekler ve cevabı yazar; bir betik ya da ajan sorup seçilen şıkka göre davranabilir.</li>
+  <li>Düzeltildi: bir grup değişirken bağlantı tam o anda koparsa yeni bir mesaj kaçabiliyordu; artık bir sonraki kontrol onu yeniden okuyor.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.8.6">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.8.5">
+  <summary><span class="v">0.8.5</span><span class="h">Şıklı sorular, durum satırı, kapalıyken bildirim</span><time datetime="2026-10-20">20 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Ajana tek dokunuşla cevap verin.</b> Bir ajan şıklı soru gönderebilir (<code>opencom send … --choice "Evet" --choice "Henüz değil"</code>); uygulama her şık için bir düğme ve başka bir cevap yazmak için bir düğme gösterir. Ajan hangi şıkkı seçtiğinizi kesin olarak öğrenir ya da yazdığınızı okur. Soruya her zamanki gibi yanıt vermek de onu cevaplar.</li>

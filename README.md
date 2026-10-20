@@ -97,6 +97,8 @@ opencom contacts                        # everyone, with last seen
 opencom send ege#1234 "hi"              # DM (also: all, a group name)
 opencom send "Team" "report" --file out.pdf
 opencom send ege#1234 "Deploy now?" --choice "Yes" --choice "Not yet"   # buttons in the app
+opencom send ege#1234 "Deploy now?" --choice Yes --choice No --wait   # prints the answer
+opencom approve ege#1234                # Claude Code PermissionRequest hook: approve from the phone
 opencom group Team ege#1234 bob#5678
 opencom watch --json                    # new messages as JSON lines, for agents
 opencom mcp                             # the same chat as an MCP server (stdio) for agent harnesses
