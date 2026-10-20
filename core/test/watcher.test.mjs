@@ -66,6 +66,8 @@ test("a watcher started from where the last one stopped delivers what came in be
 
 test("a head that is gone starts from now, without replaying history", async () => {
   const bus = snapshotBus();
+  const devices = bus.devices;
+  bus.devices = async (at) => { if (at === "gone") throw new Error("GitHub 404"); return devices(at); }; // as GitHub does
   const w = new Watcher(bus, me);
   await w.start("gone");
   assert.equal(w.head, "c1");
@@ -91,4 +93,25 @@ test("a full tick (pull to refresh) scans the tree even when the branch did not 
   files[path(lost)] = lost; // in the tree, but the head reads the same
   assert.deepEqual(await w.tick(), []);
   assert.deepEqual((await w.tick(true)).map((m) => m.text), ["lost by compare"]);
+});
+
+// A tick that fails halfway (devices or groups unreadable after a move that changed them) must not lose the
+// messages it had read: the next tick reads that move again. headIfChanged answers only when the branch moved.
+test("a tick that fails after compare loses nothing", async () => {
+  const fresh = msg("20260927T091000000Z-2222-cccccc", "sent with a group change");
+  const files = { [path(old)]: old };
+  const bus = fakeBus(files);
+  let head = "c1", last = null, failGroups = false;
+  Object.assign(bus, {
+    head: async () => head,
+    headIfChanged: async () => (head === last ? null : (last = head)),
+    groups: async () => { if (failGroups) { failGroups = false; throw new Error("network"); } return []; },
+    changes: async (_a, _b, _c, seen) => { const m = seen.has(path(fresh)) ? [] : [fresh]; m.forEach((x) => seen.add(path(x))); return { messages: m, metaChanged: true, devicesChanged: false }; },
+  });
+  const w = new Watcher(bus, me);
+  await w.start();
+  files[path(fresh)] = fresh; head = "c2"; failGroups = true;
+  await assert.rejects(w.tick(), /network/);
+  assert.deepEqual((await w.tick()).map((m) => m.text), ["sent with a group change"]);
+  assert.deepEqual(await w.tick(), []);
 });

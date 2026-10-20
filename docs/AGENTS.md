@@ -95,6 +95,40 @@ and `"answer": {"choice": 1}`, the index from 0, or `null` for a written answer.
 not on how the text reads. Answer someone else's question with `opencom answer <chat> <id> <text…>`: text that
 is one of its choices picks it.
 
+**Wait for the answer.** With `--wait`, `send` stays until someone replies to the message, prints the reply
+and exits: for a question, the choice picked exactly as you wrote it in `--choice`, else what they wrote.
+`--json` prints `{"id", "from", "fromNick", "text", "choice"}` (`choice` from 0, `null` for a written answer),
+and `--timeout <seconds>` gives up with exit code 1. "sent to …" goes to stderr, so a script can read the
+answer from stdout:
+
+```sh
+if [ "$(opencom send ege#7779 "Deploy to production?" --choice Yes --choice No --wait --timeout 900)" = Yes ]; then …
+```
+
+**Permission prompts on the phone (Claude Code).** `opencom approve <to>` is a `PermissionRequest` hook: each
+time Claude Code would ask for permission, the request (the project, the tool and its command or file) goes to
+`<to>` as a question with the choices Allow and Deny. Allow lets the tool run, Deny refuses it, and a written
+answer refuses it with your text as the reason, so "not yet, run the tests first" reaches Claude. The prompt
+still shows in the terminal, and whichever is answered first counts; a tap on the phone after that changes
+nothing. With no answer in time (`--timeout`, 540 seconds by default) the hook ends without a decision and the
+terminal prompt stays. `--lang tr` asks in Turkish. In `~/.claude/settings.json` (or a project's `.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "timeout": 600,
+        "command": "OPENCOM_HOME=~/.opencommunicate-<name> opencom approve <your nick#id>" }] }
+    ]
+  }
+}
+```
+
+The matcher picks the tools whose prompts go to the phone (`Bash`, `Edit|Write`, …). Keep the hook's
+`timeout` above `--timeout`, so the hook ends on its own. The hook asks as the session's own device (its
+`OPENCOM_HOME`), not as you: an answer from the device that asked does not count. The first reply to the
+question decides, so send it to a DM rather than a group.
+
 ## Pinned messages
 
 `opencom pin <chat> <id…>` pins messages for this account (nick#id) only (WhatsApp's starred messages; `--off` unpins), and
