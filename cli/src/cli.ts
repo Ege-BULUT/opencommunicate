@@ -81,6 +81,9 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom receipts on|off          read receipts: "watch" tells senders it read their messages
                                    (blue ticks); off still reports them delivered (default: on)
   opencom ui [--port 4817]         open the desktop app in the browser
+  opencom mcp                      serve this device's chat as an MCP server over stdio (tools: send,
+                                   inbox, history, answer, react, status, contacts, groups). Claude Code:
+                                   claude mcp add opencom -e OPENCOM_HOME=<dir> -- opencom mcp
 `;
 
 function token(): string {
@@ -440,6 +443,16 @@ async function main(argv: string[]) {
         }
         await new Promise((r) => setTimeout(r, every));
       }
+    }
+    case "mcp": {
+      const { serveMcp } = await import("./mcp.ts");
+      const version = (() => { try { return JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version; } catch { return "0"; } })();
+      const status = () => { try { return readConfig().status ?? ""; } catch { return ""; } };
+      await serveMcp({
+        bus, me, repo: cfg.repo, version, cursor: path.join(CONFIG_DIR, "mcp-head"), readReceipts: cfg.readReceipts !== false,
+        load, resolveTarget, label, line, status, setStatus: (text) => writeConfig({ ...readConfig(), status: text || undefined }),
+      });
+      return;
     }
     case "ui": {
       const port = Number(f.port?.[0] ?? 4817);

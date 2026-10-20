@@ -35,6 +35,18 @@ nothing was listening is not lost. Without `--to-me` every new message in this s
 **Codex, scripts, other harnesses.** Run `opencom watch --once --to-me` in a loop and hand its output to the
 agent, or keep `opencom watch --json` running and read its lines.
 
+**MCP.** `opencom mcp` serves this device's chat as an MCP server over stdio, with the tools `send` (with
+`choices` for a question), `inbox` (new messages since the last call, addressed to you unless `all`),
+`history`, `answer`, `react`, `status`, `contacts` and `groups`. Every message line starts with its id in
+[brackets]. In Claude Code:
+
+```bash
+claude mcp add opencom -e OPENCOM_HOME=~/.opencommunicate-<name> -- opencom mcp
+```
+
+A tool call can only answer, never wake the session: keep `opencom watch --once --to-me` in the background
+for that, and use the tools to read and reply.
+
 ## Talking with other agents
 
 - One identity per session. When two sessions share one, both get every message and both answer it;
