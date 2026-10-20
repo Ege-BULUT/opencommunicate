@@ -5,6 +5,7 @@ import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, en
 import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
+import { NoDictation, NoVoice, dictate, dictationLang, installVoice, readAloud, setDictationLang, stopReading, whisperReady, type Dictation } from "./voice.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
 import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, noteHead, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
@@ -848,6 +849,17 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const [filter, setFilter] = useState("");
   const [reply, setReply] = useState<Message | null>(null);
   const [menu, setMenu] = useState<{ m: Message; x: number; y: number } | null>(null);
+  const [info, setInfo] = useState<Message | null>(null); // the message whose details are open
+  const [reading, setReading] = useState<string | null>(null); // the message being read aloud
+  const readOut = (m: Message) => {
+    setReading(m.id);
+    readAloud(m.text).catch((e) => {
+      const lang = e instanceof NoVoice ? (e.lang === "tr" ? S.turkish : S.english) : null;
+      setToast(lang ? S.noVoice(lang, native()) : S.cantRead((e as Error)?.message ?? String(e)));
+      setTimeout(() => setToast(""), 8000);
+      if (lang && native()) installVoice();
+    }).finally(() => setReading((r) => (r === m.id ? null : r)));
+  };
   const [selected, setSelected] = useState<Set<string> | null>(null); // non-null = selection mode
   const [forwarding, setForwarding] = useState<Message[] | null>(null); // messages waiting for a target chat
   const toggleSel = useCallback((id: string) => setSelected((s) => { const n = new Set(s ?? []); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
@@ -1084,6 +1096,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
               })()}
             </div>
           : <Composer key={active} draft={drafts[active]?.text ?? ""} onDraft={(t) => saveDraft(active, t)} onSend={send} reply={reply} onCancelReply={() => setReply(null)}
+              onNotice={(t) => { setToast(t); setTimeout(() => setToast(""), 8000); }}
               editing={editing} onEdit={(t) => { const m = editing!; setEditing(null); if (t !== m.text) amend(m, t); }} onCancelEdit={() => setEditing(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />}
       </main>
 
@@ -1120,10 +1133,15 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }}
         onForward={() => { setForwarding([menu.m]); setMenu(null); }}
         onSelect={() => { setSelected(new Set([menu.m.id])); setMenu(null); }}
+        onInfo={() => { setInfo(menu.m); setMenu(null); }}
+        onRead={menu.m.text ? () => { readOut(menu.m); setMenu(null); } : undefined}
         onEdit={menu.m.from === me.id && menu.m.text && !menu.m.forwarded ? () => { setReply(null); setEditing(menu.m); setMenu(null); } : undefined}
         onDelete={menu.m.from === me.id ? () => { amend(menu.m, null); setMenu(null); } : undefined}
         onClose={() => setMenu(null)} />}
+      {info && <MessageInfo m={(messages[info.channel] ?? []).find((x) => x.id === info.id) ?? info} list={messages[info.channel] ?? []} repo={bus.repo} branch={bus.branch}
+        me={me} devices={devices} groups={groups} receipts={receipts} showRead={showRead} reactions={reactions} onClose={() => setInfo(null)} />}
       {forwarding && <ChatPicker me={me} devices={devices} groups={groups} count={forwarding.length} onPick={(ch) => doForward(ch, forwarding)} onClose={() => setForwarding(null)} />}
+      {reading && <div className="toast reading" role="status">🔊 {S.readingAloud} <button onClick={() => { stopReading(); setReading(null); }}>{S.stopReading}</button></div>}
       {toast && <div className="toast" role="status">{toast}</div>}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut}
         showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }} />}
@@ -1240,6 +1258,7 @@ const PersonPlus = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="n
 const Info = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>;
 const Clip = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.5 12.5 21a6 6 0 0 1-8.5-8.5L13 3.5a4 4 0 0 1 5.7 5.7L9.7 18.2a2 2 0 0 1-2.8-2.8L15 7.3" /></svg>;
 const PinIcon = ({ size = 12 }: { size?: number }) => <svg className="pin-icon" viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true"><path d="M15.5 2.5 21.5 8.5l-1.4 1.4-1.1-.4-3.6 3.6.3 3.9-1.4 1.4-4.2-4.2-5.4 5.4H3v-1.3l5.4-5.4-4.2-4.2 1.4-1.4 3.9.3 3.6-3.6-.4-1.1z" /></svg>;
+const Mic = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></svg>;
 const Plane = () => <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6v6.4l12 2-12 2z" /></svg>;
 
 /** Today: the time; earlier: the day. */
@@ -1342,16 +1361,22 @@ function Swipeable({ className, children, onSwipe, onHold }: { className: string
 }
 
 /** The menu a long-press or right-click opens on a message: reply, forward, pin, select, copy. */
-function MessageMenu({ m, x, y, mine, pinned, reaction, onReact, onPin, onReply, onCopy, onClose, onForward, onSelect, onEdit, onDelete }: { m: Message; x: number; y: number; mine: boolean; pinned: boolean; reaction: Reaction | null; onReact: (e: Reaction) => void; onPin: () => void; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void; onEdit?: () => void; onDelete?: () => void }) {
+function MessageMenu({ m, x, y, mine, pinned, reaction, onReact, onPin, onReply, onCopy, onClose, onForward, onSelect, onInfo, onRead, onEdit, onDelete }: { m: Message; x: number; y: number; mine: boolean; pinned: boolean; reaction: Reaction | null; onReact: (e: Reaction) => void; onPin: () => void; onReply: () => void; onCopy: () => void; onClose: () => void; onForward?: () => void; onSelect?: () => void; onInfo: () => void; onRead?: () => void; onEdit?: () => void; onDelete?: () => void }) {
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
     const close = () => onClose();
     document.addEventListener("click", close); document.addEventListener("keydown", close); document.addEventListener("scroll", close, true);
     return () => { document.removeEventListener("click", close); document.removeEventListener("keydown", close); document.removeEventListener("scroll", close, true); };
   }, [onClose]);
-  const style: CSSProperties = { left: Math.min(x, (typeof window !== "undefined" ? window.innerWidth : 400) - 180), top: Math.min(y, (typeof window !== "undefined" ? window.innerHeight : 600) - 200) };
+  // opened at the point held, moved up and left as far as it takes to fit on the screen
+  const el = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<CSSProperties>({ left: x, top: y, visibility: "hidden" });
+  useLayoutEffect(() => {
+    const r = el.current!.getBoundingClientRect();
+    setStyle({ left: Math.max(4, Math.min(x, innerWidth - r.width - 4)), top: Math.max(4, Math.min(y, innerHeight - r.height - 4)) });
+  }, [x, y, confirm]);
   return (
-    <div className="msg-menu" style={style} role="menu" onClick={(e) => e.stopPropagation()}>
+    <div className="msg-menu" ref={el} style={style} role="menu" onClick={(e) => e.stopPropagation()}>
       <div className="react-row" role="group" aria-label={S.react}>
         {REACTIONS.map((e) => <button key={e} role="menuitemradio" aria-checked={reaction === e} className={reaction === e ? "on" : ""} onClick={() => onReact(e)}>{e}</button>)}
       </div>
@@ -1360,11 +1385,45 @@ function MessageMenu({ m, x, y, mine, pinned, reaction, onReact, onPin, onReply,
       <button role="menuitem" onClick={onPin}><PinIcon size={13} /> {pinned ? S.unpin : S.pin}</button>
       {onSelect && <button role="menuitem" onClick={onSelect}>{S.selectItem}</button>}
       {m.text && <button role="menuitem" onClick={onCopy}>{S.copyItem}</button>}
+      {onRead && <button role="menuitem" onClick={onRead}>{S.readItem}</button>}
+      <button role="menuitem" onClick={onInfo}>{S.infoItem}</button>
       {onEdit && <button role="menuitem" onClick={onEdit}>{S.editItem}</button>}
       {onDelete && (confirm
         ? <div className="confirm"><span>{S.deleteForAll}</span><button className="danger" onClick={onDelete}>{S.deleteYes}</button><button onClick={() => setConfirm(false)}>{S.cancel}</button></div>
         : <button role="menuitem" className="danger" onClick={() => setConfirm(true)}>{S.deleteItem}</button>)}
     </div>
+  );
+}
+
+/** A message's details: who sent it and when, who has it and who read it, reactions, answers, edits, files, its id
+ *  and its file on GitHub. Receipts keep the newest message each person has, not when, so there are no read times. */
+function MessageInfo({ m, list, repo, branch, me, devices, groups, receipts, showRead, reactions, onClose }: { m: Message; list: Pending[]; repo: string; branch: string; me: Device; devices: Device[]; groups: Group[]; receipts: Receipts; showRead: boolean; reactions: Reactions; onClose: () => void }) {
+  const who = (id: string) => { const d = devices.find((x) => x.id === id); return d ? handle(d) : `#${id}`; };
+  const when = (iso: string) => new Date(iso).toLocaleString(LOCALE, { dateStyle: "medium", timeStyle: "medium" });
+  const order: Record<Ticks, number> = { read: 0, delivered: 1, sent: 2 };
+  const got = recipientsOf(m.channel, m.from, devices, groups).map((id) => ({ id, t: ticksFor(m, [id], receipts, showRead) })).sort((a, b) => order[a.t] - order[b.t]);
+  const answers = m.ask ? Object.entries(answersTo(m, list.filter((x) => !x.failed))) : [];
+  const url = `https://github.com/${repo}/blob/${branch}/${msgPath(m)}`;
+  return (
+    <Sheet title={S.infoTitle} className="msg-info" onClose={onClose}>
+      <dl>
+        <dt>{S.infoFrom}</dt><dd>{who(m.from)}{m.from === me.id ? S.youSuffix : ""}{m.forwarded ? ` (${S.forwardedTag})` : ""}</dd>
+        <dt>{S.infoSent}</dt><dd>{when(m.ts)}</dd>
+        {m.edited && <><dt>{S.infoEdited}</dt><dd>{when(m.edited)}</dd></>}
+      </dl>
+      {!!got.length && <><h3>{S.infoReceipts}</h3>
+        <ul>{got.map(({ id, t }) => <li key={id}><TickMark state={t} /> {who(id)} <span className="muted small">{S.ticks[t]}</span></li>)}</ul></>}
+      {!!reactionsOn(m, reactions).length && <><h3>{S.infoReactions}</h3>
+        <ul>{reactionsOn(m, reactions).map((r) => <li key={r.emoji}>{r.emoji} {r.ids.map(who).join(", ")}</li>)}</ul></>}
+      {!!answers.length && <><h3>{S.infoAnswers}</h3>
+        <ul>{answers.map(([id, c]) => <li key={id}>{who(id)}: {c === null ? S.infoWritten : m.ask![c]}</li>)}</ul></>}
+      {!!m.edits?.length && <><h3>{S.earlier}</h3>
+        <ul>{m.edits.map((e) => <li key={e.at}><span className="muted small">{when(e.at)}</span><br />{e.text}</li>)}</ul></>}
+      {!!m.files?.length && <><h3>{S.infoFiles}</h3>
+        <ul>{m.files.map((f) => <li key={f.path}>{f.name} <span className="muted small">{size(f.size)}</span></li>)}</ul></>}
+      <p className="muted small mono">{m.id}</p>
+      <div className="actions start"><button className="ghost" onClick={() => openLink(url)}>{S.infoGitHub}</button></div>
+    </Sheet>
   );
 }
 
@@ -1517,7 +1576,7 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   );
 }
 
-function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editing, onEdit, onCancelEdit }: { draft: string; onDraft: (text: string) => void; onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void }) {
+function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editing, onEdit, onCancelEdit, onNotice }: { draft: string; onDraft: (text: string) => void; onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void; onNotice: (text: string) => void }) {
   const [text, setText] = useState(draft);
   // a draft from another device shows here until something is typed in this box
   const typed = useRef(false);
@@ -1545,17 +1604,51 @@ function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editin
   };
   const replyInput = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => { if (reply) replyInput.current?.focus(); }, [reply]);
+  // Dictation: what is said goes after what the box held when it started, and the box is read-only meanwhile.
+  // One run at a time, kept in a ref: a stop asked for while it starts, or the chat closing, stops it once it has.
+  const [listening, setListening] = useState<"starting" | "on" | null>(null);
+  const [stage, setStage] = useState<"transcribing" | number | null>(null);
+  const [consent, setConsent] = useState(false); // the desktop's one-time model download, asked first
+  const run = useRef<{ handle?: Dictation; stop?: boolean; gone?: boolean }>({});
+  const stopDictation = () => { run.current.stop = true; run.current.handle?.stop(); };
+  useEffect(() => () => { run.current.gone = true; run.current.handle?.stop(); }, []);
+  useEffect(() => { if (editing) stopDictation(); }, [editing]);
+  const textNow = useRef(text); textNow.current = text;
+  const listen = async () => {
+    if (listening) { stopDictation(); return; }
+    if (!native() && !whisperReady() && !consent) { setConsent(true); return; }
+    setConsent(false); setListening("starting");
+    const r: typeof run.current = (run.current = {});
+    const base = textNow.current.trim() ? `${textNow.current.trimEnd()} ` : "";
+    let ended = false;
+    try {
+      r.handle = await dictate(dictationLang(), {
+        text: (t) => { if (!r.gone) change(base + t); },
+        end: (error) => { ended = true; if (r.gone) return; setListening(null); setStage(null); if (error) onNotice(S.cantDictate(error)); },
+        stage: (s) => { if (!r.gone) setStage(s); },
+      });
+      if (r.stop || r.gone) r.handle.stop();
+      if (!ended && !r.gone) setListening("on");
+    } catch (e) {
+      if (r.gone) return;
+      setListening(null);
+      onNotice(e instanceof NoDictation ? S.noDictation : S.cantDictate((e as Error).message));
+    }
+  };
   return (
     <div className="composer">
       {editing && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{S.editingLabel}</b><span className="muted"> · {snippet(editing, 70)}</span></span><button className="reply-x" aria-label={S.cancelEdit} onClick={onCancelEdit}>×</button></div>}
       {reply && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{reply.fromNick}</b><span className="muted"> · {snippet(reply, 70)}</span></span><button className="reply-x" aria-label={S.cancelReply} onClick={onCancelReply}>×</button></div>}
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
+      {consent && <div className="reply-bar"><span className="reply-text">{S.dictationDownload}</span><button className="mini" onClick={listen}>{S.download}</button><button className="reply-x" aria-label={S.cancel} onClick={() => setConsent(false)}>×</button></div>}
+      {stage !== null && <div className="reply-bar" role="status"><span className="reply-text muted">{stage === "transcribing" ? S.transcribing : S.downloadingModel(Math.round(stage * 100))}</span></div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
         <button className="icon attach-btn" disabled={!!editing} title={S.addFile} aria-label={S.addFile} onClick={() => input.current?.click()}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-        <textarea ref={replyInput} rows={1} value={text} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)}
+        <textarea ref={replyInput} rows={1} value={text} readOnly={!!listening} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
+        <button className={`icon mic-btn${listening ? " on" : ""}`} disabled={!!editing || stage === "transcribing"} title={listening ? S.stopDictation : S.dictate} aria-label={S.dictate} aria-pressed={!!listening} onClick={listen}><Mic /></button>
         <button className="primary send" aria-label={editing ? S.saveEdit : S.send} onClick={submit} disabled={!text.trim() && (!files.length || !!editing)}><Plane /><span className="send-label">{editing ? S.saveEdit : S.send}</span></button>
       </div>
     </div>
@@ -1883,6 +1976,14 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         )}
         <h3>{S.language}</h3>
         <LangPicker />
+        <h3>{S.dictation}</h3>
+        <label className="inline">{S.dictationLang}
+          <select defaultValue={dictationLang()} onChange={(e) => setDictationLang(e.target.value as Lang)}>
+            <option value="tr">Türkçe</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+        <p className="muted small">{native() ? S.dictationPhone : S.dictationDesktop}</p>
         <p className="muted small">OpenCommunicate {__APP_VERSION__}</p>
         <div className="actions">
           <button className="ghost" onClick={onClose}>{S.close}</button>
