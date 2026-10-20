@@ -852,6 +852,47 @@ export class Bus {
 class Unchanged extends Error {}
 
 /**
+ * One app's draft writes for its account, one at a time. Drafts are orphan commits, pushed with force, so of two
+ * writes on their way the slower one wins: a long message saved halfway, then sent (which clears its draft), came
+ * back as a draft when the halfway save landed last. Writing in order fixes that; `merge` keeps what this app has
+ * for the chats it is writing, and for those whose write landed after a read of the branch started (that read
+ * may predate it).
+ * ponytail: two apps writing at the same moment can still undo each other's file; per-account branches if that bites
+ */
+export class DraftQueue {
+  private bus: Bus;
+  private me: () => Pick<Device, "id" | "nick">;
+  private unsaved: Record<string, string> = {};
+  private writing: Record<string, string> | null = null;
+  private busy: Promise<void> = Promise.resolve();
+  private landed: Record<string, number> = {};
+  constructor(bus: Bus, me: () => Pick<Device, "id" | "nick">) { this.bus = bus; this.me = me; }
+
+  set(channel: string, text: string) { this.unsaved[channel] = text; }
+
+  /** Writes what is waiting, after the write on its way if there is one. A failed write waits for the next flush. */
+  flush(): Promise<void> {
+    if (this.writing || !Object.keys(this.unsaved).length) return this.busy;
+    const batch = this.unsaved;
+    this.unsaved = {};
+    this.writing = batch;
+    this.busy = this.bus.setDrafts(this.me(), batch).then(
+      () => { this.writing = null; const t = Date.now(); for (const ch in batch) this.landed[ch] = t; if (Object.keys(this.unsaved).length) return this.flush(); },
+      () => { this.writing = null; this.unsaved = { ...batch, ...this.unsaved }; }, // anything typed since is newer
+    );
+    return this.busy;
+  }
+
+  /** The drafts to show: `remote`, read from the branch starting at `since` (Date.now()), over `local`. */
+  merge(local: Drafts, remote: Drafts, since: number): Drafts {
+    const ours = new Set([...Object.keys(this.unsaved), ...Object.keys(this.writing ?? {}), ...Object.keys(this.landed).filter((ch) => this.landed[ch] >= since)]);
+    const n = { ...remote };
+    for (const ch of ours) { if (local[ch]) n[ch] = local[ch]; else delete n[ch]; }
+    return n;
+  }
+}
+
+/**
  * The ticks for my message `m`. `recipients` are the device ids it went to, without me: the peer of a DM, the
  * other members of a group, everyone else for #all. Two ticks once every recipient's client has fetched it, blue
  * once every recipient has shown it. With `showRead` false (this device turned read receipts off, as in WhatsApp,
