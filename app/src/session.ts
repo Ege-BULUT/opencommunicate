@@ -165,7 +165,14 @@ function writeAuth(a: Record<string, Cred>) {
   authMem = a;
   const text = JSON.stringify(a);
   try { localStorage.setItem(AUTH_KEY, text); authKept = true; } catch { authKept = false; /* private mode */ }
-  if (native()) void queued(() => Filesystem.writeFile({ path: AUTH_FILE, data: text, directory: Directory.Data, encoding: Encoding.UTF8 }));
+  // the phone's background check (MessageCheck.java) renews tokens in this file while the app is closed: a newer
+  // one there is kept, or the next renewal here would send a refresh token GitHub has already rotated
+  if (native()) void queued(async () => {
+    let disk: Record<string, Cred> = {};
+    try { disk = JSON.parse((await readText(AUTH_FILE)) ?? "{}") ?? {}; } catch { /* unreadable: ours */ }
+    const out = Object.fromEntries(Object.entries(a).map(([k, c]) => [k, disk[k]?.token ? later(c, disk[k])! : c]));
+    await Filesystem.writeFile({ path: AUTH_FILE, data: JSON.stringify(out), directory: Directory.Data, encoding: Encoding.UTF8 });
+  });
 }
 export const putCred = (key: string, c: Cred) => writeAuth({ ...readAuth(), [key.toLowerCase()]: c });
 /** Forgets one account's token unless a stored chat uses it (a sign-in given up on). */
@@ -227,6 +234,7 @@ const failed = new Map<string, { at: number; e: unknown }>(); // the last renewa
 export function renewCred(key: string, rejected: string): Promise<string | null> {
   const asked = Date.now();
   return exclusive(`oc-auth:${key}`, async () => {
+    if (native()) mergeAuth(await readText(AUTH_FILE)); // renewed by the background check while the app was closed?
     const c = readAuth()[key];
     const gone = () => !!c && !readAuth()[key]; // signed out while GitHub was answering: store nothing
     if (c && c.token !== rejected && !runsOut(c)) return c.token; // another chat or tab renewed it already
@@ -245,7 +253,14 @@ export function renewCred(key: string, rejected: string): Promise<string | null>
         failed.delete(key);
         if (data.access_token) { if (gone()) return null; const n = credFrom(data); putCred(key, n); return n.token; }
       }
-      // refused, or past its six months: never sent again (unless another tab signed in meanwhile)
+      // refused, or past its six months: never sent again (unless another tab signed in meanwhile). On the phone the
+      // background check may have just used it: a token it renewed lands in the file within moments
+      if (native()) {
+        await new Promise((r) => setTimeout(r, 2000));
+        mergeAuth(await readText(AUTH_FILE));
+        const fresh = readAuth()[key];
+        if (fresh && fresh.at > c.at && fresh.token !== rejected) return fresh.token;
+      }
       const now = readAuth()[key];
       if (now?.refresh === c.refresh) putCred(key, { ...now, refresh: undefined, at: Date.now() });
     }
@@ -257,6 +272,21 @@ export function renewCred(key: string, rejected: string): Promise<string | null>
       if (res.ok) { if (gone()) return null; putCred(key, { token: t, at: Date.now() }); return t; }
     }
     return null;
+  });
+}
+
+const HEADS_FILE = "oc-heads.json";
+const noted: Record<string, string> = {};
+/** The head the open chat has notified up to, for the phone's background check (MessageCheck.java), which carries
+ *  on from it once the app is closed, so no message is notified twice. */
+export function noteHead(repo: string, head: string) {
+  if (!native() || noted[repo] === head) return;
+  noted[repo] = head;
+  void queued(async () => {
+    let all: Record<string, { head: string; at: number }> = {};
+    try { all = JSON.parse((await readText(HEADS_FILE)) ?? "{}") ?? {}; } catch { /* unreadable: start again */ }
+    all[repo] = { head, at: Date.now() };
+    await Filesystem.writeFile({ path: HEADS_FILE, data: JSON.stringify(all), directory: Directory.Data, encoding: Encoding.UTF8 });
   });
 }
 

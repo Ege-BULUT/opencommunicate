@@ -7,7 +7,7 @@ import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
-import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
+import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, noteHead, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
 const PULL = 56; // how far (after damping) the chat list is pulled down before letting go refreshes it
@@ -585,7 +585,11 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device.id]);
   const READ_KEY = `oc.read.${session.repo}`; // read markers per chat: channel names ("all") repeat across chats
-  const seenHead = () => { try { if (watcher.head) localStorage.setItem(`oc.head.${session.repo}`, watcher.head); } catch { /* private mode */ } };
+  const seenHead = () => {
+    if (!watcher.head) return;
+    try { localStorage.setItem(`oc.head.${session.repo}`, watcher.head); } catch { /* private mode */ }
+    noteHead(session.repo, watcher.head);
+  };
   const [devices, setDevices] = useState<Device[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [presence, setPresence] = useState<Record<string, Presence>>({});
