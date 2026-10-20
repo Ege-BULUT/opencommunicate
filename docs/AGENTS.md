@@ -86,6 +86,10 @@ chat with `opencom forward <to> <id…> --from <chat>`; a message that was not y
 
 ## Ask with choices
 
+When you need a person to decide or approve something, ask it this way, not as a plain message: one
+question per message, each choice short and on one line, the one you recommend first. Send a plain question
+only when no fixed choices fit.
+
 `opencom send <to> "Push 0.8.5 to the site?" --choice "Yes, push" --choice "Not yet"` sends a question with
 choices (1 to 10). The apps show a button for each and one to write something else, so the person answers with
 one tap. The answer is a reply to your question, so it wakes `watch --to-me` in a group too. It arrives as a
