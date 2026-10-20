@@ -48,8 +48,12 @@ import org.json.JSONObject;
  *
  * It takes over where the page stopped: the page records the head it has notified up to (oc-heads.json), this job
  * its own (oc-bg.json), and the newer of the two is where it starts, so a message is notified once. While the page
- * is alive (the app is open or in the background) it leaves the page's open chat to the page and renews no token,
- * since the page renews them and GitHub refuses a refresh token used twice.
+ * is alive (the app is open or in the background) it leaves the page's open chat to the page and renews no token.
+ *
+ * GitHub refuses a refresh token used twice, and the page then asks to sign in again, so the two never renew at
+ * once: the job renews only while the page is not alive, says so first in oc-renewing.json (the page waits while
+ * it is there, see renewCred in session.ts), and keeps what it gets in a file of its own, oc-auth-bg.json, which
+ * the page reads with oc-auth.json, the newer token of an account winning. Each file has one writer.
  */
 public class MessageCheck extends JobService {
     private static final String TAG = "MessageCheck";
@@ -97,7 +101,7 @@ public class MessageCheck extends JobService {
         if (chats == null) return;
         boolean alive = MainActivity.alive;
         if (alive) { try { Thread.sleep(20_000); } catch (InterruptedException e) { return; } } // the page wakes with this job: let it look first
-        JSONObject auth = json(read("oc-auth.json"));
+        JSONObject auth = creds();
         JSONObject pageHeads = json(read("oc-heads.json")), own = json(read("oc-bg.json"));
         if (own == null) own = new JSONObject();
         JSONArray list = chats.optJSONArray("chats");
@@ -105,13 +109,15 @@ public class MessageCheck extends JobService {
         for (int i = 0; list != null && i < list.length(); i++) {
             JSONObject s = list.getJSONObject(i);
             String repo = s.getString("repo");
+            // the page's open chat is the page's while it is alive, even frozen: its record says how far it got
+            if (alive && repo.equalsIgnoreCase(active)) continue;
             try {
-                String token = tokenFor(s, auth == null ? new JSONObject() : auth, alive);
+                String token = tokenFor(s, auth, alive);
                 if (token == null) continue;
                 String head = head(repo, token);
                 if (head == null) continue;
                 String from = newer(own.optJSONObject(repo), pageHeads == null ? null : pageHeads.optJSONObject(repo));
-                if (from != null && !from.equals(head) && !(alive && repo.equalsIgnoreCase(active))) notifyNew(s, token, from, head);
+                if (from != null && !from.equals(head) && !notifyNew(s, token, from, head)) continue; // try again next time
                 own.put(repo, new JSONObject().put("head", head).put("at", System.currentTimeMillis()));
             } catch (Exception e) { Log.w(TAG, repo + ": " + e.getMessage()); }
         }
@@ -125,21 +131,24 @@ public class MessageCheck extends JobService {
         return (b.optLong("at") > a.optLong("at") ? b : a).optString("head", null);
     }
 
-    private void notifyNew(JSONObject s, String token, String from, String head) throws IOException, JSONException {
+    /** Notifies what arrived between the two heads; false when GitHub's compare view had nothing yet (right after a
+     *  push it can leave the new files out), so the same span is looked at again next time. */
+    private boolean notifyNew(JSONObject s, String token, String from, String head) throws IOException, JSONException {
         String repo = s.getString("repo");
         JSONObject compare = get("/repos/" + repo + "/compare/" + from + "..." + head, token);
-        if (compare == null) return; // that head is gone: start again from this one
+        if (compare == null) return true; // that head is gone: start again from this one
+        JSONArray files = compare.optJSONArray("files");
+        if (files == null || files.length() == 0) return false;
         JSONObject me = s.getJSONObject("device");
         String id = me.getString("id");
         JSONObject stored = blobAt(repo, "devices/" + id + ".json", head, token); // its notification settings, as the repo has them
         if (stored != null) me = stored;
         Map<String, Boolean> member = new HashMap<>();
         List<JSONObject> found = new ArrayList<>();
-        JSONArray files = compare.optJSONArray("files");
-        for (int i = 0; files != null && i < files.length(); i++) {
+        for (int i = 0; i < files.length(); i++) {
             JSONObject f = files.getJSONObject(i);
             Matcher m = MESSAGE.matcher(f.getString("filename"));
-            if (!m.matches() || "removed".equals(f.optString("status"))) continue;
+            if (!m.matches() || !"added".equals(f.optString("status"))) continue; // an edit or delete rewrites the file: "modified"
             String ch = m.group(1);
             if (!follows(ch, id, repo, head, token, member)) continue;
             JSONObject msg = blob(repo, f.getString("sha"), token);
@@ -151,6 +160,7 @@ public class MessageCheck extends JobService {
         }
         found.sort((a, b) -> a.optString("id").compareTo(b.optString("id")));
         for (JSONObject msg : found.subList(Math.max(0, found.size() - MAX_NOTICES), found.size())) show(msg);
+        return true;
     }
 
     /** #all, this device's DMs, and the groups it is a member of. */
@@ -218,30 +228,53 @@ public class MessageCheck extends JobService {
 
     // ---------- tokens ----------
 
+    /** Every account's token: oc-auth.json (the page's) and oc-auth-bg.json (this job's), the newer of each account. */
+    private JSONObject creds() throws JSONException {
+        JSONObject page = json(read("oc-auth.json")), bg = json(read("oc-auth-bg.json"));
+        JSONObject out = page == null ? new JSONObject() : page;
+        for (java.util.Iterator<String> k = bg == null ? null : bg.keys(); k != null && k.hasNext(); ) {
+            String key = k.next();
+            JSONObject mine = bg.optJSONObject(key), theirs = out.optJSONObject(key);
+            if (theirs != null && mine != null && mine.optLong("at") > theirs.optLong("at")) out.put(key, mine); // only accounts the page still has
+        }
+        return out;
+    }
+
     /** The chat's token (the account's, see credKey in session.ts), renewed when it ran out and the page is not alive. */
     private String tokenFor(JSONObject s, JSONObject auth, boolean alive) throws IOException, JSONException {
         JSONObject device = s.getJSONObject("device");
         String key = s.optString("account", "");
         if (key.isEmpty()) key = device.optString("login", "");
         if (key.isEmpty()) key = "repo:" + s.getString("repo");
-        JSONObject c = auth.optJSONObject(key.toLowerCase());
+        key = key.toLowerCase();
+        JSONObject c = auth.optJSONObject(key);
         if (c == null) return s.optString("token", null);
         long now = System.currentTimeMillis(), expires = c.optLong("expiresAt", 0);
         if (expires == 0 || expires - now > 60_000) return c.getString("token");
         String refresh = c.optString("refresh", "");
         long refreshExpires = c.optLong("refreshExpiresAt", 0);
         if (alive || refresh.isEmpty() || (refreshExpires != 0 && refreshExpires < now)) return null;
-        JSONObject d = post(oauth + "/login/oauth/access_token",
-            "client_id=" + CLIENT_ID + "&grant_type=refresh_token&refresh_token=" + URLEncoder.encode(refresh, "UTF-8"));
-        if (d == null || !d.has("access_token")) return null; // refused or unreachable: the page signs in again when it must
-        JSONObject next = new JSONObject().put("token", d.getString("access_token")).put("at", now);
-        if (d.has("refresh_token")) next.put("refresh", d.getString("refresh_token"));
-        if (d.has("expires_in")) next.put("expiresAt", now + d.getLong("expires_in") * 1000);
-        if (d.has("refresh_token_expires_in")) next.put("refreshExpiresAt", now + d.getLong("refresh_token_expires_in") * 1000);
-        // read again right before writing: keep every other account as the file has it now
-        JSONObject latest = json(read("oc-auth.json"));
-        write("oc-auth.json", (latest == null ? new JSONObject() : latest).put(key.toLowerCase(), next).toString());
-        return next.getString("token");
+        // the page may have started since: from here on it waits for this renewal (MainActivity sets alive first,
+        // well before the page asks for a token)
+        if (MainActivity.alive) return null;
+        write("oc-renewing.json", new JSONObject().put("account", key).put("until", now + 70_000).toString());
+        try {
+            JSONObject d = post(oauth + "/login/oauth/access_token",
+                "client_id=" + CLIENT_ID + "&grant_type=refresh_token&refresh_token=" + URLEncoder.encode(refresh, "UTF-8"));
+            if (d == null || !d.has("access_token")) return null; // refused or unreachable: the page signs in again when it must
+            long at = System.currentTimeMillis(); // after the answer: newer than any copy the page had
+            JSONObject next = new JSONObject().put("token", d.getString("access_token")).put("at", at);
+            if (d.has("refresh_token")) next.put("refresh", d.getString("refresh_token"));
+            if (d.has("expires_in")) next.put("expiresAt", at + d.getLong("expires_in") * 1000);
+            if (d.has("refresh_token_expires_in")) next.put("refreshExpiresAt", at + d.getLong("refresh_token_expires_in") * 1000);
+            // signed out meanwhile: keep nothing
+            JSONObject page = json(read("oc-auth.json"));
+            if (read("oc-session.json") == null || page == null || !page.has(key)) return null;
+            JSONObject bg = json(read("oc-auth-bg.json"));
+            write("oc-auth-bg.json", (bg == null ? new JSONObject() : bg).put(key, next).toString());
+            auth.put(key, next); // another chat of this account uses it in this run
+            return next.getString("token");
+        } finally { new File(getFilesDir(), "oc-renewing.json").delete(); }
     }
 
     // ---------- GitHub ----------
