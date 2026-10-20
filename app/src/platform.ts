@@ -23,9 +23,13 @@ export async function notify(title: string, body: string): Promise<void> {
   }
 }
 
-export async function openLink(url: string): Promise<void> {
-  // app links (ntfy://…) go straight to Android, which opens the app that owns them
-  if (native() && !/^https?:/.test(url)) { location.href = url; return; }
+/** Opens a link: on the phone in a Chrome tab over the app, or with `inApp` false in the browser itself. An APK
+ *  download that GitHub redirects stalled at 100% in such a tab on a phone (2026-10-21), so the update link goes
+ *  to the browser, where GitHub's downloads work. */
+export async function openLink(url: string, inApp = true): Promise<void> {
+  // app links (ntfy://…) go straight to Android, which opens the app that owns them; so does a web link the
+  // app's own page doesn't load (Capacitor hands it to the browser)
+  if (native() && (!/^https?:/.test(url) || !inApp)) { location.href = url; return; }
   if (native()) await Browser.open({ url });
   else window.open(url, "_blank", "noopener");
 }
