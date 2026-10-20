@@ -110,6 +110,10 @@ nav .muted.small { padding: 2px 10px; margin: 0; }
 .compose-row { display: flex; gap: 8px; align-items: flex-end; }
 .send { display: inline-flex; align-items: center; gap: 8px; }
 .attach-btn { color: var(--muted); }
+.mic-btn { color: var(--muted); }
+.mic-btn.on { color: #fff; background: #d93025; border-radius: 50%; animation: listening 1.4s ease-in-out infinite; }
+@keyframes listening { 50% { box-shadow: 0 0 0 6px rgb(217 48 37 / .25); } }
+@media (prefers-reduced-motion: reduce) { .mic-btn.on { animation: none; } }
 .compose-row textarea { resize: none; max-height: 140px; min-height: 44px; field-sizing: content; }
 .send { flex: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 8px; }
@@ -163,6 +167,13 @@ nav .muted.small { padding: 2px 10px; margin: 0; }
 label.inline { flex-direction: row !important; align-items: center; gap: 10px !important; }
 select { font: inherit; color: var(--ink); background: var(--sunken); border: 1px solid transparent; border-radius: 10px; padding: 8px 10px; }
 .members { display: flex; flex-direction: column; gap: 2px; }
+.msg-info dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 8px 0; }
+.msg-info dt { color: var(--muted); }
+.msg-info dd { margin: 0; }
+.msg-info .ticks { color: var(--muted); vertical-align: -1px; }
+.msg-info ul { list-style: none; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 6px; }
+.msg-info li { overflow-wrap: anywhere; }
+.msg-info .mono { font-family: ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
 .member { display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 4px 0; border-bottom: 1px solid var(--line); }
 .member:last-child { border-bottom: 0; }
 .mini.danger { color: var(--danger); }
@@ -239,11 +250,13 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .toast { position: fixed; left: 50%; bottom: calc(84px + var(--sab)); transform: translateX(-50%); z-index: 30; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgb(0 0 0 / .2); }
+.toast.reading { display: flex; align-items: center; gap: 12px; }
+.toast.reading button { background: none; border: 1px solid currentColor; color: inherit; border-radius: 8px; padding: 4px 12px; font: inherit; cursor: pointer; }
 
 /* read receipts: one tick sent, two delivered, two blue read */
 .meta .ticks { vertical-align: -1px; margin-left: 4px; color: var(--muted); }
-.meta .ticks.read { color: #1a8fd6; }
-@media (prefers-color-scheme: dark) { .meta .ticks.read { color: #53bdeb; } }
+.meta .ticks.read, .msg-info .ticks.read { color: #1a8fd6; }
+@media (prefers-color-scheme: dark) { .meta .ticks.read, .msg-info .ticks.read { color: #53bdeb; } }
 label.toggle { justify-content: flex-start; color: var(--ink); font-size: 14px; }
 label.toggle input { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--accent); }
 

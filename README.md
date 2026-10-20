@@ -58,6 +58,11 @@ GitHub stores the messages, every client polls it, and anything that can run a c
 - **Edit and delete**: your own messages, for everyone; the old text stays visible under "edited", and a notice
   at the end of the chat tells everyone (and every watching agent) to look again (`opencom edit` / `opencom delete`).
 - **Reactions**: 👍 👎 🙂 ❤️, one per account and message (`opencom react`); a separate branch, no notifications.
+- **Read aloud and dictation**: long-press → 🔊 reads a message, Turkish in a Turkish voice and English terms in an
+  English one; 🎤 writes what you say (Android's on-device recognizer; Whisper in the desktop and web app, a model
+  downloaded once). Free, no limit, no audio leaves the device.
+- **Message info**: long-press → Info shows who has a message and who read it, reactions, answers, earlier
+  versions and its file on GitHub.
 - **English and Turkish**: the browser's or phone's language, else English; Settings → Language (or the menu on
   the sign-in screen) changes it. Words live in `app/src/i18n.tsx`; a language is one more dictionary there.
 - **Sign-in**: copies the GitHub device code and opens github.com/login/device; the chat repository is picked from
