@@ -2,7 +2,7 @@
 // their own branch, and no commit when nothing changes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Bus, Watcher } from "../src/index.ts";
+import { Bus, DraftQueue, Watcher } from "../src/index.ts";
 
 function fakeRepo() {
   const repo = { head: null, files: {}, commits: 0, opts: null };
@@ -53,4 +53,55 @@ test("a draft typed on the phone shows on the desktop of the same account only",
   assert.equal(await desktop.tickDrafts(), false);
   await other.tickDrafts();
   assert.deepEqual(other.drafts, {}, "another account does not see them");
+});
+
+// Orphan commits are force-pushed: of two writes on their way the one landing last wins, whatever it was based on.
+function slowDrafts() {
+  const state = { remote: {}, calls: [] };
+  const bus = {
+    setDrafts: (_me, batch) => new Promise((resolve, reject) => {
+      const base = { ...state.remote };
+      state.calls.push({ batch, land: () => {
+        for (const [ch, text] of Object.entries(batch)) { if (text.trim()) base[ch] = { text, at: "" }; else delete base[ch]; }
+        state.remote = base; resolve(base);
+      }, fail: () => reject(new Error("offline")) });
+    }),
+  };
+  return { state, queue: new DraftQueue(bus, () => ({ id: "1111", nick: "me" })) };
+}
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+test("a draft cleared by sending stays cleared when the save before it lands last", async () => {
+  const { state, queue } = slowDrafts();
+  queue.set("all", "half a long message");
+  queue.flush();
+  queue.set("all", ""); // sent
+  queue.flush();
+  assert.equal(state.calls.length, 1, "the clear waits for the save on its way");
+  state.calls[0].land(); await settle();
+  assert.equal(state.calls.length, 2);
+  state.calls[1].land(); await settle();
+  assert.deepEqual(state.remote, {}, "no draft comes back");
+});
+
+test("a read that started before this app's write landed does not bring the old draft back", async () => {
+  const { state, queue } = slowDrafts();
+  const stale = { all: { text: "half a long message", at: "" }, g: { text: "from the phone", at: "" } };
+  queue.set("all", "");
+  const asked = Date.now();
+  assert.deepEqual(queue.merge({}, stale, asked), { g: stale.g }, "on its way: ours");
+  queue.flush(); state.calls[0].land(); await settle();
+  assert.deepEqual(queue.merge({}, stale, asked), { g: stale.g }, "read before it landed: ours");
+  await new Promise((r) => setTimeout(r, 2));
+  assert.deepEqual(queue.merge({}, stale, Date.now()), stale, "read after it landed: the branch's");
+});
+
+test("a failed draft write goes again with the next flush, newer text first", async () => {
+  const { state, queue } = slowDrafts();
+  queue.set("all", "first"); queue.flush();
+  queue.set("all", "second");
+  state.calls[0].fail(); await settle();
+  assert.equal(state.calls.length, 1, "no retry loop while offline");
+  queue.flush(); state.calls[1].land(); await settle();
+  assert.equal(state.remote.all.text, "second");
 });

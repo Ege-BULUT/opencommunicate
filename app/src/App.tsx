@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, PALETTES, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, DraftQueue, PALETTES, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -605,28 +605,20 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const DRAFTS_KEY = `oc.drafts.${session.repo}.${session.device.id}`;
   const [drafts, setDrafts] = useState<Drafts>(() => { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}"); } catch { return {}; } });
   useEffect(() => { try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts)); } catch { /* private mode */ } }, [drafts, DRAFTS_KEY]);
-  const unsaved = useRef<Record<string, string>>({}); // typed here, not written to the drafts branch yet
+  const draftQueue = useMemo(() => new DraftQueue(bus, () => meRef.current), [bus]);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushDrafts = useCallback(() => {
     if (draftTimer.current) { clearTimeout(draftTimer.current); draftTimer.current = null; }
-    const batch = unsaved.current;
-    if (!Object.keys(batch).length) return;
-    unsaved.current = {};
-    // a failed write goes back in the queue, unless something newer was typed meanwhile
-    bus.setDrafts(meRef.current, batch).catch(() => { unsaved.current = { ...batch, ...unsaved.current }; });
-  }, [bus]);
+    draftQueue.flush();
+  }, [draftQueue]);
   const saveDraft = (ch: string, text: string) => {
     setDrafts((d) => { const n = { ...d }; if (text.trim()) n[ch] = { text, at: new Date().toISOString() }; else delete n[ch]; return n; });
-    unsaved.current[ch] = text;
+    draftQueue.set(ch, text);
     if (draftTimer.current) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(flushDrafts, 1500);
   };
   // a draft from another device of this account, except where something typed here is still on its way
-  const takeDrafts = (remote: Drafts) => setDrafts((local) => {
-    const n = { ...remote };
-    for (const ch of Object.keys(unsaved.current)) { if (local[ch]) n[ch] = local[ch]; else delete n[ch]; }
-    return n;
-  });
+  const takeDrafts = (remote: Drafts, since: number) => setDrafts((local) => draftQueue.merge(local, remote, since));
   useEffect(() => {
     const away = () => { if (document.hidden) flushDrafts(); };
     document.addEventListener("visibilitychange", away);
@@ -743,7 +735,8 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           watcher.tickReceipts().then(() => setReceipts(watcher.receipts)).catch(() => {});
           watcher.tickPins().then(() => setPins(watcher.pins)).catch(() => {});
           watcher.tickReactions().then(() => setReactions(watcher.reactions)).catch(() => {});
-          watcher.tickDrafts().then(() => takeDrafts(watcher.drafts)).catch(() => {});
+          const draftsAsked = Date.now();
+          watcher.tickDrafts().then(() => takeDrafts(watcher.drafts, draftsAsked)).catch(() => {});
           setStatus(""); setAccount(null); seenHead();
           bus.presence().then(setPresence).catch(() => {});
           bus.heartbeat(session.device).catch(() => {});
@@ -774,7 +767,8 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           if (await watcher.tickReceipts().catch(() => false)) setReceipts(watcher.receipts);
           if (await watcher.tickPins().catch(() => false)) setPins(watcher.pins);
           if (await watcher.tickReactions().catch(() => false)) setReactions(watcher.reactions);
-          if (await watcher.tickDrafts().catch(() => false)) takeDrafts(watcher.drafts);
+          const draftsAsked = Date.now();
+          if (await watcher.tickDrafts().catch(() => false)) takeDrafts(watcher.drafts, draftsAsked);
           for (const m of fresh) {
             if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
