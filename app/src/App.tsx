@@ -314,6 +314,22 @@ function GitHubSignIn({ label, primary = true, onToken }: { label: string; prima
   </>;
 }
 
+/** A password box with an eye inside it to show what was typed, and hide it again. */
+function PasswordInput(props: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type">) {
+  const [shown, setShown] = useState(false);
+  return (
+    <span className="password-box">
+      <input {...props} type={shown ? "text" : "password"} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+      <button type="button" className="eye" aria-label={shown ? S.hidePassword : S.showPassword} title={shown ? S.hidePassword : S.showPassword} aria-pressed={shown} onClick={() => setShown(!shown)}>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
+          {shown && <path d="M3 3l18 18" />}
+        </svg>
+      </button>
+    </span>
+  );
+}
+
 /** A new password twice, and the current one first when `current` is a record; `onSave` stores the new one. */
 function PasswordForm({ current, username, label, onSave }: { current?: PasswordRecord | null; username: string; label: string; onSave: (password: string) => Promise<void> }) {
   const [old, setOld] = useState("");
@@ -334,9 +350,9 @@ function PasswordForm({ current, username, label, onSave }: { current?: Password
   // a form with the account in a hidden username field, so the browser's password manager offers to save both
   return <form className="contents" onSubmit={(e) => { e.preventDefault(); save(); }}>
     <input hidden readOnly name="username" autoComplete="username" value={username} />
-    {current && <label>{S.currentPassword}<input type="password" autoComplete="current-password" value={old} onChange={(e) => setOld(e.target.value)} /></label>}
-    <label>{current ? S.newPassword : S.password}<input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
-    <label>{current ? S.newPasswordAgain : S.passwordAgain}<input type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></label>
+    {current && <label>{S.currentPassword}<PasswordInput autoComplete="current-password" value={old} onChange={(e) => setOld(e.target.value)} /></label>}
+    <label>{current ? S.newPassword : S.password}<PasswordInput autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+    <label>{current ? S.newPasswordAgain : S.passwordAgain}<PasswordInput autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} /></label>
     {pw && pw.length < PASSWORD_MIN && <p className="muted small">{S.minChars(PASSWORD_MIN)}</p>}
     {again && again !== pw && <p className="error small">{S.mismatch}</p>}
     <div className="actions start">
@@ -550,7 +566,7 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
             // a real form with username/password fields, so the browser's password manager fills and saves the account
             <form className="contents" onSubmit={(e) => { e.preventDefault(); doClaim(); }}>
               <label>{S.accountField}<input name="username" autoComplete="username" value={account} autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={S.accountPlaceholder} onChange={(e) => setAccount(e.target.value)} /></label>
-              <label>{S.password}<input name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPasswordText(e.target.value)} /></label>
+              <label>{S.password}<PasswordInput name="password" autoComplete="current-password" value={password} onChange={(e) => setPasswordText(e.target.value)} /></label>
               <button type="submit" className="primary" disabled={busy || !repo.includes("/") || !account.includes("#")}>{busy ? S.connecting : S.signIn}</button>
             </form>
           ) : <>
@@ -1240,7 +1256,7 @@ function KeyPassword({ reason, again, me, onAnswer }: { reason: "unlock" | "prot
       {again && <p className="error small">{S.keysWrong}</p>}
       <form onSubmit={(e) => { e.preventDefault(); send(); }}>
         <input type="text" name="username" autoComplete="username" value={handle(me)} readOnly hidden />
-        <label>{S.password}<input type="password" autoComplete="current-password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+        <label>{S.password}<PasswordInput autoComplete="current-password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} /></label>
         <div className="actions"><button type="button" className="ghost" onClick={() => onAnswer(null)}>{S.later}</button><button className="primary" disabled={!pw}>{reason === "unlock" ? S.unlock : S.save}</button></div>
       </form>
     </Sheet>
