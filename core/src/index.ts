@@ -387,6 +387,9 @@ export class Bus {
   }
 
   /** Cheap change check: 304 (free) while nothing moved. Returns the new head or null if unchanged. */
+  /** The next headIfChanged(branch) answers with the head even if it did not move. */
+  forgetHead(branch: string): void { this.etags.delete(branch); }
+
   async headIfChanged(branch = this.branch): Promise<string | null> {
     const etag = this.etags.get(branch);
     let res;
@@ -625,6 +628,7 @@ export class Bus {
    * so the app hides its author and shows "forwarded"; forwarding your own message looks like a normal new one.
    */
   async forward(channel: string, from: Device, sources: Message[]): Promise<Message[]> {
+    if (sources.some((m) => m.locked)) throw new Error("A message this device can't open can't be forwarded.");
     if (this.keys) {
       // sealed: each goes again, its files opened and sealed with the new chat's key
       const sent: Message[] = [];
@@ -778,8 +782,8 @@ export class Bus {
     // ponytail: orphan commits are force-pushed, so a heartbeat landing at the same moment can undo a status;
     // the CLI writes its status again with every heartbeat, which repairs it within minutes
     await this.commit(async (parent) => {
-      const keys = await this.sealer();
-      const set = status?.replace(/\s+/g, " ").trim().slice(0, STATUS_MAX);
+      const keys = this.keys ? await this.keys.catch(() => null) : null;
+      const set = this.keys && !keys ? undefined : status?.replace(/\s+/g, " ").trim().slice(0, STATUS_MAX); // locked: seen, status kept
       let keep: { status?: string; statusEnc?: Sealed } = set ? (keys ? { statusEnc: await keys.sealFor("all", set, path) } : { status: set }) : {};
       if (set === undefined && parent) {
         const entry = (await this.tree(parent)).find((e) => e.path === path);
@@ -946,8 +950,9 @@ export class Bus {
       if (cur.closed) { out = open; throw already; } // a retry after someone else's commit
       const closed = { at: new Date().toISOString(), note: note.replace(/\s+/g, " ").trim().slice(0, 100) };
       out = { ...open, closed };
-      const stored = { ...cur, closed }; // a sealed question stays sealed
-      const notice = this.newMessage(cur.channel, me, `${handle(me)} closed a question: ${out.closed!.note}`, { system: { type: "close", target: cur.id } });
+      const keys = cur.enc ? await this.sealer() : null;
+      const stored = keys ? await keys.seal(out) : { ...cur, closed }; // a sealed question stays sealed, its note too
+      const notice = this.newMessage(cur.channel, me, cur.enc ? `${handle(me)} closed a question` : `${handle(me)} closed a question: ${closed.note}`, { system: { type: "close", target: cur.id } });
       return { [msgPath(cur)]: JSON.stringify(stored), [msgPath(notice)]: JSON.stringify(notice) };
     }, `close: ${handle(me)} ${m.id}`).catch((e) => { if (e !== already) throw e; });
     return out;

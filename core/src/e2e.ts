@@ -78,8 +78,8 @@ async function unwrap(w: Wrapped, priv: CryptoKey, info: string): Promise<Uint8A
 }
 
 /** The fields a message keeps sealed. */
-type Secret = Pick<Message, "text" | "files" | "ask" | "edits">;
-const SECRET = ["text", "files", "ask", "edits"] as const;
+type Secret = Pick<Message, "text" | "files" | "ask" | "edits" | "closed">;
+const SECRET = ["text", "files", "ask", "edits", "closed"] as const;
 
 /**
  * This device's keys for a chat repository: its account's key pair, and the chats' keys from the "keys" branch.
@@ -114,6 +114,12 @@ export class Keyring {
   private async read(): Promise<boolean> {
     const head = await this.bus.headIfChanged("keys");
     if (!head || head === this.head) return false;
+    try { return await this.load(head); }
+    catch (e) { this.bus.forgetHead("keys"); throw e; } // read it again next time, not "unchanged"
+  }
+  /** For a message with no key here: a look at the keys (a page of locked messages opened together shares one). */
+  private look(): Promise<boolean> { return this.sync(); }
+  private async load(head: string): Promise<boolean> {
     const pubs = new Map<string, PublicKey>(), epochs = new Map<string, Epoch[]>();
     await Promise.all((await this.bus.tree(head)).map(async (e) => {
       const p = e.path.match(/^keys\/(\d{4})\.json$/), c = e.path.match(/^channels\/([a-z0-9-]+)\/[^/]+\.json$/);
@@ -130,17 +136,21 @@ export class Keyring {
   /** Members who published a key after a chat's newest epoch was made get it, and the older ones, from whoever
    *  holds it and looks first: so someone who installs the update reads what was sent before. */
   private filling = false;
+  private again = false;
   private async fill(): Promise<void> {
-    if (this.filling) return;
+    if (this.filling) { this.again = true; return; } // runs once more when this round ends
     this.filling = true;
     try {
-      for (const [channel, list] of this.epochs) {
-        const newest = list.at(-1);
-        if (!newest?.for[this.me]) continue;
-        const members = await this.members(channel).catch(() => [] as string[]);
-        const missing = members.filter((id) => this.pubs.has(id) && !newest.for[id]);
-        if (missing.length) await this.share(channel, missing).catch(() => {});
-      }
+      do {
+        this.again = false;
+        for (const [channel, list] of this.epochs) {
+          const newest = list.at(-1);
+          if (!newest?.for[this.me]) continue;
+          const members = await this.members(channel).catch(() => [] as string[]);
+          const missing = members.filter((id) => this.pubs.has(id) && !newest.for[id]);
+          if (missing.length) await this.share(channel, missing).catch(() => {});
+        }
+      } while (this.again);
     } finally { this.filling = false; }
   }
 
@@ -184,10 +194,12 @@ export class Keyring {
 
   /** Wraps every epoch of `channel` this account holds for `ids` too. */
   async share(channel: string, ids: string[]): Promise<void> {
-    await this.bus.commit(async () => {
-      await this.sync();
+    await this.bus.commit(async (parent) => {
+      // the epoch files as of the commit this one builds on, so a wrap someone else just added is kept
+      const files = parent ? (await this.bus.tree(parent)).filter((e) => e.path.startsWith(`channels/${channel}/`) && e.path.endsWith(".json")) : [];
+      const current = await Promise.all(files.map((e) => this.bus.json<Epoch>(e.sha)));
       const out: Record<string, string> = {};
-      for (const ep of this.epochs.get(channel) ?? []) {
+      for (const ep of current) {
         const key = ep.for[this.me] && (await unwrap(ep.for[this.me], this.priv, this.info(channel, ep.epoch, this.me)).catch(() => null));
         if (!key) continue;
         const add = ids.filter((id) => !ep.for[id] && this.pubs.has(id));
@@ -212,8 +224,10 @@ export class Keyring {
   /** A message with its sealed fields back; `locked` when this account has no key for it (yet). */
   async open(m: Message): Promise<Message> {
     if (!m.enc) return m;
+    // the sender is in the id, which the seal binds: a `from` rewritten in the repository does not open
+    if (m.id.split("-")[1] !== m.from) return { ...m, locked: true };
     // an epoch made since the last read of the keys: read them again
-    const key = (await this.key(m.channel, m.enc.k)) ?? ((await this.sync()) ? await this.key(m.channel, m.enc.k) : null);
+    const key = (await this.key(m.channel, m.enc.k)) ?? ((await this.look()) ? await this.key(m.channel, m.enc.k) : null);
     if (!key) return { ...m, locked: true };
     try {
       const secret = JSON.parse(dec.decode(await open(key, m.enc.iv, m.enc.ct, `${m.channel}/${m.id}`))) as Secret;
@@ -229,7 +243,7 @@ export class Keyring {
     return { k: epoch, iv: s.iv, data: bytes(s.ct) };
   }
   async openBytes(channel: string, epoch: string, iv: string, data: Uint8Array, aad: string): Promise<Uint8Array> {
-    const key = (await this.key(channel, epoch)) ?? ((await this.sync()) ? await this.key(channel, epoch) : null);
+    const key = (await this.key(channel, epoch)) ?? ((await this.look()) ? await this.key(channel, epoch) : null);
     if (!key) throw new Error("This device has no key for that file yet.");
     return open(key, iv, b64(data), aad);
   }
@@ -241,7 +255,7 @@ export class Keyring {
   /** Something everyone in a chat reads (a status line, sealed with #all's key). */
   async sealFor(channel: string, text: string, aad: string): Promise<Sealed> { const { epoch, key } = await this.sending(channel); return { k: epoch, ...(await seal(key, enc.encode(text), aad)) }; }
   async openFor(channel: string, s: Sealed, aad: string): Promise<string | null> {
-    const key = (await this.key(channel, s.k)) ?? ((await this.sync()) ? await this.key(channel, s.k) : null);
+    const key = (await this.key(channel, s.k)) ?? ((await this.look()) ? await this.key(channel, s.k) : null);
     return key ? open(key, s.iv, s.ct, aad).then((b) => dec.decode(b), () => null) : null;
   }
 }
@@ -258,6 +272,12 @@ export async function setUpKeys(bus: Bus, me: string, o: {
   const path = `keys/${me}.json`;
   const published = await bus.readJson<PublicKey>(path, await bus.head("keys"));
   let id = o.stored;
+  // a key kept here that is no longer the account's (another device of it made a new one): the account's key
+  // from its backup, or this device stays locked; it never publishes over the account's key
+  if (id && published && published.pub !== id.pub) {
+    if (!published.backup) return null;
+    id = null;
+  }
   if (!id && published?.backup) {
     for (;;) {
       const pw = await o.password?.("unlock");
@@ -271,8 +291,9 @@ export async function setUpKeys(bus: Bus, me: string, o: {
     o.save(id);
   }
   if (published?.pub !== id.pub) {
-    // new, or replacing a key this account can no longer unlock (its older encrypted messages stay unreadable)
-    const pw = published?.backup ? null : await o.password?.("protect");
+    // a new account key, or one replacing a published key with no backup that no device here holds (an agent's
+    // lost key.json): what was sealed for the old one stays unreadable
+    const pw = await o.password?.("protect");
     const doc: PublicKey = { v: 1, pub: id.pub, ...(pw ? { backup: await backupKey(id, pw) } : {}) };
     await bus.commit({ [path]: JSON.stringify(doc) }, `key: ${me}`, { branch: "keys" });
   }

@@ -229,7 +229,7 @@ async function main(argv: string[]) {
   const KEY = path.join(CONFIG_DIR, "key.json");
   bus.keys = setUpKeys(bus, cfg.device.id, {
     stored: (() => { try { return JSON.parse(fs.readFileSync(KEY, "utf8")); } catch { return null; } })(),
-    save: (id) => fs.writeFileSync(KEY, JSON.stringify(id), { mode: 0o600 }),
+    save: (id) => { fs.writeFileSync(KEY, JSON.stringify(id), { mode: 0o600 }); fs.chmodSync(KEY, 0o600); },
     password: async () => process.env.OPENCOM_PASSWORD || null,
     members: (ch) => bus.membersOf(ch),
   });

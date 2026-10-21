@@ -25,19 +25,22 @@ export const answerPasswordQuestions = (f: PasswordQuestion) => { ask = f; };
 
 /** This device's keys for a chat, unlocked or made as needed; null while the account's key stays locked here. */
 export function keysFor(bus: Bus, repo: string, me: Device): Promise<Keyring | null> {
-  let asked = 0;
+  let asked = 0, usedTyped = false;
+  const who = `${repo}/${me.id}`;
   return setUpKeys(bus, me.id, {
     stored: storedKey(repo, me.id),
     save: (key) => saveKey(repo, me.id, key),
     password: async (reason) => {
-      const t = typed.get(`${repo}/${me.id}`);
-      if (t) { typed.delete(`${repo}/${me.id}`); return t; }
+      // the password just typed, once per setting up (forgotten when it worked: a second setting up, as React's
+      // strict mode makes, still finds it)
+      const t = typed.get(who);
+      if (t && !usedTyped) { usedTyped = true; return t; }
       // an account with no password yet keeps its key on this device only; setting one backs it up
       if (reason === "protect" && !(await bus.passwordRecord(me.id))) return null;
       return ask(reason, reason === "unlock" && asked++ > 0);
     },
     members: (channel) => bus.membersOf(channel),
-  });
+  }).then((k) => { if (k) typed.delete(who); return k; });
 }
 
 /** After the password is set or changed: the key's backup locked with the new one. */

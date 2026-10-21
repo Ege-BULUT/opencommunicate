@@ -86,8 +86,9 @@ branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }]
 <ul>
   <li>Each account has a key pair. The public key is on the repository's <code>keys</code> branch; the private key stays on the device. For a person it is also kept there locked with the account's password, so a new phone or computer signing in as the same <code>nick#id</code> unlocks it with the password. Lose the password and every device, and the encrypted history can't be read again.</li>
   <li>Each chat has its own key, wrapped for each member's public key. Whoever sends first makes it; a member added later receives it, history included, from the next member online; when someone leaves, the next message starts a new key they never get.</li>
+  <li>The apps don't verify keys yet: anyone who can write to the repository could swap a member's public key for their own and read what is sent after. The repository's collaborators are the people you trust.</li>
   <li>WebCrypto only: P-256 ECDH, HKDF-SHA256, AES-256-GCM, PBKDF2-SHA256 for the password. Messages from before 0.9.0 stay as they were (Git keeps them in history), and apps older than 0.9.0 show "Encrypted message, update to read it".</li>
-  <li>ntfy push notifications say only that there is a message, never what it says. Android's background check shows 🔒 instead of the text.</li>
+  <li>ntfy push notifications say who wrote and in which chat, never what. Android's background check shows 🔒 instead of the text, and in a chat set to mentions only it notifies replies and quotes of your messages but can't see @mentions inside sealed text.</li>
 </ul>
 <h2>Sync</h2>
 <p>Clients poll the branch head with an ETag. While nothing moved GitHub answers 304, which costs nothing against the rate limit; when it moves, the client asks GitHub which files changed. The apps poll every 4 seconds while open, so messages arrive within about 5 seconds.</p>
@@ -124,8 +125,9 @@ branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }]
 <ul>
   <li>Her hesabın bir anahtar çifti vardır. Açık anahtar reponun <code>keys</code> dalındadır; özel anahtar cihazda kalır. Bir kişininki hesap şifresiyle kilitlenmiş olarak orada da durur; aynı <code>nick#id</code> ile giren yeni bir telefon ya da bilgisayar onu şifreyle açar. Şifre ve bütün cihazlar kaybolursa şifreli geçmiş bir daha okunamaz.</li>
   <li>Her sohbetin kendi anahtarı vardır ve her üyenin açık anahtarına ayrı ayrı sarılır. İlk gönderen oluşturur; sonradan eklenen üye onu (geçmiş dahil) çevrimiçi olan ilk üyeden alır; biri ayrılınca bir sonraki mesaj onun hiç almayacağı yeni bir anahtarla başlar.</li>
+  <li>Uygulamalar anahtarları henüz doğrulamıyor: repoya yazabilen biri bir üyenin açık anahtarını kendisininkiyle değiştirip bundan sonra gönderileni okuyabilir. Repo ortakları güvendiğiniz kişilerdir.</li>
   <li>Yalnızca WebCrypto: P-256 ECDH, HKDF-SHA256, AES-256-GCM, şifre için PBKDF2-SHA256. 0.9.0'dan önceki mesajlar olduğu gibi kalır (Git onları geçmişte tutar); 0.9.0'dan eski uygulamalar "Şifreli mesaj, okumak için güncelleyin" gösterir.</li>
-  <li>ntfy anlık bildirimleri yalnızca bir mesaj olduğunu söyler, ne yazdığını asla. Android'in arka plan kontrolü metin yerine 🔒 gösterir.</li>
+  <li>ntfy anlık bildirimleri kimin hangi sohbete yazdığını söyler, ne yazdığını asla. Android'in arka plan kontrolü metin yerine 🔒 gösterir; sadece @mention'a ayarlı bir sohbette mesajlarınıza verilen yanıtları ve alıntıları bildirir ama şifreli metnin içindeki @mention'ları göremez.</li>
 </ul>
 <h2>Eşitleme</h2>
 <p>İstemciler dalın ucunu ETag ile yoklar. Hiçbir şey değişmediyse GitHub 304 döner ve bu, istek sınırından bir şey yemez; uç değişince istemci GitHub'a hangi dosyaların değiştiğini sorar. Uygulamalar açıkken 4 saniyede bir yoklar, mesajlar yaklaşık 5 saniye içinde gelir.</p>

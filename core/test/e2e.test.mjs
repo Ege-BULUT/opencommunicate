@@ -122,3 +122,35 @@ test("someone who makes a key later reads what was sent before: whoever holds th
   for (let i = 0; i < 50 && (await e.bus.message(dm, early.id)).locked; i++) await new Promise((r) => setTimeout(r, 50));
   assert.equal((await e.bus.message(dm, early.id)).text, "sent before ege updated");
 });
+
+test("a device whose key is no longer the account's never publishes over it", async () => {
+  const { device, raw } = await world();
+  const first = await device(ege, { password: "pw" });
+  const stale = { pub: (await device(bob)).key().pub, priv: (await device(bob)).key().priv }; // some other key pair
+  const again = await device(ege, { stored: stale, password: "pw" });
+  assert.equal(again.key().pub, first.key().pub, "it unlocked the account's key from the backup instead");
+  assert.equal(raw("keys/7779.json", "keys").pub, first.key().pub);
+  assert.ok(raw("keys/7779.json", "keys").backup, "and the backup is still there");
+  const a = await device(ada); // no password: no backup
+  const other = { pub: first.key().pub, priv: first.key().priv };
+  const b2 = new Bus({ repo: "x/chat", token: "t", fetch: a.bus["f"] });
+  b2.keys = setUpKeys(b2, ada.id, { stored: other, save: () => {}, members: (ch) => b2.membersOf(ch) });
+  assert.equal(await b2.keys, null, "no backup to unlock: locked, not replaced");
+  assert.equal(raw("keys/1111.json", "keys").pub, a.key().pub);
+});
+
+test("locked messages are not forwarded; a closed question's note is sealed; a rewritten sender does not open", async () => {
+  const { device, gh, raw } = await world();
+  const e = await device(ege), a = await device(ada), b = await device(bob);
+  const dm = dmChannel(ege.id, ada.id);
+  const m = await e.bus.send(dm, ege, "for ada only");
+  const [seen] = await b.bus.history(dm);
+  await assert.rejects(b.bus.forward("all", bob, [seen]), /can't open/);
+  const ask = await e.bus.send(dm, ege, "Allow Bash?", [], { ask: ["Allow", "Deny"] });
+  await e.bus.closeAsk(ege, ask, "answered in the terminal");
+  assert.ok(!Object.values(gh.files()).some((t) => t.includes("answered in the terminal")), "neither in the question nor its notice");
+  assert.equal((await a.bus.message(dm, ask.id)).closed.note, "answered in the terminal");
+  const forged = { ...raw(msgPath(m)), from: ada.id, fromNick: "ada" };
+  await e.bus.commit({ [msgPath(m)]: JSON.stringify(forged) }, "forge");
+  assert.ok((await a.bus.message(dm, m.id)).locked, "the id says ege sent it");
+});

@@ -593,10 +593,21 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const [locked, setLocked] = useState(false);
   useEffect(() => {
     answerPasswordQuestions((reason, again) => new Promise((resolve) => setKeyQuestion({ reason, again, answer: (pw) => { setKeyQuestion(null); resolve(pw); } })));
-    bus.keys?.then((k) => setLocked(!k), () => setLocked(false));
+    bus.keys?.then((k) => setLocked(!k), () => setLocked(true)); // a failure (offline at start) offers Unlock too
   }, [bus]);
-  // asked later (the question was put off): the keys again, then the chat read again with them
-  const unlock = async () => { bus.keys = keysFor(bus, session.repo, me); if (await bus.keys.catch(() => null)) location.reload(); };
+  /** Messages this device had no key for, opened again where it has one now (unlocked, or a member shared the
+   *  chat's key since). */
+  const reopen = useCallback(async () => {
+    const locked = Object.values(messagesRef.current).flat().filter((m) => m.locked);
+    for (const o of await Promise.all(locked.map((m) => bus.opened(m)))) if (!o.locked) replace(o);
+  }, [bus]); // eslint-disable-line react-hooks/exhaustive-deps
+  // asked later (the question was put off, or setting up failed): the keys again, then the chat opened with them
+  const unlock = async () => {
+    bus.keys = keysFor(bus, session.repo, me);
+    const k = await bus.keys.catch(() => null);
+    setLocked(!k);
+    if (k) reopen();
+  };
   const [me, setMe] = useState<Device>(session.device);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device.id]);
@@ -784,6 +795,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           delivered(fresh);
           // an edit or delete notice: read the message it names again (its file changed in place)
           for (const n of fresh.filter(isEditNotice)) bus.message(n.channel, n.system!.target!).then((m) => { if (m) replace(m); }).catch(() => {});
+          reopen().catch(() => {});
           if (await watcher.tickReceipts().catch(() => false)) setReceipts(watcher.receipts);
           if (await watcher.tickPins().catch(() => false)) setPins(watcher.pins);
           if (await watcher.tickReactions().catch(() => false)) setReactions(watcher.reactions);
@@ -791,7 +803,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           if (await watcher.tickDrafts().catch(() => false)) takeDrafts(watcher.drafts, draftsAsked);
           for (const m of fresh) {
             if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
-            if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
+            if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.locked ? "🔒" : m.text || S.fileNotice);
           }
           if (await watcher.tickPresence().catch(() => false)) setPresence(watcher.presence);
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); }
@@ -1150,7 +1162,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         pinned={pinned.has(pinKey(menu.m))} onPin={() => { pin([menu.m], !pinned.has(pinKey(menu.m))); setMenu(null); }}
         onReply={() => { addReply(menu.m); setMenu(null); }}
         onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }}
-        onForward={() => { setForwarding([menu.m]); setMenu(null); }}
+        onForward={menu.m.locked ? undefined : () => { setForwarding([menu.m]); setMenu(null); }}
         onSelect={() => { setSelected(new Set([menu.m.id])); setMenu(null); }}
         onInfo={() => { setInfo(menu.m); setMenu(null); }}
         onRead={menu.m.text && !menu.m.locked ? () => { readOut(menu.m); setMenu(null); } : undefined}

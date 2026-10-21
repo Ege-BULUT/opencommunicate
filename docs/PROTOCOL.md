@@ -48,13 +48,15 @@ branch "drafts": drafts/<id>.json        { id, drafts: { <channel>: { text, at }
   sort by time; a sender uses the newest epoch wrapped for it, adds members who lack it (with every older epoch
   it holds), and makes a new one when it includes someone no longer in the chat or is not wrapped for the sender.
   A client that sees a new member's key share the epochs it holds with them.
-  A message's `text`, `files`, `ask` and `edits` are sealed as JSON with the epoch's key (AES-256-GCM, associated
+  A message's `text`, `files`, `ask`, `edits` and `closed` are sealed as JSON with the epoch's key (AES-256-GCM, associated
   data `<channel>/<id>`) into `enc: { k: <epoch>, iv, ct }`; `text` holds a placeholder for older apps and the
   other three are left out. A file's bytes are sealed the same way (associated data: its path, named
   `<message id>-<n>`), its `k` and `iv` in its sealed entry. Drafts are `{ id, enc: { iv, ct } }` under a key only
   the account derives (ECDH of its own key pair → HKDF, info `opencommunicate self <id>`); a status line is
-  `statusEnc` sealed with `#all`'s key. Edit notices say no text in an encrypted chat. Routing stays plain: ids,
-  channels, senders, times, quotes, answers, reactions, receipts, pins and group metadata.
+  `statusEnc` sealed with `#all`'s key. Edit and close notices say no text in an encrypted chat. Routing stays plain:
+  ids, channels, senders, times, quotes, answers, reactions, receipts, pins and group metadata; a message whose
+  `from` differs from the sender in its id does not open. Keys are not signed or pinned: a repository writer can
+  replace a member's public key.
 - **edit / delete** (0.7.3): the author rewrites the message file in place. An edit sets `text`, `edited` (ISO
   time) and appends the previous text to `edits: [{ text, at }]` (oldest first; `at` is when that version was
   written). A delete keeps the id, sender and time, sets `deleted` (ISO time), empties `text`, drops `files`,
