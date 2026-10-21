@@ -154,7 +154,7 @@ public class MessageCheck extends JobService {
             JSONObject msg = blob(repo, f.getString("sha"), token);
             if (msg == null || id.equals(msg.optString("from"))) continue;
             JSONObject sys = msg.optJSONObject("system");
-            if (sys != null && ("edit".equals(sys.optString("type")) || "delete".equals(sys.optString("type")))) continue;
+            if (sys != null && ("edit".equals(sys.optString("type")) || "delete".equals(sys.optString("type")) || "close".equals(sys.optString("type")))) continue;
             if (!wantsNotice(me, msg)) continue;
             found.add(msg);
         }

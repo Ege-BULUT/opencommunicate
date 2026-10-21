@@ -67,8 +67,20 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.8.8" open>
-  <summary><span class="v">0.8.8</span><span class="h">Android updates download again <span class="tag">Latest</span></span><time datetime="2026-10-21">21 October 2026</time></summary>
+<details class="rel" id="en-0.8.9" open>
+  <summary><span class="v">0.8.9</span><span class="h">Approvals close themselves, dictation without the freeze <span class="tag">Latest</span></span><time datetime="2026-10-21">21 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>A permission question you answered at the computer closes on the phone.</b> When Claude Code's prompt is answered in the terminal, or nobody answers in time, the Allow / Deny question sent by <code>opencom approve</code> greys out its buttons and says why, instead of waiting for a tap that would change nothing.</li>
+  <li><b>Dictation on the computer no longer freezes the app.</b> Whisper now loads and runs in the background (a Web Worker), so the window stays responsive while the model loads and writes out what you said. If the graphics card offers WebGPU but cannot run the model, it falls back to the processor.</li>
+  <li>The <a href="using.html">Using the app</a> guide now covers the message menu, questions and status from agents, read aloud and dictation, drafts and search.</li>
+  <li>For contributors: the end-to-end tests (the CLI, the MCP server and the app against an in-memory GitHub) live in the repository and run on every pull request.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.8.9">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.8.8">
+  <summary><span class="v">0.8.8</span><span class="h">Android updates download again</span><time datetime="2026-10-21">21 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Android: the "new version" link opens in your browser.</b> Opened in the app's own Chrome tab, the APK download could stop at 100% and never save. The site's Android download comes from the site itself again; the computer downloads come from the GitHub release.</li>
@@ -436,8 +448,20 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.8.8" open>
-  <summary><span class="v">0.8.8</span><span class="h">Android güncellemeleri yine iniyor <span class="tag">Son sürüm</span></span><time datetime="2026-10-21">21 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.8.9" open>
+  <summary><span class="v">0.8.9</span><span class="h">İzin soruları kendini kapatıyor, konuşarak yazma takılmıyor <span class="tag">Son sürüm</span></span><time datetime="2026-10-21">21 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Bilgisayardan cevapladığınız izin sorusu telefonda kapanır.</b> Claude Code'un sorusu terminalden cevaplanınca ya da zamanında kimse cevaplamayınca, <code>opencom approve</code>'un gönderdiği İzin ver / Reddet sorusu artık bir şey değiştirmeyecek bir dokunuşu beklemez: düğmeleri soluklaşır ve nedenini söyler.</li>
+  <li><b>Bilgisayarda konuşarak yazma artık uygulamayı dondurmuyor.</b> Whisper artık arka planda (bir Web Worker'da) yüklenip çalışıyor; model yüklenirken ve söyledikleriniz yazıya çevrilirken pencere tepki vermeye devam eder. Ekran kartı WebGPU sunup modeli çalıştıramazsa işlemciye geçer.</li>
+  <li><a href="using.html">Uygulamayı kullanmak</a> rehberi artık mesaj menüsünü, ajanlardan gelen soruları ve durumu, sesli okumayı ve konuşarak yazmayı, taslakları ve aramayı da anlatıyor.</li>
+  <li>Katkıda bulunanlar için: uçtan uca testler (komut satırı, MCP sunucusu ve uygulama, bellekteki sahte bir GitHub'a karşı) artık repoda ve her PR'da çalışıyor.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.8.9">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.8.8">
+  <summary><span class="v">0.8.8</span><span class="h">Android güncellemeleri yine iniyor</span><time datetime="2026-10-21">21 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Android: "yeni sürüm" bağlantısı tarayıcınızda açılır.</b> Uygulamanın kendi Chrome sekmesinde açılınca APK indirmesi %100'de takılıp kaydedilmeyebiliyordu. Sitedeki Android indirmesi yine sitenin kendisinden; bilgisayar dosyaları GitHub sürümünden iner.</li>

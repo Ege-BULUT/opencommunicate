@@ -72,6 +72,7 @@ async function call(c: Ctx, name: string, a: Record<string, any>, watcher: () =>
     case "answer": {
       const { m, channel, devices, groups } = await find(String(a.chat ?? ""), String(a.id ?? ""));
       if (!m.ask || m.deleted) throw new Error(`Message ${a.id} has no choices.`);
+      if (m.closed) throw new Error(`That question is closed: ${m.closed.note}.`);
       const answer = answerFor(m, String(a.text ?? ""));
       const sent = await bus.send(channel, me, answer.choice === null ? String(a.text) : m.ask[answer.choice], [], { replyTo: m.id, answer });
       await notifyRecipients(sent, me, devices, groups).catch(() => {});

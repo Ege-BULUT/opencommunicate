@@ -1305,6 +1305,7 @@ function systemText(m: Message, devices: Device[]): string {
   if (s.type === "group") return S.sysGroup(by, s.group?.name);
   if (s.type === "edit") return S.sysEdited(by);
   if (s.type === "delete") return S.sysDeleted(by);
+  if (s.type === "close") return S.sysClosed(by);
   const c = s.change;
   if (!c) return m.text;
   switch (c.type) {
@@ -1483,15 +1484,16 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
                 const got = answers(m);
                 const who = (ids: string[]) => ids.map((id) => (id === me.id ? S.you : handle(devices.find((d) => d.id === id) ?? { nick: "?", id }))).join(", ");
                 const pick = (i: number | null) => (e: React.MouseEvent) => { e.stopPropagation(); if (!selecting) onAnswer(m, i); };
-                return <div className="choices" role="group" aria-label={S.choices}>
-                  {[...m.ask.map((c, i) => [c, i] as const), ...(mine ? [] : [[S.writeAnswer, null] as const])].map(([c, i]) => {
+                // a closed one keeps its choices, disabled, with why it closed
+                return <><div className="choices" role="group" aria-label={S.choices}>
+                  {[...m.ask.map((c, i) => [c, i] as const), ...(mine || m.closed ? [] : [[S.writeAnswer, null] as const])].map(([c, i]) => {
                     const ids = Object.keys(got).filter((id) => got[id] === i);
                     const on = mine ? ids.length > 0 : me.id in got && got[me.id] === i;
-                    return <button key={i ?? "other"} className={`choice ${i === null ? "other" : ""} ${on ? "on" : ""}`} disabled={mine} title={who(ids) || undefined} onClick={pick(i)}>
+                    return <button key={i ?? "other"} className={`choice ${i === null ? "other" : ""} ${on ? "on" : ""}`} disabled={mine || !!m.closed} title={who(ids) || undefined} onClick={pick(i)}>
                       {on && "✓ "}{c}{(ids.length > 1 || (authors && ids.length > 0)) && <span>{ids.length}</span>}
                     </button>;
                   })}
-                </div>;
+                </div>{m.closed && <div className="closed muted small">{S.askClosed(m.closed.note)}</div>}</>;
               })()}
               <div className="meta">{isPinned(m) && <span title={S.pinned}><PinIcon /></span>}{m.edited && <button className="edited" title={S.showEarlier} onClick={(e) => { e.stopPropagation(); toggleEdits(m.id); }}>{S.edited}</button>}{m.failed ? S.notSent : m.pending ? S.sending : time(m.ts)}{mine && !m.pending && !m.failed && <TickMark state={ticks(m)} />}</div>
               {m.failed && <div className="unsent">

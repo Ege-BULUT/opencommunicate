@@ -1,5 +1,8 @@
 // The command line against the fake GitHub: asks and answers, watch --to-me, send --wait and approve.
 //   npm run build -w cli && node test/cli.e2e.mjs
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { answerFor, dmChannel } from "../core/src/index.ts";
 import { checks, sleep, world } from "./harness.mjs";
 
@@ -81,7 +84,27 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
   check("a written answer denies with its text", d?.decision.behavior === "deny" && d.decision.message === "ege-bulut#7779: not yet, run the tests first", JSON.stringify(d)); }
 
 { const r = await A(["approve", "7779", "--timeout", "4"], hook("Bash", { command: "rm -rf build" }));
-  check("no answer in time: no decision, exit 0", r.out === "" && r.code === 0, JSON.stringify(r)); }
+  const m = await asked("opencommunicate: allow Bash?\nrm -rf build");
+  check("no answer in time: no decision, exit 0, the question closed", r.out === "" && r.code === 0 && (await bus.message(dm, m.id))?.closed?.note === "no answer in time; asked in the terminal", JSON.stringify(r)); }
+
+// answered in the terminal: the call gets its result in the session's transcript, and the question on the phone closes
+{ const t = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "opencom-transcript-")), "session.jsonl");
+  const input = { command: "git push origin main", description: "Push" };
+  const line = (o) => JSON.stringify(o) + "\n";
+  const call = (id) => line({ type: "assistant", message: { content: [{ type: "tool_use", id, name: "Bash", input }] } });
+  const result = (id) => line({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] } });
+  fs.writeFileSync(t, call("toolu_before") + result("toolu_before") + call("toolu_now"));
+  const run = A(["approve", "7779"], JSON.stringify({ session_id: "s1", transcript_path: t, cwd: "/home/someone/site", hook_event_name: "PermissionRequest", tool_name: "Bash", tool_input: input }));
+  const m = await asked("site: allow Bash?");
+  await sleep(4000);
+  check("an earlier call's result does not close it", !(await bus.message(dm, m.id))?.closed);
+  fs.appendFileSync(t, result("toolu_other") + result("toolu_now"));
+  const r = await run;
+  const closed = (await bus.message(dm, m.id))?.closed;
+  check("an answer in the terminal closes the question, with no decision", r.out === "" && r.code === 0 && closed?.note === "answered in the terminal", JSON.stringify({ r, closed }));
+  check("history shows it closed", (await E(["history", "2082", "-n", "3"])).out.includes("[closed: answered in the terminal]"));
+  const late = await E(["answer", "2082", m.id, "Allow"]);
+  check("a closed question takes no answer", late.code === 1 && /closed/.test(late.err), late.err); }
 
 { const run = A(["send", "7779", "--wait", "Flags first?", "--timeout", "60"]);
   const m = await asked("Flags first?");

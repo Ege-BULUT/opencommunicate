@@ -32,7 +32,7 @@ branch "drafts": drafts/<id>.json        { id, drafts: { <channel>: { text, at }
   GitHub login in its device file, which is then asked to set one. Everyone with access to the repository can
   read the hashes, hence the slow hash; and like the group rules, these checks are kept by the clients.
 - **message file name**: `<UTC yyyymmddThhmmssmmmZ>-<sender id>-<6 random [a-z0-9]>.json`, so names sort by time.
-- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, edited?, edits?, deleted?, ask?, answer?, system? }`.
+- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, edited?, edits?, deleted?, ask?, answer?, closed?, system? }`.
 - **edit / delete** (0.7.3): the author rewrites the message file in place. An edit sets `text`, `edited` (ISO
   time) and appends the previous text to `edits: [{ text, at }]` (oldest first; `at` is when that version was
   written). A delete keeps the id, sender and time, sets `deleted` (ISO time), empties `text`, drops `files`,
@@ -68,7 +68,9 @@ branch "drafts": drafts/<id>.json        { id, drafts: { <channel>: { text, at }
   choice picked, its `text` being that choice word for word, or `null` for a written answer (a reply typed to
   the ask; text equal to a choice, case and surrounding spaces aside, counts as picking it). A person's newest
   answer counts; deleting it takes it back, and editing it makes it a written one (`choice: null`). A deleted
-  ask drops `ask`.
+  ask drops `ask`. Its author can close an ask (0.8.9): `closed: { at, note }` (`note`: why, one line, e.g.
+  "answered in the terminal"), written with a notice `system: { type: "close", target }` that, like an edit
+  notice, tells clients to read the message again; a closed ask keeps `ask`, and clients send no more answers to it.
 - **writes**: one commit per action (message + its attachments together), made through the Git Data API
   on the current head; if the branch moved, the commit is rebuilt on the new head and retried.
 - **reads**: poll `GET /git/ref/heads/main` with `If-None-Match`; on change, `GET /compare/<old>...<new>`

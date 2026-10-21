@@ -113,9 +113,10 @@ if [ "$(opencom send ege#7779 "Deploy to production?" --choice Yes --choice No -
 time Claude Code would ask for permission, the request (the project, the tool and its command or file) goes to
 `<to>` as a question with the choices Allow and Deny. Allow lets the tool run, Deny refuses it, and a written
 answer refuses it with your text as the reason, so "not yet, run the tests first" reaches Claude. The prompt
-still shows in the terminal, and whichever is answered first counts; a tap on the phone after that changes
-nothing. With no answer in time (`--timeout`, 540 seconds by default) the hook ends without a decision and the
-terminal prompt stays. `--lang tr` asks in Turkish. In `~/.claude/settings.json` (or a project's `.claude/settings.json`):
+still shows in the terminal, and whichever is answered first counts. When it is answered in the terminal (the
+hook sees the tool call get its result in the session's transcript), or no answer comes in time (`--timeout`,
+540 seconds by default; the hook then ends without a decision and the terminal prompt stays), the question on
+the phone closes: its buttons grey out, with why. `--lang tr` asks in Turkish. In `~/.claude/settings.json` (or a project's `.claude/settings.json`):
 
 ```json
 {
