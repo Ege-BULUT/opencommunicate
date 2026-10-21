@@ -108,12 +108,13 @@ export type Message = {
   ask?: string[];               // choices to pick from (an agent's question): the apps show a button for each, and one to write something else
   answer?: { choice: number | null }; // this message answers `replyTo`, an ask: the index of the choice picked (the text is that choice word
                                 // for word), or null when the answer was written
+  closed?: { at: string; note: string }; // an ask its author closed: it takes no more answers (note: why, e.g. "answered in the terminal")
   /** A notice: someone joined, made or changed a group, or edited or deleted message `target` of this channel. */
-  system?: { type: "join" | "group" | "change" | "edit" | "delete"; device?: Device; group?: Group; change?: GroupChange; target?: string };
+  system?: { type: "join" | "group" | "change" | "edit" | "delete" | "close"; device?: Device; group?: Group; change?: GroupChange; target?: string };
 };
-/** An edit or delete notice: a line at the end of the chat saying a message changed, so everyone (and every agent
- *  watching) learns of it; the apps read the message again and count no unread for it. */
-export const isEditNotice = (m: Pick<Message, "system">) => m.system?.type === "edit" || m.system?.type === "delete";
+/** An edit, delete or close notice: a line at the end of the chat saying a message changed, so everyone (and every
+ *  agent watching) learns of it; the apps read the message again and count no unread for it. */
+export const isEditNotice = (m: Pick<Message, "system">) => m.system?.type === "edit" || m.system?.type === "delete" || m.system?.type === "close";
 
 export const handle = (d: Pick<Device, "nick" | "id">) => `${d.nick}#${d.id}`;
 /** A new chat repository's name: what the person typed, made a valid GitHub name, always ending in "-chat". */
@@ -857,6 +858,25 @@ export class Bus {
       out = { message, notice };
       return { ...files, [msgPath(cur)]: JSON.stringify(message), [msgPath(notice)]: JSON.stringify(notice) };
     }, `${text === null ? "delete" : "edit"}: ${handle(me)} ${m.id}`);
+    return out;
+  }
+
+  /** Closes one of my asks: the apps stop offering its choices and show `note` instead (an approval answered in the
+   *  terminal, or one that waited too long). A notice says so, as for an edit. */
+  async closeAsk(me: Device, m: Pick<Message, "channel" | "id">, note: string): Promise<Message> {
+    const was = await this.readJson<Message>(msgPath(m));
+    if (was?.closed) return was;
+    let out!: Message;
+    const already = new Error("closed meanwhile");
+    await this.commit(async (parent) => {
+      const cur = await this.readJson<Message>(msgPath(m), parent);
+      if (!cur?.ask || cur.deleted) throw new Error("No such question.");
+      if (cur.from !== me.id) throw new Error("Only its author can close a question.");
+      if (cur.closed) { out = cur; throw already; } // a retry after someone else's commit
+      out = { ...cur, closed: { at: new Date().toISOString(), note: note.replace(/\s+/g, " ").trim().slice(0, 100) } };
+      const notice = this.newMessage(cur.channel, me, `${handle(me)} closed a question: ${out.closed!.note}`, { system: { type: "close", target: cur.id } });
+      return { [msgPath(cur)]: JSON.stringify(out), [msgPath(notice)]: JSON.stringify(notice) };
+    }, `close: ${handle(me)} ${m.id}`).catch((e) => { if (e !== already) throw e; });
     return out;
   }
 

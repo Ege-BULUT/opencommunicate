@@ -6,10 +6,6 @@ import { QueueStrategy, TextToSpeech } from "@capacitor-community/text-to-speech
 import { speechRuns, type Lang } from "../../core/src/voice.ts";
 import { lang as appLang } from "./i18n.tsx";
 import { native } from "./session.ts";
-// ONNX Runtime's WebAssembly, shipped with the app rather than fetched from a CDN, so dictation works offline once
-// the model is in (the phone build drops these files: Android dictates with its own recognizer)
-import ortMjs from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url";
-import ortWasm from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url";
 
 const TAG: Record<Lang, string> = { tr: "tr-TR", en: "en-US" };
 
@@ -96,72 +92,33 @@ export async function dictate(lang: Lang, { text: onText, end: onEnd, stage }: L
   return { stop: () => { stopping = true; SpeechRecognition.stop().catch(() => {}); } };
 }
 
-/* Whisper large-v3-turbo, 4-bit: about 560 MB on a GPU (WebGPU), 760 MB on the processor, downloaded from
-   Hugging Face on first use and kept in the browser's cache. It hears English terms inside Turkish well,
-   better still when told which to expect. */
-const WHISPER = "onnx-community/whisper-large-v3-turbo";
-const VOCAB = " Vercel, Claude, GPT, OpenCommunicate, GitHub, deploy, commit, push, pull request, API, MCP.";
+/* Whisper runs in a worker (whisper.worker.ts): loading the model and transcribing would freeze the page for
+   seconds. Each request carries an id; the worker answers with progress, then the result or an error. */
 const READY = "oc.whisper"; // set once the model has loaded on this device
 export const whisperReady = () => { try { return localStorage.getItem(READY) === "1"; } catch { return false; } };
-
-type Whisper = { model: any; processor: any; tokenizer: any; Tensor: any }; // eslint-disable-line @typescript-eslint/no-explicit-any
-let whisper: Promise<Whisper> | null = null;
-function loadWhisper(progress: (p: number) => void): Promise<Whisper> {
-  return (whisper ??= (async () => {
-    const { AutoProcessor, AutoTokenizer, WhisperForConditionalGeneration, Tensor, env } = await import("@huggingface/transformers");
-    env.backends.onnx.wasm!.wasmPaths = { mjs: new URL(ortMjs, location.href).href, wasm: new URL(ortWasm, location.href).href };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const gpu = "gpu" in navigator ? await (navigator as any).gpu.requestAdapter().catch(() => null) : null;
-    const files = new Map<string, [number, number]>();
-    let shown = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const progress_callback = (p: any) => {
-      if (p.status !== "progress") return;
-      files.set(p.file, [p.loaded, p.total]);
-      const [a, b] = [...files.values()].reduce(([x, y], [l, t]) => [x + l, y + t], [0, 0]);
-      if (a / b > shown) progress((shown = a / b));
-    };
-    const [model, processor, tokenizer] = await Promise.all([
-      WhisperForConditionalGeneration.from_pretrained(WHISPER, { device: gpu ? "webgpu" : "wasm", dtype: gpu?.features.has("shader-f16") ? "q4f16" : "q4", progress_callback }),
-      AutoProcessor.from_pretrained(WHISPER),
-      AutoTokenizer.from_pretrained(WHISPER),
-    ]);
-    try { localStorage.setItem(READY, "1"); } catch { /* asks again next time */ }
-    return { model, processor, tokenizer, Tensor };
-  })().catch((e) => { whisper = null; throw e; }));
-}
-
 const RATE = 16000;
-const rms = (a: Float32Array) => { let s = 0; for (const x of a) s += x * x; return Math.sqrt(s / (a.length || 1)); };
-/** Where to end a window that starts at `from`: 30 s on (Whisper's window), or the quietest tenth of a second in
- *  its last 5 s, so no word is cut in two. */
-function windowEnd(audio: Float32Array, from: number): number {
-  const end = from + 30 * RATE;
-  if (end >= audio.length) return audio.length;
-  let best = end, quiet = Infinity;
-  for (let t = end - 5 * RATE; t + RATE / 10 <= end; t += RATE / 10) {
-    const level = rms(audio.subarray(t, t + RATE / 10));
-    if (level < quiet) { quiet = level; best = t + RATE / 20; }
-  }
-  return best;
-}
 
-/** 16 kHz mono audio to text, a window at a time, each told the vocabulary and what the last one said. */
-async function transcribe(audio: Float32Array, lang: Lang, progress: (p: number) => void): Promise<string> {
-  const { model, processor, tokenizer, Tensor } = await loadWhisper(progress);
-  const id = (t: string) => tokenizer.convert_tokens_to_ids([t])[0];
-  const said: string[] = [];
-  for (let i = 0, j: number; i < audio.length; i = j) {
-    j = windowEnd(audio, i);
-    const part = audio.subarray(i, j);
-    if (rms(part) < 0.0015) continue; // silence (about -56 dBFS): Whisper would invent words
-    const { input_features } = await processor(part);
-    const prev = tokenizer.encode(VOCAB + (said.length ? ` ${said.at(-1)!.slice(-120)}` : ""), { add_special_tokens: false });
-    const start = [id("<|startofprev|>"), ...prev, id("<|startoftranscript|>"), id(`<|${lang}|>`), id("<|transcribe|>"), id("<|notimestamps|>")];
-    const out = await model.generate({ inputs: input_features, decoder_input_ids: new Tensor("int64", BigInt64Array.from(start.map(BigInt)), [1, start.length]), max_new_tokens: 444 - start.length }); // the decoder holds 448 tokens, prompt included
-    said.push(tokenizer.decode(Array.from(out.tolist()[0] as bigint[]).slice(start.length).map(Number), { skip_special_tokens: true }).trim());
-  }
-  return said.filter(Boolean).join(" ");
+type Job = { progress: (p: number) => void; resolve: (v: string) => void; reject: (e: Error) => void };
+const jobs = new Map<number, Job>();
+let worker: Worker | null = null, nextJob = 1;
+async function whisper(request: { type: "load" } | { type: "transcribe"; audio: Float32Array; lang: Lang }, progress: (p: number) => void): Promise<string> {
+  worker ??= Object.assign(new Worker(new URL("./whisper.worker.ts", import.meta.url), { type: "module" }), {
+    // a worker that fails to start or crashes: every waiting job fails, and the next one starts a new worker
+    onerror: (e: ErrorEvent) => { e.preventDefault(); for (const job of jobs.values()) job.reject(new Error(e.message || "speech recognition stopped")); jobs.clear(); worker?.terminate(); worker = null; },
+    onmessage: (e: MessageEvent<{ id: number; progress?: number; text?: string; error?: string }>) => {
+      const job = jobs.get(e.data.id);
+      if (!job) return;
+      if (e.data.progress !== undefined) return job.progress(e.data.progress);
+      jobs.delete(e.data.id);
+      if (e.data.error !== undefined) job.reject(new Error(e.data.error));
+      else { try { localStorage.setItem(READY, "1"); } catch { /* asks again next time */ } job.resolve(e.data.text ?? ""); }
+    },
+  });
+  const id = nextJob++;
+  return new Promise((resolve, reject) => {
+    jobs.set(id, { progress, resolve, reject });
+    worker!.postMessage({ id, ...request }, request.type === "transcribe" ? [request.audio.buffer] : []);
+  });
 }
 
 const MAX_RECORDING = 5 * 60_000; // one transcription after Stop: on a processor, minutes for a long recording
@@ -171,7 +128,7 @@ async function whisperDictation(lang: Lang, onText: (t: string) => void, onEnd: 
   const release = () => stream.getTracks().forEach((t) => t.stop());
   let rec: MediaRecorder;
   try { rec = new MediaRecorder(stream); } catch (e) { release(); throw e; }
-  loadWhisper(stage).catch(() => {}); // the model loads while you speak
+  whisper({ type: "load" }, stage).catch(() => {}); // the model loads while you speak
   const parts: Blob[] = [];
   const cap = setTimeout(() => stop(), MAX_RECORDING);
   const stop = () => { clearTimeout(cap); if (rec.state !== "inactive") rec.stop(); };
@@ -184,7 +141,8 @@ async function whisperDictation(lang: Lang, onText: (t: string) => void, onEnd: 
     const ctx = new AudioContext({ sampleRate: RATE }); // decoding resamples to it
     try {
       stage("transcribing");
-      const text = await transcribe((await ctx.decodeAudioData(await blob.arrayBuffer())).getChannelData(0), lang, stage);
+      const audio = new Float32Array((await ctx.decodeAudioData(await blob.arrayBuffer())).getChannelData(0)); // a copy the worker can own
+      const text = await whisper({ type: "transcribe", audio, lang }, stage);
       if (text) onText(text);
       onEnd();
     } catch (e) { onEnd((e as Error).message); }

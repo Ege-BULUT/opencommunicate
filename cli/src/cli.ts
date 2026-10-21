@@ -95,6 +95,46 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    claude mcp add opencom -e OPENCOM_HOME=<dir> -- opencom mcp
 `;
 
+/** Whether a Claude Code permission prompt was answered in the terminal: its tool call gets a result in the
+ *  session's transcript (Claude Code runs the hook alongside the prompt and takes the first answer). The call is the
+ *  newest one of that tool, with the same input, that has no result yet; only what the transcript gains is read,
+ *  after its last 4 MB. Any trouble reading it means "not answered there". */
+function answeredInTerminal(transcript: string | undefined, tool: string, input: unknown): () => boolean {
+  if (!transcript) return () => false;
+  let fd: number | null;
+  try { fd = fs.openSync(transcript, "r"); } catch { return () => false; }
+  const want = JSON.stringify(input);
+  const open = new Set<string>(); // calls like this one with no result yet
+  let pos = Math.max(0, fs.fstatSync(fd).size - 4_000_000), rest = Buffer.alloc(0), before = true, done = false;
+  if (pos > 0) { const b = Buffer.alloc(1); fs.readSync(fd, b, 0, 1, pos - 1); if (b[0] !== 0x0a) rest = Buffer.from("\0"); } // starts mid-line: that line is dropped
+  const read = () => {
+    const size = fs.fstatSync(fd!).size;
+    if (size <= pos) return;
+    const buf = Buffer.alloc(size - pos);
+    const n = fs.readSync(fd!, buf, 0, buf.length, pos);
+    pos += n;
+    const all = Buffer.concat([rest, buf.subarray(0, n)]);
+    const end = all.lastIndexOf(0x0a);
+    rest = all.subarray(end + 1); // a line still being written (bytes, so no character is cut)
+    for (const l of all.subarray(0, end + 1).toString("utf8").split("\n")) {
+      if (!l.includes('"tool_use')) continue;
+      let e: { message?: { content?: unknown } };
+      try { e = JSON.parse(l); } catch { continue; } // incl. the dropped partial first line
+      for (const c of (Array.isArray(e.message?.content) ? e.message!.content : []) as { type?: string; id?: string; name?: string; input?: unknown; tool_use_id?: string }[]) {
+        if (c.type === "tool_use" && c.name === tool && c.id && JSON.stringify(c.input) === want) open.add(c.id);
+        else if (c.type === "tool_result" && c.tool_use_id && open.has(c.tool_use_id)) {
+          if (!before && c.tool_use_id === [...open].at(-1)) done = true;
+          open.delete(c.tool_use_id);
+        }
+      }
+    }
+  };
+  const settle = () => { try { read(); } catch { /* moved or unreadable: not answered there */ } if (done && fd !== null) { fs.closeSync(fd); fd = null; } };
+  settle(); // what was there when the hook started: finds the call, settles nothing
+  before = false;
+  return () => { if (!done) settle(); return done; };
+}
+
 function token(): string {
   if (process.env.OPENCOM_TOKEN) return process.env.OPENCOM_TOKEN;
   try { return execFileSync("gh", ["auth", "token"], { encoding: "utf8" }).trim(); }
@@ -158,7 +198,7 @@ const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted
   const rs = reactions ? reactionsOn(m, reactions) : [];
   const reacted = rs.length ? `  [${rs.map((r) => `${r.emoji} ${r.ids.map(name).join(", ")}`).join(" · ")}]` : "";
   const body = m.deleted ? "(deleted)" : `${m.text}${m.edited ? " (edited)" : ""}`;
-  const ask = m.ask && !m.deleted ? `  [choices: ${m.ask.map((c, i) => `${i + 1} ${c}`).join(" | ")}; answer: opencom answer <chat> ${m.id} <text>]` : "";
+  const ask = !m.ask || m.deleted ? "" : m.closed ? `  [closed: ${m.closed.note}]` : `  [choices: ${m.ask.map((c, i) => `${i + 1} ${c}`).join(" | ")}; answer: opencom answer <chat> ${m.id} <text>]`;
   const answer = m.answer && !m.deleted ? `  (answer: ${m.answer.choice === null ? "written" : `choice ${m.answer.choice + 1}`})` : "";
   return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${body}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${answer}${ask}${reacted}`;
 };
@@ -192,9 +232,11 @@ async function main(argv: string[]) {
   };
   const watching = async () => { const w = new Watcher(bus, me); await w.start(); return w; };
   // the first reply to `asked` from someone else (marked read), or null once `seconds` (0: no limit) have passed
-  const replyTo = async (asked: Message, w: Watcher, seconds: number): Promise<Message | null> => {
-    const until = seconds > 0 ? Date.now() + seconds * 1000 : Infinity;
+  // or `over()` says the question was settled some other way
+  const replyTo = async (asked: Message, w: Watcher, seconds: number, over = () => false): Promise<Message | null> => {
+    const until = seconds > 0 ? Date.now() + seconds * 1000 : seconds < 0 ? 0 : Infinity; // < 0: one look
     for (;;) {
+      if (over()) return null;
       try {
         const m = (await w.tick()).find((x) => x.replyTo === asked.id && x.from !== me.id && !x.deleted);
         if (m) {
@@ -271,8 +313,16 @@ async function main(argv: string[]) {
       const w = await watching();
       const msg = await bus.send(channel, me, text, [], { ask: lang === "tr" ? ["İzin ver", "Reddet"] : ["Allow", "Deny"] });
       await notifyRecipients(msg, me, devices, groups).catch(() => {});
-      const reply = await replyTo(msg, w, limit);
-      if (!reply) return; // no answer in time: no decision; the terminal prompt, open all along, stays
+      const terminal = answeredInTerminal(req.transcript_path, tool, input);
+      // a tap that landed just as the wait ended still counts (Claude Code ignores it if the terminal came first)
+      const reply = (await replyTo(msg, w, limit, terminal)) ?? (await replyTo(msg, w, -1));
+      if (!reply) {
+        // answered in the terminal, or no answer in time (no decision: the terminal prompt, open all along, stays):
+        // the question on the phone stops offering its buttons
+        const note = terminal() ? (lang === "tr" ? "terminalden cevaplandı" : "answered in the terminal") : (lang === "tr" ? "zamanında cevap gelmedi, terminalde soruldu" : "no answer in time; asked in the terminal");
+        await bus.closeAsk(me, msg, note).catch(() => {});
+        return;
+      }
       const { choice } = answerOf(msg, reply);
       const decision = choice === 0 ? { behavior: "allow" }
         : { behavior: "deny", message: choice === 1 ? `${handle({ nick: reply.fromNick, id: reply.from })} denied this.` : `${handle({ nick: reply.fromNick, id: reply.from })}: ${reply.text}` };
@@ -435,6 +485,7 @@ async function main(argv: string[]) {
       const channel = resolveTarget(to, me, devices, groups);
       const ask = (await bus.history(channel, 200)).find((x) => x.id === id || x.id.endsWith(id));
       if (!ask?.ask || ask.deleted) throw new Error(`No ask ${id} in ${label(channel, me, devices, groups)} (last 200).`);
+      if (ask.closed) throw new Error(`That question is closed: ${ask.closed.note}.`);
       const answer = answerFor(ask, words.join(" "));
       const msg = await bus.send(channel, me, answer.choice === null ? words.join(" ") : ask.ask[answer.choice], [], { replyTo: ask.id, answer });
       await notifyRecipients(msg, me, devices, groups).catch(() => {});

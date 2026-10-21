@@ -2,7 +2,7 @@
 // my message is addressed to me, and edits and deletes keep the answer honest.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Bus, addressedTo, answerFor, answersTo, checkChoices, msgPath } from "../src/index.ts";
+import { Bus, addressedTo, answerFor, answersTo, checkChoices, isEditNotice, msgPath } from "../src/index.ts";
 
 const agent = { id: "2082", nick: "claude-oc", kind: "agent", joinedAt: "" };
 const ege = { id: "7779", nick: "ege-bulut", kind: "person", joinedAt: "" };
@@ -60,4 +60,19 @@ test("the newest answer per person counts; a deleted one is taken back; an edite
   assert.deepEqual(edited.answer, { choice: null });
   const { message: askGone } = await bus.amend(agent, ask, null);
   assert.equal(askGone.ask, undefined, "a deleted ask shows no buttons");
+});
+
+test("an ask its author closes takes no more answers, with a note and a notice", async () => {
+  const { bus, files } = fakeBus();
+  const ask = await bus.send(ch, agent, "Allow Bash?", [], { ask: ["Allow", "Deny"] });
+  await assert.rejects(bus.closeAsk(ege, ask, "x"), /author/);
+  const closed = await bus.closeAsk(agent, ask, "  answered in\nthe terminal ");
+  assert.deepEqual(JSON.parse(files[msgPath(ask)]).closed.note, "answered in the terminal");
+  assert.deepEqual(closed.ask, ["Allow", "Deny"], "the choices stay, for the record");
+  const notices = Object.values(files).map((t) => JSON.parse(t)).filter((m) => m.system?.type === "close");
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].system.target, ask.id);
+  assert.ok(isEditNotice(notices[0]), "the apps read the question again");
+  await bus.closeAsk(agent, ask, "again");
+  assert.equal(Object.values(files).map((t) => JSON.parse(t)).filter((m) => m.system?.type === "close").length, 1, "closing twice changes nothing");
 });

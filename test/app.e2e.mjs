@@ -121,6 +121,15 @@ if (only === "all" || only === "asks") {
   const mine = await bus.send(dm, ege, "Which build?", [], { ask: ["Debug", "Release"] });
   await page.locator(`#m-${mine.id} .choice`).first().waitFor({ timeout: 15000 });
   check("my own ask shows choices disabled, without the write button", (await page.locator(`#m-${mine.id} .choice:disabled`).count()) === 2 && (await page.locator(`#m-${mine.id} .choice.other`).count()) === 0);
+  // the agent closes a question (an approval answered in the terminal): its choices go disabled, with why
+  const gone = await bus.send(dm, agent, "Allow Bash?", [], { ask: ["Allow", "Deny"] });
+  await page.locator(`#m-${gone.id} .choice`).first().waitFor({ timeout: 15000 });
+  await bus.closeAsk(agent, gone, "answered in the terminal");
+  await page.locator(`#m-${gone.id} .closed`).waitFor({ timeout: 15000 });
+  check("a closed question: choices disabled, no write button, the reason shown", (await page.locator(`#m-${gone.id} .choice:disabled`).count()) === 2 && (await page.locator(`#m-${gone.id} .choice.other`).count()) === 0 && (await page.locator(`#m-${gone.id} .closed`).innerText()) === "Closed: answered in the terminal");
+  const closedNotice = page.locator(".system.notice", { hasText: "claude-oc#2082 closed a question" });
+  await closedNotice.waitFor({ timeout: 15000 }).catch(() => {});
+  check("a notice says it closed", (await closedNotice.count()) === 1);
   await browser.close();
 }
 
@@ -226,7 +235,7 @@ if (only === "all" || only === "read") {
 
 if (only === "dictate") {
   // Whisper in the page, fed a recording through Chromium's fake microphone; the model files come from the
-  // local copy (the test never reaches Hugging Face), on the processor (WebGPU hidden)
+  // local copy (the test never reaches Hugging Face)
   const HF = process.env.WHISPER_DIR, WAV = process.env.VOICE_WAV;
   if (!HF || !WAV) throw new Error("dictate needs WHISPER_DIR and VOICE_WAV (see the top of this file)");
   const asked = [];
@@ -247,8 +256,7 @@ if (only === "dictate") {
     await route.fulfill({ status: 302, headers: { location: `http://127.0.0.1:${files.address().port}/${m[1]}/${m[2]}`, "access-control-allow-origin": "*" } });
     return true;
   });
-  if (!process.env.GPU) await page.addInitScript(() => { delete Navigator.prototype.gpu; });
-  else console.log("  webgpu:", await page.evaluate(async () => { const a = await navigator.gpu?.requestAdapter(); return a ? `adapter, shader-f16 ${a.features.has("shader-f16")}` : "none"; }));
+  if (process.env.GPU) console.log("  webgpu:", await page.evaluate(async () => { const a = await navigator.gpu?.requestAdapter(); return a ? `adapter, shader-f16 ${a.features.has("shader-f16")}` : "none"; }));
   await page.reload();
   page.on("console", (msg) => { if (msg.type() === "error" || msg.type() === "warning") console.log("console:", msg.text().slice(0, 300)); });
   page.on("requestfailed", (r) => console.log("failed:", r.url().slice(0, 120), r.failure()?.errorText));
@@ -263,12 +271,16 @@ if (only === "dictate") {
   const t0 = Date.now();
   await sleep(10500); // the recording is 9.6 s
   await page.waitForFunction(() => document.querySelector(".mic-btn")?.classList.contains("on"));
+  const t1 = Date.now();
   await mic.click();
+  check("the page answers while the model loads (it loads in a worker)", Date.now() - t1 < 1500, `${Date.now() - t1} ms`);
   await page.waitForFunction(() => document.querySelector("textarea").value.length > 20, null, { timeout: 600000 });
   const text = await page.locator("textarea").inputValue();
   console.log(`  (${Math.round((Date.now() - t0) / 1000)} s) ${text}`);
   check("Turkish with English terms", /deploy/i.test(text) && /GPT/.test(text) && /Claude/.test(text) && /karşılaştırdım/.test(text), text);
-  check("the model files for this device were asked for", asked.every((p) => !p.endsWith(".onnx") || p.includes(process.env.GPU ? "_q4f16" : "_q4.")), asked.join(", "));
+  const onnx = asked.filter((p) => p.endsWith(".onnx"));
+  // WebGPU's 16-bit files, or the processor's (after WebGPU, if it was offered and failed)
+  check("one set of model files", onnx.slice(-2).every((p) => p.includes("_q4f16")) || onnx.slice(-2).every((p) => p.includes("_q4.")), onnx.join(", "));
   await page.waitForFunction(() => document.querySelector(".mic-btn")?.getAttribute("aria-pressed") === "false");
   check("the button is off again, the box editable", !(await page.locator("textarea").evaluate((t) => t.readOnly)));
   clearInterval(progress);
