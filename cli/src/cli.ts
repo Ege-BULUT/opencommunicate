@@ -5,8 +5,9 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, STATUS_MAX, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, PALETTES, quotedIds, STATUS_MAX, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
+import { setUpKeys } from "../../core/src/e2e.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
@@ -23,9 +24,10 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    what this session is doing, one line ("deploying 0.8.5"); the apps
                                    show it next to "online" in your chat. It stays while watch runs
                                    (each heartbeat writes it again); --clear when the work is done
-  opencom send <to> <text…> [--file <path>]… [--reply <message-id>] [--choice <text>]…
+  opencom send <to> <text…> [--file <path>]… [--reply <message-id>]… [--choice <text>]…
                                    to: all | nick#1234 | 1234 | <group name>;
                                    --reply quotes a message in that chat (its id, from history/watch);
+                                   give it up to 10 times to quote several;
                                    --choice (1 to 10 times) asks: the apps show a button per choice and
                                    one to write something else. The answer is a reply to your message,
                                    so it wakes "watch --to-me" even in a group; it ends in
@@ -191,13 +193,12 @@ const members = (g: Group, devices: Device[]) => {
 
 const local = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted?: Map<string, Message>, reactions?: Reactions) => {
-  const q = m.replyTo ? quoted?.get(m.replyTo) : undefined;
-  const quote = m.replyTo ? `  ↩ ${q ? `${q.fromNick}: ${snippet(q, 48)}` : `(message ${m.replyTo.slice(-6)})`}` : "";
+  const quote = quotedIds(m).map((id) => { const q = quoted?.get(id); return `  ↩ ${q ? `${q.fromNick}: ${snippet(q, 48)}` : `(message ${id.slice(-6)})`}`; }).join("");
   const who = m.forwarded ? "forwarded" : `${m.fromNick}#${m.from}`;
   const name = (id: string) => handle(devices.find((d) => d.id === id) ?? { nick: "?", id });
   const rs = reactions ? reactionsOn(m, reactions) : [];
   const reacted = rs.length ? `  [${rs.map((r) => `${r.emoji} ${r.ids.map(name).join(", ")}`).join(" · ")}]` : "";
-  const body = m.deleted ? "(deleted)" : `${m.text}${m.edited ? " (edited)" : ""}`;
+  const body = m.deleted ? "(deleted)" : m.locked ? "🔒 (encrypted; this device has no key for it yet)" : `${m.text}${m.edited ? " (edited)" : ""}`;
   const ask = !m.ask || m.deleted ? "" : m.closed ? `  [closed: ${m.closed.note}]` : `  [choices: ${m.ask.map((c, i) => `${i + 1} ${c}`).join(" | ")}; answer: opencom answer <chat> ${m.id} <text>]`;
   const answer = m.answer && !m.deleted ? `  (answer: ${m.answer.choice === null ? "written" : `choice ${m.answer.choice + 1}`})` : "";
   return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${body}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${answer}${ask}${reacted}`;
@@ -223,6 +224,16 @@ async function main(argv: string[]) {
 
   const cfg = readConfig();
   const bus = new Bus({ repo: cfg.repo, token: token() });
+  // end-to-end encryption: this device's key in key.json next to the config (OPENCOM_PASSWORD unlocks the
+  // account's key from its backup, for a person's account used here too)
+  const KEY = path.join(CONFIG_DIR, "key.json");
+  bus.keys = setUpKeys(bus, cfg.device.id, {
+    stored: (() => { try { return JSON.parse(fs.readFileSync(KEY, "utf8")); } catch { return null; } })(),
+    save: (id) => { fs.writeFileSync(KEY, JSON.stringify(id), { mode: 0o600 }); fs.chmodSync(KEY, 0o600); },
+    password: async () => process.env.OPENCOM_PASSWORD || null,
+    members: (ch) => bus.membersOf(ch),
+  });
+  bus.keys.catch(() => {}); // a command that writes reports it
   const me = cfg.device;
   const load = async () => { const head = await bus.head(); return { devices: await bus.devices(head ?? undefined), groups: await bus.groups(head ?? undefined) }; };
   const seconds = (fallback: number) => {
@@ -283,7 +294,7 @@ async function main(argv: string[]) {
       const channel = resolveTarget(to, me, devices, groups);
       const limit = seconds(0);
       const w = f.wait ? await watching() : null; // before sending, so no reply is missed
-      const msg = await bus.send(channel, me, text, files, { replyTo: f.reply?.[0], ask: f.choice });
+      const msg = await bus.send(channel, me, text, files, { replyTo: f.reply?.[0], quotes: f.reply?.slice(1), ask: f.choice });
       await notifyRecipients(msg, me, devices, groups).catch(() => {});
       (w ? console.error : console.log)(`sent to ${label(channel, me, devices, groups)}`);
       if (!w) return;
@@ -545,7 +556,7 @@ async function main(argv: string[]) {
           for (const m of shown) {
             const quoted = m.replyTo ? recent.get(m.replyTo) : undefined;
             console.log(f.json
-              ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me), replyPreview: quoted ? { from: quoted.from, fromNick: quoted.fromNick, text: snippet(quoted) } : undefined })
+              ? JSON.stringify({ ...m, enc: undefined, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me), replyPreview: quoted ? { from: quoted.from, fromNick: quoted.fromNick, text: snippet(quoted) } : undefined })
               : line(m, me, w.devices, w.groups, recent));
           }
           if (w.head) fs.writeFileSync(cursor, w.head);

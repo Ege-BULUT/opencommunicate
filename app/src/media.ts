@@ -6,22 +6,22 @@
 import { PHOTO_MAX, type Bus, type FileRef, type Upload } from "../../core/src/index.ts";
 import { S } from "./i18n.tsx";
 
-export type MediaKind = "image" | "video";
+export type MediaKind = "image" | "video" | "audio";
 export type MediaMode = "save" | "stream";
 const MODES = "oc.media";
 
 export function mediaModes(): Record<MediaKind, MediaMode> {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(MODES) ?? "{}"); } catch { /* defaults */ }
-  return { image: "save", video: "stream", ...saved };
+  return { image: "save", video: "stream", audio: "save", ...saved };
 }
 export const setMediaMode = (kind: MediaKind, mode: MediaMode) => localStorage.setItem(MODES, JSON.stringify({ ...mediaModes(), [kind]: mode }));
 
-const EXT: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", m4v: "video/mp4" };
+const EXT: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", avif: "image/avif", mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", m4v: "video/mp4", m4a: "audio/mp4", mp3: "audio/mpeg", ogg: "audio/ogg", opus: "audio/ogg", wav: "audio/wav", weba: "audio/webm" };
 export const mimeOf = (f: Pick<FileRef, "name" | "type">) => f.type || EXT[f.name.split(".").pop()?.toLowerCase() ?? ""] || "";
 export function kindOf(f: Pick<FileRef, "name" | "type">): MediaKind | null {
   const m = mimeOf(f);
-  return m.startsWith("image/") ? "image" : m.startsWith("video/") ? "video" : null;
+  return m.startsWith("image/") ? "image" : m.startsWith("video/") ? "video" : m.startsWith("audio/") ? "audio" : null;
 }
 
 // ---------- device store (IndexedDB: works in the phone's WebView, Electron and browsers) ----------
@@ -51,14 +51,16 @@ export async function storedSize(): Promise<number> {
 
 const memory = new Map<string, Promise<Uint8Array>>();
 
-/** A file's bytes: from memory, else from the device, else from GitHub (then kept on the device if `keep`). */
-export function fetchFile(bus: Bus, path: string, keep: boolean): Promise<Uint8Array> {
+/** A file's bytes: from memory, else from the device, else from GitHub, opened if it is sealed (then kept on the
+ *  device if `keep`). */
+export function fetchFile(bus: Bus, file: string | Pick<FileRef, "path" | "k" | "iv">, keep: boolean): Promise<Uint8Array> {
+  const ref = typeof file === "string" ? { path: file } : file, path = ref.path;
   let p = memory.get(path);
   if (!p) {
     p = (async () => {
       const local = await stored(path);
       if (local) return local;
-      const data = await bus.file(path);
+      const data = await bus.fileOf(ref);
       if (keep) await store(path, data);
       return data;
     })();
@@ -110,9 +112,13 @@ function videoFrame(file: File): Promise<{ v: HTMLVideoElement; done: () => void
   });
 }
 
-/** Size and a ~1 KB preview for an image or video about to be sent; nothing for other files. */
-export async function describe(file: File): Promise<Pick<Upload, "type" | "w" | "h" | "thumb">> {
+/** A voice message recorded in the app: the file, with how long it is. */
+export type VoiceFile = File & { dur: number };
+
+/** Size and a ~1 KB preview for an image or video about to be sent, length for a voice message; nothing for other files. */
+export async function describe(file: File): Promise<Pick<Upload, "type" | "w" | "h" | "thumb" | "voice" | "dur">> {
   const type = file.type || mimeOf({ name: file.name });
+  if ("dur" in file) return { type, voice: true, dur: (file as VoiceFile).dur };
   try {
     if (type.startsWith("image/")) {
       const bmp = await createImageBitmap(file);

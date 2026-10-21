@@ -106,6 +106,12 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
   const late = await E(["answer", "2082", m.id, "Allow"]);
   check("a closed question takes no answer", late.code === 1 && /closed/.test(late.err), late.err); }
 
+{ const one = await bus.send(dm, ege, "one", []), two = await bus.send(dm, ege, "two", []);
+  await A(["send", "7779", "about both", "--reply", one.id, "--reply", two.id]);
+  const m = await asked("about both");
+  check("--reply twice quotes both", m.replyTo === one.id && JSON.stringify(m.quotes) === JSON.stringify([two.id]), JSON.stringify(m));
+  check("history shows both quotes", /↩ ege-bulut: one\s+↩ ege-bulut: two/.test((await E(["history", "2082", "-n", "5"])).out)); }
+
 { const run = A(["send", "7779", "--wait", "Flags first?", "--timeout", "60"]);
   const m = await asked("Flags first?");
   await bus.send(dm, ege, "yes", [], { replyTo: m.id });
@@ -117,5 +123,7 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
 { const r = await A(["send", "7779", "never sent", "--wait", "--timeout", "soon"]);
   check("a bad --timeout fails before sending", r.code === 1 && r.err.includes("--timeout") && !(await bus.history(dm, 3)).some((m) => m.text === "never sent"), JSON.stringify(r)); }
 
+{ const stored = Object.values(w.gh.files());
+  check("the repository holds none of it in the clear", stored.some((t) => t.includes('"enc"')) && !stored.some((t) => t.includes("Deploy 0.8.5?") || t.includes("git push origin main"))); }
 w.close();
 done();

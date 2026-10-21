@@ -22,7 +22,7 @@ const str = (description: string) => ({ type: "string", description });
 const CHAT = str("all, nick#1234, 1234 or a group name");
 const TOOLS = [
   { name: "send", description: "Send a message. With choices it is a question: the apps show a button per choice and one to write something else, and the answer comes back as a reply whose answer.choice is the index picked (null when written).",
-    inputSchema: { type: "object", properties: { to: CHAT, text: str("the message"), reply: str("id of a message in that chat to quote"), choices: { type: "array", items: { type: "string" }, description: "1 to 10 one-line choices" } }, required: ["to", "text"] } },
+    inputSchema: { type: "object", properties: { to: CHAT, text: str("the message"), reply: { anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }], description: "id of a message in that chat to quote, or several ids (up to 10)" }, choices: { type: "array", items: { type: "string" }, description: "1 to 10 one-line choices" } }, required: ["to", "text"] } },
   { name: "inbox", description: "New messages since the last inbox call (the first call starts from now), as lines that begin with each message's id. Marks them read. Only those addressed to you (DMs, replies to you, @mentions) unless all is true.",
     inputSchema: { type: "object", properties: { all: { type: "boolean", description: "every new message in your chats" } } } },
   { name: "history", description: "Recent messages of a chat, oldest first, each line beginning with its id.",
@@ -50,7 +50,8 @@ async function call(c: Ctx, name: string, a: Record<string, any>, watcher: () =>
     case "send": {
       const { devices, groups } = await c.load();
       const channel = c.resolveTarget(String(a.to ?? ""), me, devices, groups);
-      const m = await bus.send(channel, me, String(a.text ?? ""), [], { replyTo: a.reply || undefined, ask: Array.isArray(a.choices) && a.choices.length ? a.choices.map(String) : undefined });
+      const quotes = (Array.isArray(a.reply) ? a.reply : a.reply ? [a.reply] : []).map(String);
+      const m = await bus.send(channel, me, String(a.text ?? ""), [], { replyTo: quotes[0], quotes: quotes.slice(1), ask: Array.isArray(a.choices) && a.choices.length ? a.choices.map(String) : undefined });
       await notifyRecipients(m, me, devices, groups).catch(() => {});
       return `sent to ${c.label(channel, me, devices, groups)} (id ${m.id})`;
     }

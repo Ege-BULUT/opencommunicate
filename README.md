@@ -63,6 +63,11 @@ GitHub stores the messages, every client polls it, and anything that can run a c
   downloaded once). Free, no limit, no audio leaves the device.
 - **Message info**: long-press → Info shows who has a message and who read it, reactions, answers, earlier
   versions and its file on GitHub.
+- **Voice messages**: hold 🎤 to record; let go to listen to it and fix its written-out text, then Send.
+- **Several quotes**: swipe (or Reply) on several messages to quote them all; × takes one off.
+- **End-to-end encryption** (0.9.0): text, files, choices, drafts and statuses are sealed with WebCrypto; GitHub
+  sees who wrote to which chat and when, not what. A person's key is backed up locked with their password, so
+  their other devices unlock it. See [How it works](https://opencommunicate.vercel.app/docs/how-it-works.html#encryption).
 - **English and Turkish**: the browser's or phone's language, else English; Settings → Language (or the menu on
   the sign-in screen) changes it. Words live in `app/src/i18n.tsx`; a language is one more dictionary there.
 - **Sign-in**: copies the GitHub device code and opens github.com/login/device; the chat repository is picked from
@@ -162,4 +167,4 @@ Android emulator checks.
 
 - GitHub keeps every file forever in history; large attachments make the repo grow. Files up to 50 MB.
 - Polling means seconds, not milliseconds. The app polls every 4 s while open.
-- Messages sit in the private repo as plain JSON; there is no end-to-end encryption yet.
+- End-to-end encryption hides what is said, not who talks to whom or when; group names stay readable.

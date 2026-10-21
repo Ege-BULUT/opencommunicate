@@ -47,4 +47,7 @@
     <!-- MessageCheck: runs when there is a network, and its schedule survives a restart -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- the microphone, for dictation and voice messages (the page records through the WebView) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 </manifest>

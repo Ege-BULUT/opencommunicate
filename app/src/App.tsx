@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, DraftQueue, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
-import { NoDictation, NoVoice, dictate, dictationLang, installVoice, readAloud, setDictationLang, stopReading, whisperReady, type Dictation } from "./voice.ts";
-import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
+import { answerPasswordQuestions, backUp, keysFor, rememberPassword } from "./keys.ts";
+import { NoDictation, NoVoice, record, transcribe, warmUp, type Recording, dictate, dictationLang, installVoice, readAloud, setDictationLang, stopReading, whisperReady, type Dictation } from "./voice.ts";
+import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode, type VoiceFile } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
 import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, noteHead, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
@@ -491,6 +492,7 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
     setError(""); setBusy(true);
     try {
       const { session: s, needsPassword } = await claim(token, repo.trim(), account, password);
+      rememberPassword(s.repo, s.device.id, password); // unlocks this account's encryption key without asking again
       if (needsPassword) awaitPassword(s); else finish(s);
     }
     catch (e) { setError(claimProblem(e, repo.trim())); }
@@ -562,7 +564,7 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
       {stage === "password" && joined && (
         <>
           <p>{S.yourAccount(handle(joined.device))}</p>
-          <PasswordForm username={handle(joined.device)} label={S.savePassword} onSave={async (pw) => { await setPassword(joined, pw); finish(joined); }} />
+          <PasswordForm username={handle(joined.device)} label={S.savePassword} onSave={async (pw) => { await setPassword(joined, pw); rememberPassword(joined.repo, joined.device.id, pw); finish(joined); }} />
           <div className="actions start">
             {!invite && <button className="ghost" onClick={back}>{S.back}</button>}
             <button className="ghost" onClick={otherAccount}>{S.signInOther}</button>
@@ -581,7 +583,31 @@ type Pending = Message & { pending?: boolean; failed?: boolean };
 function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }: { session: Session; onSession: (s: Session) => void; onSignOut: () => void; chats: Session[]; activity: Record<string, boolean>; onOpen: (repo: string) => void; onAdd?: () => void }) {
   // the bus and the watcher follow the chat and the token; a change to this device (picture, notifications) keeps them
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const bus = useMemo(() => new Bus({ repo: session.repo, token: sourceFor(session) }), [session.repo, credKey(session), session.source]);
+  const bus = useMemo(() => {
+    const b = new Bus({ repo: session.repo, token: sourceFor(session) });
+    b.keys = keysFor(b, session.repo, session.device); // end-to-end encryption (keys.ts)
+    return b;
+  }, [session.repo, credKey(session), session.source]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the account's password when the keys need it: to unlock them from another device's backup, or to make one
+  const [keyQuestion, setKeyQuestion] = useState<{ reason: "unlock" | "protect"; again: boolean; answer: (pw: string | null) => void } | null>(null);
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    answerPasswordQuestions((reason, again) => new Promise((resolve) => setKeyQuestion({ reason, again, answer: (pw) => { setKeyQuestion(null); resolve(pw); } })));
+    bus.keys?.then((k) => setLocked(!k), () => setLocked(true)); // a failure (offline at start) offers Unlock too
+  }, [bus]);
+  /** Messages this device had no key for, opened again where it has one now (unlocked, or a member shared the
+   *  chat's key since). */
+  const reopen = useCallback(async () => {
+    const locked = Object.values(messagesRef.current).flat().filter((m) => m.locked);
+    for (const o of await Promise.all(locked.map((m) => bus.opened(m)))) if (!o.locked) replace(o);
+  }, [bus]); // eslint-disable-line react-hooks/exhaustive-deps
+  // asked later (the question was put off, or setting up failed): the keys again, then the chat opened with them
+  const unlock = async () => {
+    bus.keys = keysFor(bus, session.repo, me);
+    const k = await bus.keys.catch(() => null);
+    setLocked(!k);
+    if (k) reopen();
+  };
   const [me, setMe] = useState<Device>(session.device);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device.id]);
@@ -769,6 +795,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           delivered(fresh);
           // an edit or delete notice: read the message it names again (its file changed in place)
           for (const n of fresh.filter(isEditNotice)) bus.message(n.channel, n.system!.target!).then((m) => { if (m) replace(m); }).catch(() => {});
+          reopen().catch(() => {});
           if (await watcher.tickReceipts().catch(() => false)) setReceipts(watcher.receipts);
           if (await watcher.tickPins().catch(() => false)) setPins(watcher.pins);
           if (await watcher.tickReactions().catch(() => false)) setReactions(watcher.reactions);
@@ -776,7 +803,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           if (await watcher.tickDrafts().catch(() => false)) takeDrafts(watcher.drafts, draftsAsked);
           for (const m of fresh) {
             if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
-            if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.text || S.fileNotice);
+            if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.locked ? "🔒" : m.text || S.fileNotice);
           }
           if (await watcher.tickPresence().catch(() => false)) setPresence(watcher.presence);
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); }
@@ -847,7 +874,9 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && !isEditNotice(m) && (!read[ch] || m.id > read[ch])).length;
   const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id].lastSeen) < 10 * 60_000;
   const [filter, setFilter] = useState("");
-  const [reply, setReply] = useState<Message | null>(null);
+  // the messages the next one quotes, in the order chosen (swipe, or Reply in the menu, adds one; × takes it off)
+  const [replies, setReplies] = useState<Message[]>([]);
+  const addReply = (m: Message) => setReplies((r) => (r.some((x) => x.id === m.id) ? r : [...r, m].slice(-QUOTES_MAX)));
   const [menu, setMenu] = useState<{ m: Message; x: number; y: number } | null>(null);
   const [info, setInfo] = useState<Message | null>(null); // the message whose details are open
   const [reading, setReading] = useState<string | null>(null); // the message being read aloud
@@ -944,7 +973,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
 
   // what a failed message needs to go again, by its draft id; kept in memory, so a reload drops it
-  type SendOpts = { replyTo?: string; answer?: { choice: number | null } };
+  type SendOpts = { replyTo?: string; quotes?: string[]; answer?: { choice: number | null } };
   const unsent = useRef<Record<string, { channel: string; text: string; payload: Upload[]; opts: SendOpts }>>({});
   const drop = (channel: string, id: string) => setMessages((prev) => ({ ...prev, [channel]: (prev[channel] ?? []).filter((x) => x.id !== id) }));
   const deliver = async (channel: string, text: string, payload: Upload[], opts: SendOpts = {}) => {
@@ -967,15 +996,15 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   };
   const send = async (text: string, files: File[]) => {
     const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()), ...(await describe(f)) })));
-    const q = reply;
-    setReply(null);
+    const [q, ...more] = replies;
+    setReplies([]);
     saveDraft(active, "");
-    // a reply to an ask answers it: with the choice its text is, or as a written answer
-    await deliver(active, text, payload, q ? { replyTo: q.id, ...(q.ask && !q.deleted ? { answer: answerFor(q, text) } : {}) } : {});
+    // a reply to an ask (alone) answers it: with the choice its text is, or as a written answer
+    await deliver(active, text, payload, q ? { replyTo: q.id, ...(more.length ? { quotes: more.map((m) => m.id) } : {}), ...(q.ask && !q.deleted && !q.closed && !more.length ? { answer: answerFor(q, text) } : {}) } : {});
   };
   /** Picks choice `i` of an ask, or with null starts a written answer (a reply to it). */
   const answer = (m: Message, i: number | null) => {
-    if (i === null) { setReply(m); return; }
+    if (i === null) { setReplies([m]); return; }
     return deliver(m.channel, m.ask![i], [], { replyTo: m.id, answer: { choice: i } });
   };
   /** A failed message goes again as a new one (new time, at the end of the chat); discard forgets it. */
@@ -1020,6 +1049,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         </header>
         <UpdateBanner />
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
+        {locked && <div className="alert" role="alert"><span>🔒 {S.keysLocked}</span><button className="ghost" onClick={unlock}>{S.unlock}</button></div>}
         <button className="me" onClick={() => setDialog("chats")} title={S.chatsTitle} aria-label={`${S.chatsTitle}: ${session.repo.split("/")[1]}`}>
           <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} picture={pictureOf(me)} />
           <span className="me-text"><b>{handle(me)}</b><span className="muted">{session.repo.split("/")[1]}</span></span>
@@ -1078,9 +1108,10 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           <button className="icon info" title={S.details} aria-label={S.chatDetails} onClick={() => setDialog("channel")}><Info /></button>
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
+        {locked && <div className="alert" role="alert"><span>🔒 {S.keysLocked}</span><button className="ghost" onClick={unlock}>{S.unlock}</button></div>}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
-          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} answers={(m) => answersTo(m, (messages[m.channel] ?? []).filter((x) => !x.failed))} onAnswer={answer} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
+          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} answers={(m) => answersTo(m, (messages[m.channel] ?? []).filter((x) => !x.failed))} onAnswer={answer} onReply={addReply} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
           selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} onResend={resend} onDiscard={discard} />
         {selected !== null
           ? <div className="select-bar">
@@ -1095,7 +1126,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
                 </span>;
               })()}
             </div>
-          : <Composer key={active} draft={drafts[active]?.text ?? ""} onDraft={(t) => saveDraft(active, t)} onSend={send} reply={reply} onCancelReply={() => setReply(null)}
+          : <Composer key={active} draft={drafts[active]?.text ?? ""} onDraft={(t) => saveDraft(active, t)} onSend={send} replies={replies} onCancelReply={(m) => setReplies((r) => r.filter((x) => x.id !== m.id))}
               onNotice={(t) => { setToast(t); setTimeout(() => setToast(""), 8000); }}
               editing={editing} onEdit={(t) => { const m = editing!; setEditing(null); if (t !== m.text) amend(m, t); }} onCancelEdit={() => setEditing(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />}
       </main>
@@ -1129,13 +1160,13 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       {menu && <MessageMenu m={menu.m} x={menu.x} y={menu.y} mine={menu.m.from === me.id}
         reaction={myReaction(menu.m)} onReact={(e) => { react(menu.m, myReaction(menu.m) === e ? null : e); setMenu(null); }}
         pinned={pinned.has(pinKey(menu.m))} onPin={() => { pin([menu.m], !pinned.has(pinKey(menu.m))); setMenu(null); }}
-        onReply={() => { setReply(menu.m); setMenu(null); }}
+        onReply={() => { addReply(menu.m); setMenu(null); }}
         onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }}
-        onForward={() => { setForwarding([menu.m]); setMenu(null); }}
+        onForward={menu.m.locked ? undefined : () => { setForwarding([menu.m]); setMenu(null); }}
         onSelect={() => { setSelected(new Set([menu.m.id])); setMenu(null); }}
         onInfo={() => { setInfo(menu.m); setMenu(null); }}
-        onRead={menu.m.text ? () => { readOut(menu.m); setMenu(null); } : undefined}
-        onEdit={menu.m.from === me.id && menu.m.text && !menu.m.forwarded ? () => { setReply(null); setEditing(menu.m); setMenu(null); } : undefined}
+        onRead={menu.m.text && !menu.m.locked ? () => { readOut(menu.m); setMenu(null); } : undefined}
+        onEdit={menu.m.from === me.id && menu.m.text && !menu.m.forwarded ? () => { setReplies([]); setEditing(menu.m); setMenu(null); } : undefined}
         onDelete={menu.m.from === me.id ? () => { amend(menu.m, null); setMenu(null); } : undefined}
         onClose={() => setMenu(null)} />}
       {info && <MessageInfo m={(messages[info.channel] ?? []).find((x) => x.id === info.id) ?? info} list={messages[info.channel] ?? []} repo={bus.repo} branch={bus.branch}
@@ -1143,6 +1174,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       {forwarding && <ChatPicker me={me} devices={devices} groups={groups} count={forwarding.length} onPick={(ch) => doForward(ch, forwarding)} onClose={() => setForwarding(null)} />}
       {reading && <div className="toast reading" role="status">🔊 {S.readingAloud} <button onClick={() => { stopReading(); setReading(null); }}>{S.stopReading}</button></div>}
       {toast && <div className="toast" role="status">{toast}</div>}
+      {keyQuestion && <KeyPassword key={String(keyQuestion.again)} reason={keyQuestion.reason} again={keyQuestion.again} me={me} onAnswer={keyQuestion.answer} />}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut}
         showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }} />}
     </div>
@@ -1194,6 +1226,24 @@ function UpdateBanner() {
         ? <button className="primary mini" onClick={() => desktopApp()?.installUpdate?.()}>{S.restartToUpdate}</button>
         : <><button className="primary mini" onClick={() => openLink(offer.url!, false)}>{S.getUpdate}</button><button className="mini" aria-label={S.later} title={S.later} onClick={skip}>×</button></>}
     </div>
+  );
+}
+
+/** The account's password, for its encryption key: to unlock it from the backup another device made, or to make
+ *  that backup. "Later" leaves the chat locked on this device (a banner offers it again). */
+function KeyPassword({ reason, again, me, onAnswer }: { reason: "unlock" | "protect"; again: boolean; me: Device; onAnswer: (pw: string | null) => void }) {
+  const [pw, setPw] = useState("");
+  const send = () => { if (pw) { onAnswer(pw); setPw(""); } };
+  return (
+    <Sheet title={S.keysTitle} onClose={() => onAnswer(null)}>
+      <p>{reason === "unlock" ? S.keysUnlock(handle(me)) : S.keysProtect}</p>
+      {again && <p className="error small">{S.keysWrong}</p>}
+      <form onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <input type="text" name="username" autoComplete="username" value={handle(me)} readOnly hidden />
+        <label>{S.password}<input type="password" autoComplete="current-password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+        <div className="actions"><button type="button" className="ghost" onClick={() => onAnswer(null)}>{S.later}</button><button className="primary" disabled={!pw}>{reason === "unlock" ? S.unlock : S.save}</button></div>
+      </form>
+    </Sheet>
   );
 }
 
@@ -1459,7 +1509,6 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
         const prev = list[i - 1];
         const run = !sep && !!prev && !prev.system && prev.from === m.from && Date.parse(m.ts) - Date.parse(prev.ts) < 5 * 60_000;
         const sender = devices.find((x) => x.id === m.from);
-        const q = m.replyTo ? quoted(m.replyTo) : undefined;
         const selectable = selecting && !m.pending && !m.failed && !m.system && !m.deleted;
         const still = !m.pending && !m.failed && !m.deleted; // can be replied to, reacted to, held for the menu
         const checked = !!selected?.has(m.id);
@@ -1474,9 +1523,10 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               onSwipe={() => !selecting && still && onReply(m)} onHold={(x, y) => !selecting && still && onMenu(m, x, y)}>
               {authors && !mine && !run && !m.forwarded && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">{S.agentTag}</span>}</div>}
               {m.forwarded && <div className="fwd-tag">{S.forwardedTag}</div>}
-              {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{q.deleted ? S.deletedMsg : snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>}
+              {quotedIds(m).map((id) => { const q = quoted(id); return <button key={id} className="quote" onClick={() => onJump(id)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{q.deleted ? S.deletedMsg : snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>; })}
               {m.deleted && <div className="text deleted">🚫 {S.deletedMsg}</div>}
-              {m.text && <div className="text">{linkify(m.text)}</div>}
+              {m.locked && <div className="text deleted">🔒 {S.lockedMsg}</div>}
+              {m.text && !m.locked && <div className="text">{linkify(m.text)}</div>}
               {m.edits && openEdits.has(m.id) && <div className="edits" aria-label={S.earlier}>{m.edits.map((e, i) => <div key={i}><span className="muted">{when(e.at)}</span> {e.text}</div>)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
               {m.ask && still && (() => {
@@ -1526,11 +1576,12 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(false);
+  const [play, setPlay] = useState(false); // a voice message tapped open plays at once
   const keep = !!kind && mediaModes()[kind] === "save";
   const load = async () => {
     if (!file.path) return null;
     setBusy(true); setError("");
-    try { return await fetchFile(bus, file.path, keep); }
+    try { return await fetchFile(bus, file, keep); }
     catch (e) { setError((e as Error).message); return null; }
     finally { setBusy(false); }
   };
@@ -1544,6 +1595,9 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.path]);
 
+  if (kind === "audio") return url
+    ? <div className="voice-note"><audio controls autoPlay={play} src={url} />{file.dur ? <span className="muted small">{S.voiceSeconds(file.dur)}</span> : null}</div>
+    : <button className="attach voice-note" disabled={busy || !file.path} onClick={() => { setPlay(true); show(); }}>▶ {file.voice ? S.voiceMessage : file.name} <span className="muted">{file.dur ? `${S.voiceSeconds(file.dur)} · ` : ""}{size(file.size)}{busy ? ` · ${S.downloadingLower}` : ""}</span>{error && <span className="media-error">{error}</span>}</button>;
   if (!kind) return (
     <button className="attach" disabled={busy || !file.path} onClick={save}>
       📎 {file.name} <span className="muted">{size(file.size)} · {busy ? S.downloadingLower : S.download}</span>
@@ -1578,7 +1632,7 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   );
 }
 
-function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editing, onEdit, onCancelEdit, onNotice }: { draft: string; onDraft: (text: string) => void; onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void; onNotice: (text: string) => void }) {
+function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, editing, onEdit, onCancelEdit, onNotice }: { draft: string; onDraft: (text: string) => void; onSend: (text: string, files: File[]) => void; people: Device[]; replies: Message[]; onCancelReply: (m: Message) => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void; onNotice: (text: string) => void }) {
   const [text, setText] = useState(draft);
   // a draft from another device shows here until something is typed in this box
   const typed = useRef(false);
@@ -1599,13 +1653,14 @@ function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editin
   const input = useRef<HTMLInputElement>(null);
   const submit = () => {
     if (editing) { if (text.trim()) onEdit(text.trim()); return; }
-    if (!text.trim() && !files.length) return;
-    if (files.some((f) => f.size > 50e6)) { alert(S.fileTooBig); return; }
-    onSend(text.trim(), files);
-    setText(""); setFiles([]); typed.current = false;
+    const all = voice?.file ? [...files, voice.file] : files;
+    if (!text.trim() && !all.length) return;
+    if (all.some((f) => f.size > 50e6)) { alert(S.fileTooBig); return; }
+    onSend(text.trim(), all);
+    setText(""); setFiles([]); dropVoice(); typed.current = false;
   };
   const replyInput = useRef<HTMLTextAreaElement | null>(null);
-  useEffect(() => { if (reply) replyInput.current?.focus(); }, [reply]);
+  useEffect(() => { if (replies.length) replyInput.current?.focus(); }, [replies.length]);
   // Dictation: what is said goes after what the box held when it started, and the box is read-only meanwhile.
   // One run at a time, kept in a ref: a stop asked for while it starts, or the chat closing, stops it once it has.
   const [listening, setListening] = useState<"starting" | "on" | null>(null);
@@ -1618,6 +1673,7 @@ function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editin
   const textNow = useRef(text); textNow.current = text;
   const listen = async () => {
     if (listening) { stopDictation(); return; }
+    if (voice) return;
     if (!native() && !whisperReady() && !consent) { setConsent(true); return; }
     setConsent(false); setListening("starting");
     const r: typeof run.current = (run.current = {});
@@ -1637,21 +1693,61 @@ function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editin
       onNotice(e instanceof NoDictation ? S.noDictation : S.cantDictate((e as Error).message));
     }
   };
+  // A voice message: hold 🎤 to record, let go to hear it back with what it says written into the box (to fix
+  // before sending); Send sends both, × drops it. A tap still dictates.
+  const [voice, setVoice] = useState<{ rec?: Recording; since?: number; url?: string; file?: VoiceFile } | null>(null);
+  const [, tick] = useState(0); // the recording's clock
+  useEffect(() => { if (!voice?.rec) return; const t = setInterval(() => tick((n) => n + 1), 500); return () => clearInterval(t); }, [voice?.rec]);
+  const hold = useRef<{ timer?: ReturnType<typeof setTimeout>; held?: boolean; up?: boolean }>({});
+  const voiceNow = useRef(voice); voiceNow.current = voice;
+  const dropVoice = () => { const v = voiceNow.current; v?.rec?.cancel(); if (v?.url) URL.revokeObjectURL(v.url); setVoice(null); };
+  useEffect(() => () => dropVoice(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const startVoice = async () => {
+    if (!native() && !whisperReady()) { setConsent(true); return; }
+    try {
+      const rec = await record((e) => { onNotice(S.cantDictate(e)); dropVoice(); });
+      if (hold.current.up) { rec.cancel(); return; } // let go before the microphone opened
+      warmUp(setStage);
+      setVoice({ rec, since: Date.now() });
+    } catch (e) { onNotice(S.cantDictate((e as Error).message)); }
+  };
+  const stopVoice = async () => {
+    const v = voiceNow.current;
+    if (!v?.rec) return;
+    const { blob, ms } = await v.rec.stop();
+    if (ms < 700 || !blob.size) { setVoice(null); return; } // a slip of the finger
+    const file = Object.assign(new File([blob], `voice-${Date.now()}.webm`, { type: blob.type }), { dur: Math.round(ms / 100) / 10 }) as VoiceFile;
+    setVoice({ url: URL.createObjectURL(blob), file });
+    const base = textNow.current.trim() ? `${textNow.current.trimEnd()} ` : "";
+    try { const said = await transcribe(blob, dictationLang(), setStage); if (said) change(base + said); }
+    catch (e) { onNotice(S.cantDictate((e as Error).message)); }
+    finally { setStage(null); }
+  };
+  const micDown = () => {
+    if (listening || voice || editing) return;
+    hold.current = { timer: setTimeout(() => { hold.current.held = true; startVoice(); }, 350) };
+  };
+  const micUp = () => { clearTimeout(hold.current.timer); if (hold.current.up) return; hold.current.up = true; if (hold.current.held) stopVoice(); };
+  const micClick = () => { if (hold.current.held) { hold.current.held = false; return; } listen(); };
+  const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
   return (
     <div className="composer">
       {editing && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{S.editingLabel}</b><span className="muted"> · {snippet(editing, 70)}</span></span><button className="reply-x" aria-label={S.cancelEdit} onClick={onCancelEdit}>×</button></div>}
-      {reply && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{reply.fromNick}</b><span className="muted"> · {snippet(reply, 70)}</span></span><button className="reply-x" aria-label={S.cancelReply} onClick={onCancelReply}>×</button></div>}
+      {replies.map((r) => <div key={r.id} className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{r.fromNick}</b><span className="muted"> · {snippet(r, 70)}</span></span><button className="reply-x" aria-label={S.cancelReply} onClick={() => onCancelReply(r)}>×</button></div>)}
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
       {consent && <div className="reply-bar"><span className="reply-text">{S.dictationDownload}</span><button className="mini" onClick={listen}>{S.download}</button><button className="reply-x" aria-label={S.cancel} onClick={() => setConsent(false)}>×</button></div>}
       {stage !== null && <div className="reply-bar" role="status"><span className="reply-text muted">{stage === "transcribing" ? S.transcribing : S.downloadingModel(Math.round(stage * 100))}</span></div>}
+      {voice?.rec && <div className="reply-bar voice-rec" role="status"><span className="reply-text"><b>● {clock(Date.now() - voice.since!)}</b> <span className="muted">{S.releaseToListen}</span></span></div>}
+      {voice?.url && <div className="reply-bar voice-preview"><audio controls src={voice.url} /><span className="muted small">{S.voiceSeconds(voice.file!.dur)}</span><button className="reply-x" aria-label={S.dropVoice} title={S.dropVoice} onClick={dropVoice}>×</button></div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
         <button className="icon attach-btn" disabled={!!editing} title={S.addFile} aria-label={S.addFile} onClick={() => input.current?.click()}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-        <textarea ref={replyInput} rows={1} value={text} readOnly={!!listening} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)}
+        <textarea ref={replyInput} rows={1} value={text} readOnly={!!listening || !!voice?.rec || stage === "transcribing"} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
-        <button className={`icon mic-btn${listening ? " on" : ""}`} disabled={!!editing || stage === "transcribing"} title={listening ? S.stopDictation : S.dictate} aria-label={S.dictate} aria-pressed={!!listening} onClick={listen}><Mic /></button>
-        <button className="primary send" aria-label={editing ? S.saveEdit : S.send} onClick={submit} disabled={!text.trim() && (!files.length || !!editing)}><Plane /><span className="send-label">{editing ? S.saveEdit : S.send}</span></button>
+        <button className={`icon mic-btn${listening || voice?.rec ? " on" : ""}`} disabled={!!editing || stage === "transcribing" || !!voice?.url} title={listening ? S.stopDictation : S.micHelp} aria-label={S.dictate} aria-pressed={!!listening}
+          onClick={micClick} onPointerDown={micDown} onPointerUp={micUp} onPointerLeave={micUp} onPointerCancel={micUp} onContextMenu={(e) => e.preventDefault()}><Mic /></button>
+        <button className="primary send" aria-label={editing ? S.saveEdit : S.send} onClick={submit} disabled={(!text.trim() && (!files.length || !!editing) && !voice?.file) || !!voice?.rec || stage === "transcribing"}><Plane /><span className="send-label">{editing ? S.saveEdit : S.send}</span></button>
       </div>
     </div>
   );
@@ -1943,7 +2039,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         <p className="muted small">{S.passwordHelp(handle(me))}</p>
         {recordError ? <p className="error small">{recordError}</p>
           : record === undefined ? <p className="muted small">{S.checking}</p>
-          : <PasswordForm current={record} username={handle(me)} label={record ? S.changePassword : S.savePassword} onSave={async (pw) => setRecord(await bus.setPassword(me, pw))} />}
+          : <PasswordForm current={record} username={handle(me)} label={record ? S.changePassword : S.savePassword} onSave={async (pw) => { setRecord(await bus.setPassword(me, pw)); await backUp(bus, session.repo, me, pw); }} />}
         <h3>{S.media}</h3>
         <p className="small">{S.mediaHelp}</p>
         {(["image", "video"] as const).map((k) => (

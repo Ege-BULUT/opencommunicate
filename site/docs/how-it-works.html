@@ -74,11 +74,22 @@ auth/&lt;id&gt;.json                           salted PBKDF2-SHA256 hash of the 
 channels/all/&lt;message&gt;.json              everyone
 channels/dm-&lt;a&gt;-&lt;b&gt;/&lt;message&gt;.json       two accounts, ids sorted
 channels/g-&lt;slug&gt;-&lt;rand&gt;/meta.json       { channel, name, members, admins, createdBy, createdAt }
-channels/&lt;channel&gt;/files/&lt;id&gt;-&lt;name&gt;     attachments
-branch "presence": presence/&lt;id&gt;.json    { id, lastSeen }
+channels/&lt;channel&gt;/files/&lt;id&gt;-&lt;n&gt;        attachments (sealed, named by number)
+branch "keys":     keys/&lt;id&gt;.json        { pub, backup? }: an account's public key, its private key locked with the password
+branch "keys":     channels/&lt;channel&gt;/&lt;epoch&gt;.json   a chat's key, wrapped for each member
+branch "presence": presence/&lt;id&gt;.json    { id, lastSeen, statusEnc? }
 branch "receipts": receipts/&lt;id&gt;.json    { id, channels: { &lt;channel&gt;: { delivered?, read? } } }
 branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }] }</code></pre>
 <p>A message file is named <code>&lt;UTC time&gt;-&lt;sender id&gt;-&lt;random&gt;.json</code>, so names sort by time. Receipts, presence and pins live on branches of their own, so they never add history to the chat itself.</p>
+<h2 id="encryption">End-to-end encryption</h2>
+<p>Since 0.9.0 every chat is end-to-end encrypted. GitHub, and anyone else who can read the repository, sees who wrote to which chat and when, but not what: the text, files (their names, previews and bytes), choices, earlier versions, drafts and status lines are sealed.</p>
+<ul>
+  <li>Each account has a key pair. The public key is on the repository's <code>keys</code> branch; the private key stays on the device. For a person it is also kept there locked with the account's password, so a new phone or computer signing in as the same <code>nick#id</code> unlocks it with the password. Lose the password and every device, and the encrypted history can't be read again.</li>
+  <li>Each chat has its own key, wrapped for each member's public key. Whoever sends first makes it; a member added later receives it, history included, from the next member online; when someone leaves, the next message starts a new key they never get.</li>
+  <li>The apps don't verify keys yet: anyone who can write to the repository could swap a member's public key for their own and read what is sent after. The repository's collaborators are the people you trust.</li>
+  <li>WebCrypto only: P-256 ECDH, HKDF-SHA256, AES-256-GCM, PBKDF2-SHA256 for the password. Messages from before 0.9.0 stay as they were (Git keeps them in history), and apps older than 0.9.0 show "Encrypted message, update to read it".</li>
+  <li>ntfy push notifications say who wrote and in which chat, never what. Android's background check shows 🔒 instead of the text, and in a chat set to mentions only it notifies replies and quotes of your messages but can't see @mentions inside sealed text.</li>
+</ul>
 <h2>Sync</h2>
 <p>Clients poll the branch head with an ETag. While nothing moved GitHub answers 304, which costs nothing against the rate limit; when it moves, the client asks GitHub which files changed. The apps poll every 4 seconds while open, so messages arrive within about 5 seconds.</p>
 <h2>Accounts and rules</h2>
@@ -87,7 +98,7 @@ branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }]
 <ul>
   <li>GitHub keeps every file in history, so large attachments make the repository grow. Files are capped at 50 MB.</li>
   <li>Polling means seconds, not milliseconds.</li>
-  <li>Messages sit in the private repository as plain JSON; there is no end-to-end encryption yet.</li>
+  <li>Encryption hides what is said, not who talks to whom or when; group names stay readable.</li>
 </ul>
 <p>The full format, field by field: <a href="https://github.com/Ege-BULUT/opencommunicate/blob/main/docs/PROTOCOL.md">docs/PROTOCOL.md</a>.</p>
 </div>
@@ -102,11 +113,22 @@ auth/&lt;id&gt;.json                           salted PBKDF2-SHA256 hash of the 
 channels/all/&lt;message&gt;.json              everyone
 channels/dm-&lt;a&gt;-&lt;b&gt;/&lt;message&gt;.json       two accounts, ids sorted
 channels/g-&lt;slug&gt;-&lt;rand&gt;/meta.json       { channel, name, members, admins, createdBy, createdAt }
-channels/&lt;channel&gt;/files/&lt;id&gt;-&lt;name&gt;     attachments
-branch "presence": presence/&lt;id&gt;.json    { id, lastSeen }
+channels/&lt;channel&gt;/files/&lt;id&gt;-&lt;n&gt;        attachments (sealed, named by number)
+branch "keys":     keys/&lt;id&gt;.json        { pub, backup? }: an account's public key, its private key locked with the password
+branch "keys":     channels/&lt;channel&gt;/&lt;epoch&gt;.json   a chat's key, wrapped for each member
+branch "presence": presence/&lt;id&gt;.json    { id, lastSeen, statusEnc? }
 branch "receipts": receipts/&lt;id&gt;.json    { id, channels: { &lt;channel&gt;: { delivered?, read? } } }
 branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }] }</code></pre>
 <p>Mesaj dosyasının adı <code>&lt;UTC zaman&gt;-&lt;gönderen id&gt;-&lt;rastgele&gt;.json</code> biçimindedir, böylece adlar zamana göre sıralanır. Okundu bilgisi, çevrimiçi durumu ve sabitlemeler kendi dallarında durur; sohbetin geçmişine ekleme yapmazlar.</p>
+<h2 id="encryption">Uçtan uca şifreleme</h2>
+<p>0.9.0'dan beri her sohbet uçtan uca şifrelidir. GitHub ve repoyu okuyabilen herkes kimin hangi sohbete ne zaman yazdığını görür, ama ne yazdığını göremez: metin, dosyalar (adları, önizlemeleri ve içerikleri), şıklar, eski hâller, taslaklar ve durum satırları şifrelidir.</p>
+<ul>
+  <li>Her hesabın bir anahtar çifti vardır. Açık anahtar reponun <code>keys</code> dalındadır; özel anahtar cihazda kalır. Bir kişininki hesap şifresiyle kilitlenmiş olarak orada da durur; aynı <code>nick#id</code> ile giren yeni bir telefon ya da bilgisayar onu şifreyle açar. Şifre ve bütün cihazlar kaybolursa şifreli geçmiş bir daha okunamaz.</li>
+  <li>Her sohbetin kendi anahtarı vardır ve her üyenin açık anahtarına ayrı ayrı sarılır. İlk gönderen oluşturur; sonradan eklenen üye onu (geçmiş dahil) çevrimiçi olan ilk üyeden alır; biri ayrılınca bir sonraki mesaj onun hiç almayacağı yeni bir anahtarla başlar.</li>
+  <li>Uygulamalar anahtarları henüz doğrulamıyor: repoya yazabilen biri bir üyenin açık anahtarını kendisininkiyle değiştirip bundan sonra gönderileni okuyabilir. Repo ortakları güvendiğiniz kişilerdir.</li>
+  <li>Yalnızca WebCrypto: P-256 ECDH, HKDF-SHA256, AES-256-GCM, şifre için PBKDF2-SHA256. 0.9.0'dan önceki mesajlar olduğu gibi kalır (Git onları geçmişte tutar); 0.9.0'dan eski uygulamalar "Şifreli mesaj, okumak için güncelleyin" gösterir.</li>
+  <li>ntfy anlık bildirimleri kimin hangi sohbete yazdığını söyler, ne yazdığını asla. Android'in arka plan kontrolü metin yerine 🔒 gösterir; sadece @mention'a ayarlı bir sohbette mesajlarınıza verilen yanıtları ve alıntıları bildirir ama şifreli metnin içindeki @mention'ları göremez.</li>
+</ul>
 <h2>Eşitleme</h2>
 <p>İstemciler dalın ucunu ETag ile yoklar. Hiçbir şey değişmediyse GitHub 304 döner ve bu, istek sınırından bir şey yemez; uç değişince istemci GitHub'a hangi dosyaların değiştiğini sorar. Uygulamalar açıkken 4 saniyede bir yoklar, mesajlar yaklaşık 5 saniye içinde gelir.</p>
 <h2>Hesaplar ve kurallar</h2>
@@ -115,7 +137,7 @@ branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }]
 <ul>
   <li>GitHub her dosyayı geçmişte sonsuza kadar tutar, büyük ekler repoyu büyütür. Dosyalar en fazla 50 MB.</li>
   <li>Yoklama milisaniye değil saniye demektir.</li>
-  <li>Mesajlar özel repoda düz JSON olarak durur; uçtan uca şifreleme henüz yok.</li>
+  <li>Şifreleme ne söylendiğini gizler, kimin kiminle ne zaman konuştuğunu değil; grup adları okunabilir kalır.</li>
 </ul>
 <p>Alan alan tam biçim: <a href="https://github.com/Ege-BULUT/opencommunicate/blob/main/docs/PROTOCOL.md">docs/PROTOCOL.md</a> (İngilizce).</p>
 </div>

@@ -14,7 +14,8 @@ export function recipients(m: Message, devices: Device[], groups: Group[]): Devi
 export async function notifyRecipients(m: Message, from: Device, devices: Device[], groups: Group[], f: typeof fetch = fetch): Promise<number> {
   const where = m.channel === "all" ? "#all" : isDm(m.channel) ? "" : `#${groups.find((g) => g.channel === m.channel)?.name ?? m.channel}`;
   const title = `${handle(from)}${where ? ` → ${where}` : ""}`;
-  const body = (m.text || (m.files?.length ? `📎 ${m.files.map((x) => x.name).join(", ")}` : "")).slice(0, 200);
+  // a sealed message's words go no further than the chat: ntfy.sh only hears that there is one
+  const body = m.enc ? "🔒" : (m.text || (m.files?.length ? `📎 ${m.files.map((x) => x.name).join(", ")}` : "")).slice(0, 200);
   // a recipient who muted the channel, or wants only mentions there, is skipped
   const targets = recipients(m, devices, groups).filter((d) => /^https:\/\/ntfy\.sh\/[\w-]{12,64}$/.test(d.notify ?? "") && wantsNotice(d, m));
   // Title and click go in the query string: HTTP headers must be Latin-1, and titles hold "→", emoji and Turkish.
