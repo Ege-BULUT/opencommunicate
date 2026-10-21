@@ -1,6 +1,6 @@
 // The app in Chromium against the in-memory GitHub: `npm run build -w app`, then
-//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|dictate|all]
-// CHROMIUM=<path> uses that browser instead of Playwright's. "all" leaves out dictate, which needs Whisper's files
+//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|dictate|voice|all]
+// CHROMIUM=<path> uses that browser instead of Playwright's. "all" leaves out dictate and voice, which need Whisper's files
 // (WHISPER_DIR=<a folder holding onnx-community/whisper-large-v3-turbo>) and a 16 kHz recording (VOICE_WAV=<file>);
 // GPU=1 runs it on WebGPU, in a visible window.
 import http from "node:http";
@@ -233,11 +233,11 @@ if (only === "all" || only === "read") {
   await browser.close();
 }
 
-if (only === "dictate") {
-  // Whisper in the page, fed a recording through Chromium's fake microphone; the model files come from the
-  // local copy (the test never reaches Hugging Face)
+// Whisper in the page, fed a recording through Chromium's fake microphone; the model files come from the local
+// copy (the test never reaches Hugging Face)
+async function withWhisper() {
   const HF = process.env.WHISPER_DIR, WAV = process.env.VOICE_WAV;
-  if (!HF || !WAV) throw new Error("dictate needs WHISPER_DIR and VOICE_WAV (see the top of this file)");
+  if (!HF || !WAV) throw new Error("dictate and voice need WHISPER_DIR and VOICE_WAV (see the top of this file)");
   const asked = [];
   const files = http.createServer((req, res) => {
     const f = path.join(HF, decodeURIComponent(new URL(req.url, "http://x").pathname));
@@ -246,7 +246,7 @@ if (only === "dictate") {
     fs.createReadStream(f).pipe(res);
   });
   await new Promise((r) => files.listen(0, "127.0.0.1", r));
-  const { browser, page } = await setup(() => 0, ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${WAV}`], async (route, u) => {
+  const { gh, bus, browser, page } = await setup(() => 0, ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", `--use-file-for-fake-audio-capture=${WAV}`], async (route, u) => {
     if (u.hostname !== "huggingface.co") return false;
     const m = u.pathname.match(/^\/(onnx-community\/[^/]+)\/resolve\/main\/(.+)$/);
     const f = m && path.join(HF, m[1], m[2]);
@@ -260,7 +260,11 @@ if (only === "dictate") {
   await page.reload();
   page.on("console", (msg) => { if (msg.type() === "error" || msg.type() === "warning") console.log("console:", msg.text().slice(0, 300)); });
   page.on("requestfailed", (r) => console.log("failed:", r.url().slice(0, 120), r.failure()?.errorText));
-  const progress = setInterval(async () => console.log("  …", (await page.locator(".composer .reply-bar").allInnerTexts().catch(() => [])).join(" / ")), 15000);
+  return { gh, bus, browser, page, asked, files };
+}
+
+if (only === "dictate") {
+  const { browser, page, asked, files } = await withWhisper();
   await openDm(page);
   await page.getByRole("button", { name: "Dictate" }).click();
   check("first use asks before the download", (await page.locator(".reply-bar").innerText()).includes("downloaded once (0.6 to 0.8 GB)"));
@@ -283,7 +287,44 @@ if (only === "dictate") {
   check("one set of model files", onnx.slice(-2).every((p) => p.includes("_q4f16")) || onnx.slice(-2).every((p) => p.includes("_q4.")), onnx.join(", "));
   await page.waitForFunction(() => document.querySelector(".mic-btn")?.getAttribute("aria-pressed") === "false");
   check("the button is off again, the box editable", !(await page.locator("textarea").evaluate((t) => t.readOnly)));
-  clearInterval(progress);
+  await browser.close();
+  files.close();
+}
+
+if (only === "voice") {
+  // hold 🎤: a voice message to listen to and its text to fix, sent only with Send
+  const { gh, browser, page, files } = await withWhisper();
+  await page.evaluate(() => localStorage.setItem("oc.whisper", "1")); // the model was agreed to before
+  await openDm(page);
+  const mic = page.locator(".mic-btn");
+  const box = await mic.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.locator(".voice-rec").waitFor({ timeout: 10000 });
+  check("holding records, with a clock", /● 0:0\d/.test(await page.locator(".voice-rec").innerText()));
+  await sleep(10500);
+  await page.mouse.up();
+  await page.locator(".voice-preview audio").waitFor({ timeout: 10000 });
+  check("letting go shows it to listen to", (await page.locator(".voice-preview").innerText()).includes("s"));
+  await page.waitForFunction(() => document.querySelector("textarea").value.length > 20, null, { timeout: 600000 });
+  const said = await page.locator("textarea").inputValue();
+  check("what it says is written into the box", /GPT/.test(said) && /karşılaştırdım/.test(said), said);
+  await sleep(4000);
+  check("nothing is sent before Send", !Object.keys(gh.files()).some((p) => p.includes("/files/")));
+  await page.locator("textarea").fill("Fixed: " + said.slice(0, 40));
+  await page.getByRole("button", { name: "Send" }).click();
+  await sleep(2500);
+  const sent = Object.entries(gh.files()).filter(([p]) => p.endsWith(".json")).map(([, t]) => JSON.parse(t)).find((m) => m.text?.startsWith("Fixed: "));
+  const f = sent?.files?.[0];
+  check("Send sends the audio with the fixed text", !!f && f.voice === true && f.dur > 8 && f.type === "audio/webm" && f.size > 10000, JSON.stringify(sent));
+  await page.locator(`#m-${sent.id} .voice-note`).waitFor({ timeout: 15000 });
+  check("the chat shows a player for it", (await page.locator(`#m-${sent.id} .voice-note audio`).count()) === 1);
+  check("the box and the preview are cleared", (await page.locator(".voice-preview").count()) === 0 && (await page.locator("textarea").inputValue()) === "");
+  // a slip of the finger records nothing
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down(); await sleep(500); await page.mouse.up();
+  await sleep(1000);
+  check("a short press-and-release leaves nothing", (await page.locator(".voice-preview, .voice-rec").count()) === 0);
   await browser.close();
   files.close();
 }

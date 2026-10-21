@@ -5,8 +5,8 @@ import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, en
 import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
-import { NoDictation, NoVoice, dictate, dictationLang, installVoice, readAloud, setDictationLang, stopReading, whisperReady, type Dictation } from "./voice.ts";
-import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode } from "./media.ts";
+import { NoDictation, NoVoice, record, transcribe, warmUp, type Recording, dictate, dictationLang, installVoice, readAloud, setDictationLang, stopReading, whisperReady, type Dictation } from "./voice.ts";
+import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode, type VoiceFile } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
 import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, noteHead, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
@@ -1527,6 +1527,7 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(false);
+  const [play, setPlay] = useState(false); // a voice message tapped open plays at once
   const keep = !!kind && mediaModes()[kind] === "save";
   const load = async () => {
     if (!file.path) return null;
@@ -1545,6 +1546,9 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file.path]);
 
+  if (kind === "audio") return url
+    ? <div className="voice-note"><audio controls autoPlay={play} src={url} />{file.dur ? <span className="muted small">{S.voiceSeconds(file.dur)}</span> : null}</div>
+    : <button className="attach voice-note" disabled={busy || !file.path} onClick={() => { setPlay(true); show(); }}>▶ {file.voice ? S.voiceMessage : file.name} <span className="muted">{file.dur ? `${S.voiceSeconds(file.dur)} · ` : ""}{size(file.size)}{busy ? ` · ${S.downloadingLower}` : ""}</span>{error && <span className="media-error">{error}</span>}</button>;
   if (!kind) return (
     <button className="attach" disabled={busy || !file.path} onClick={save}>
       📎 {file.name} <span className="muted">{size(file.size)} · {busy ? S.downloadingLower : S.download}</span>
@@ -1600,10 +1604,11 @@ function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, edit
   const input = useRef<HTMLInputElement>(null);
   const submit = () => {
     if (editing) { if (text.trim()) onEdit(text.trim()); return; }
-    if (!text.trim() && !files.length) return;
-    if (files.some((f) => f.size > 50e6)) { alert(S.fileTooBig); return; }
-    onSend(text.trim(), files);
-    setText(""); setFiles([]); typed.current = false;
+    const all = voice?.file ? [...files, voice.file] : files;
+    if (!text.trim() && !all.length) return;
+    if (all.some((f) => f.size > 50e6)) { alert(S.fileTooBig); return; }
+    onSend(text.trim(), all);
+    setText(""); setFiles([]); dropVoice(); typed.current = false;
   };
   const replyInput = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => { if (replies.length) replyInput.current?.focus(); }, [replies.length]);
@@ -1619,6 +1624,7 @@ function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, edit
   const textNow = useRef(text); textNow.current = text;
   const listen = async () => {
     if (listening) { stopDictation(); return; }
+    if (voice) return;
     if (!native() && !whisperReady() && !consent) { setConsent(true); return; }
     setConsent(false); setListening("starting");
     const r: typeof run.current = (run.current = {});
@@ -1638,6 +1644,43 @@ function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, edit
       onNotice(e instanceof NoDictation ? S.noDictation : S.cantDictate((e as Error).message));
     }
   };
+  // A voice message: hold 🎤 to record, let go to hear it back with what it says written into the box (to fix
+  // before sending); Send sends both, × drops it. A tap still dictates.
+  const [voice, setVoice] = useState<{ rec?: Recording; since?: number; url?: string; file?: VoiceFile } | null>(null);
+  const [, tick] = useState(0); // the recording's clock
+  useEffect(() => { if (!voice?.rec) return; const t = setInterval(() => tick((n) => n + 1), 500); return () => clearInterval(t); }, [voice?.rec]);
+  const hold = useRef<{ timer?: ReturnType<typeof setTimeout>; held?: boolean; up?: boolean }>({});
+  const voiceNow = useRef(voice); voiceNow.current = voice;
+  const dropVoice = () => { const v = voiceNow.current; v?.rec?.cancel(); if (v?.url) URL.revokeObjectURL(v.url); setVoice(null); };
+  useEffect(() => () => dropVoice(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const startVoice = async () => {
+    if (!native() && !whisperReady()) { setConsent(true); return; }
+    try {
+      const rec = await record((e) => { onNotice(S.cantDictate(e)); dropVoice(); });
+      if (hold.current.up) { rec.cancel(); return; } // let go before the microphone opened
+      warmUp(setStage);
+      setVoice({ rec, since: Date.now() });
+    } catch (e) { onNotice(S.cantDictate((e as Error).message)); }
+  };
+  const stopVoice = async () => {
+    const v = voiceNow.current;
+    if (!v?.rec) return;
+    const { blob, ms } = await v.rec.stop();
+    if (ms < 700 || !blob.size) { setVoice(null); return; } // a slip of the finger
+    const file = Object.assign(new File([blob], `voice-${Date.now()}.webm`, { type: blob.type }), { dur: Math.round(ms / 100) / 10 }) as VoiceFile;
+    setVoice({ url: URL.createObjectURL(blob), file });
+    const base = textNow.current.trim() ? `${textNow.current.trimEnd()} ` : "";
+    try { const said = await transcribe(blob, dictationLang(), setStage); if (said) change(base + said); }
+    catch (e) { onNotice(S.cantDictate((e as Error).message)); }
+    finally { setStage(null); }
+  };
+  const micDown = () => {
+    if (listening || voice || editing) return;
+    hold.current = { timer: setTimeout(() => { hold.current.held = true; startVoice(); }, 350) };
+  };
+  const micUp = () => { clearTimeout(hold.current.timer); if (hold.current.up) return; hold.current.up = true; if (hold.current.held) stopVoice(); };
+  const micClick = () => { if (hold.current.held) { hold.current.held = false; return; } listen(); };
+  const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
   return (
     <div className="composer">
       {editing && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{S.editingLabel}</b><span className="muted"> · {snippet(editing, 70)}</span></span><button className="reply-x" aria-label={S.cancelEdit} onClick={onCancelEdit}>×</button></div>}
@@ -1645,14 +1688,17 @@ function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, edit
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
       {consent && <div className="reply-bar"><span className="reply-text">{S.dictationDownload}</span><button className="mini" onClick={listen}>{S.download}</button><button className="reply-x" aria-label={S.cancel} onClick={() => setConsent(false)}>×</button></div>}
       {stage !== null && <div className="reply-bar" role="status"><span className="reply-text muted">{stage === "transcribing" ? S.transcribing : S.downloadingModel(Math.round(stage * 100))}</span></div>}
+      {voice?.rec && <div className="reply-bar voice-rec" role="status"><span className="reply-text"><b>● {clock(Date.now() - voice.since!)}</b> <span className="muted">{S.releaseToListen}</span></span></div>}
+      {voice?.url && <div className="reply-bar voice-preview"><audio controls src={voice.url} /><span className="muted small">{S.voiceSeconds(voice.file!.dur)}</span><button className="reply-x" aria-label={S.dropVoice} title={S.dropVoice} onClick={dropVoice}>×</button></div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
         <button className="icon attach-btn" disabled={!!editing} title={S.addFile} aria-label={S.addFile} onClick={() => input.current?.click()}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-        <textarea ref={replyInput} rows={1} value={text} readOnly={!!listening} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)}
+        <textarea ref={replyInput} rows={1} value={text} readOnly={!!listening || !!voice?.rec || stage === "transcribing"} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
-        <button className={`icon mic-btn${listening ? " on" : ""}`} disabled={!!editing || stage === "transcribing"} title={listening ? S.stopDictation : S.dictate} aria-label={S.dictate} aria-pressed={!!listening} onClick={listen}><Mic /></button>
-        <button className="primary send" aria-label={editing ? S.saveEdit : S.send} onClick={submit} disabled={!text.trim() && (!files.length || !!editing)}><Plane /><span className="send-label">{editing ? S.saveEdit : S.send}</span></button>
+        <button className={`icon mic-btn${listening || voice?.rec ? " on" : ""}`} disabled={!!editing || stage === "transcribing" || !!voice?.url} title={listening ? S.stopDictation : S.micHelp} aria-label={S.dictate} aria-pressed={!!listening}
+          onClick={micClick} onPointerDown={micDown} onPointerUp={micUp} onPointerLeave={micUp} onPointerCancel={micUp} onContextMenu={(e) => e.preventDefault()}><Mic /></button>
+        <button className="primary send" aria-label={editing ? S.saveEdit : S.send} onClick={submit} disabled={(!text.trim() && (!files.length || !!editing) && !voice?.file) || !!voice?.rec || stage === "transcribing"}><Plane /><span className="send-label">{editing ? S.saveEdit : S.send}</span></button>
       </div>
     </div>
   );

@@ -42,8 +42,10 @@ export type GroupChange =
   | { type: "leave" };
 /** An attachment. Images and videos sent from the apps also carry their size and a tiny preview (a data URL of
  *  about 1 KB), so a chat shows what it is before anyone downloads it. */
-export type FileRef = { name: string; path: string; size: number; type?: string; w?: number; h?: number; thumb?: string };
-export type Upload = { name: string; data: Uint8Array } & Pick<FileRef, "type" | "w" | "h" | "thumb">;
+/** An attachment. `voice`: a voice message (recorded in the app; the message's text is what it says, written out
+ *  and checked by the sender), `dur` its length in seconds. */
+export type FileRef = { name: string; path: string; size: number; type?: string; w?: number; h?: number; thumb?: string; voice?: boolean; dur?: number };
+export type Upload = { name: string; data: Uint8Array } & Pick<FileRef, "type" | "w" | "h" | "thumb" | "voice" | "dur">;
 export const PHOTO_MAX = 50 * 1024;
 /**
  * How far a device has got in one channel, as message ids (which sort by time): `delivered` is the newest message
@@ -576,7 +578,7 @@ export class Bus {
         const name = f.name.replace(/[^\w.\-]+/g, "_").slice(-80) || "file";
         const path = `channels/${channel}/files/${msg.id}-${name}`;
         out[path] = f.data;
-        const extra = Object.fromEntries(Object.entries({ type: f.type, w: f.w, h: f.h, thumb: f.thumb }).filter(([, v]) => v !== undefined));
+        const extra = Object.fromEntries(Object.entries({ type: f.type, w: f.w, h: f.h, thumb: f.thumb, voice: f.voice || undefined, dur: f.dur }).filter(([, v]) => v !== undefined));
         return { name: f.name, path, size: f.data.length, ...extra };
       });
     }

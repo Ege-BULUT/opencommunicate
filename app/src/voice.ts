@@ -1,8 +1,10 @@
 /* Reading a message aloud, each run of it (core/src/voice.ts) in a voice of its own language: Android's
    text-to-speech on the phone, the system's voices (speechSynthesis) on the desktop and the web. Both use the
    voices installed on the device, so it is free, works offline and has no limit. */
+import { registerPlugin } from "@capacitor/core";
 import { SpeechRecognition } from "@capgo/capacitor-speech-recognition";
 import { QueueStrategy, TextToSpeech } from "@capacitor-community/text-to-speech";
+import { toBase64 } from "../../core/src/index.ts";
 import { speechRuns, type Lang } from "../../core/src/voice.ts";
 import { lang as appLang } from "./i18n.tsx";
 import { native } from "./session.ts";
@@ -123,31 +125,54 @@ async function whisper(request: { type: "load" } | { type: "transcribe"; audio: 
 
 const MAX_RECORDING = 5 * 60_000; // one transcription after Stop: on a processor, minutes for a long recording
 
-async function whisperDictation(lang: Lang, onText: (t: string) => void, onEnd: (error?: string) => void, stage: (s: "transcribing" | number) => void): Promise<Dictation> {
+/** A recording from the microphone, until stop() (or 5 minutes): Opus in WebM where the browser has it. */
+export type Recording = { stop: () => Promise<{ blob: Blob; ms: number }>; cancel: () => void };
+export async function record(onError: (e: string) => void = () => {}): Promise<Recording> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
   const release = () => stream.getTracks().forEach((t) => t.stop());
+  const opus = "audio/webm;codecs=opus";
   let rec: MediaRecorder;
-  try { rec = new MediaRecorder(stream); } catch (e) { release(); throw e; }
-  whisper({ type: "load" }, stage).catch(() => {}); // the model loads while you speak
-  const parts: Blob[] = [];
-  const cap = setTimeout(() => stop(), MAX_RECORDING);
-  const stop = () => { clearTimeout(cap); if (rec.state !== "inactive") rec.stop(); };
+  try { rec = new MediaRecorder(stream, MediaRecorder.isTypeSupported(opus) ? { mimeType: opus, audioBitsPerSecond: 32000 } : undefined); }
+  catch (e) { release(); throw e; }
+  const parts: Blob[] = [], t0 = Date.now();
+  const done = new Promise<{ blob: Blob; ms: number }>((resolve) => {
+    rec.onstop = () => { release(); resolve({ blob: new Blob(parts, { type: (rec.mimeType || "audio/webm").split(";")[0] }), ms: Date.now() - t0 }); };
+  });
+  const stop = () => { clearTimeout(cap); if (rec.state !== "inactive") rec.stop(); return done; };
+  const cap = setTimeout(stop, MAX_RECORDING);
   rec.ondataavailable = (e) => parts.push(e.data);
-  rec.onerror = () => { clearTimeout(cap); release(); onEnd("the microphone stopped"); };
-  rec.onstop = async () => {
-    release();
-    const blob = new Blob(parts);
-    if (!blob.size) { onEnd(); return; } // stopped before anything was recorded
-    const ctx = new AudioContext({ sampleRate: RATE }); // decoding resamples to it
-    try {
-      stage("transcribing");
-      const audio = new Float32Array((await ctx.decodeAudioData(await blob.arrayBuffer())).getChannelData(0)); // a copy the worker can own
-      const text = await whisper({ type: "transcribe", audio, lang }, stage);
-      if (text) onText(text);
-      onEnd();
-    } catch (e) { onEnd((e as Error).message); }
-    finally { ctx.close(); }
-  };
+  rec.onerror = () => { clearTimeout(cap); release(); onError("the microphone stopped"); };
   rec.start();
-  return { stop };
+  return { stop, cancel: () => { parts.length = 0; stop(); } };
+}
+
+/** Android's on-device recognizer fed a recording instead of the microphone (app/android: TranscriberPlugin). */
+const Transcriber = registerPlugin<{ transcribe(o: { pcm: string; rate: number; language: string }): Promise<{ text: string }> }>("Transcriber");
+
+/** What a recording says: Whisper on the desktop and the web, Android's on-device recognizer on the phone. */
+export async function transcribe(blob: Blob, lang: Lang, stage: (s: "transcribing" | number) => void = () => {}): Promise<string> {
+  if (!blob.size) return "";
+  const ctx = new AudioContext({ sampleRate: RATE }); // decoding resamples to it
+  let audio: Float32Array;
+  try { audio = new Float32Array((await ctx.decodeAudioData(await blob.arrayBuffer())).getChannelData(0)); } // a copy the worker can own
+  finally { ctx.close(); }
+  stage("transcribing");
+  if (!native()) return whisper({ type: "transcribe", audio, lang }, stage);
+  const pcm = new Int16Array(audio.length);
+  for (let i = 0; i < audio.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, Math.round(audio[i] * 32767)));
+  return (await Transcriber.transcribe({ pcm: toBase64(new Uint8Array(pcm.buffer)), rate: RATE, language: TAG[lang] })).text;
+}
+/** On the desktop, the speech model loading while you speak. */
+export const warmUp = (stage: (s: "transcribing" | number) => void) => { if (!native()) whisper({ type: "load" }, stage).catch(() => {}); };
+
+async function whisperDictation(lang: Lang, onText: (t: string) => void, onEnd: (error?: string) => void, stage: (s: "transcribing" | number) => void): Promise<Dictation> {
+  const rec = await record((e) => onEnd(e));
+  warmUp(stage);
+  return {
+    stop: () => {
+      rec.stop()
+        .then(({ blob }) => transcribe(blob, lang, stage))
+        .then((text) => { if (text) onText(text); onEnd(); }, (e) => onEnd((e as Error).message));
+    },
+  };
 }

@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(TranscriberPlugin.class); // voice messages' text (the app's own plugin)
         super.onCreate(savedInstanceState);
         alive = true;
         MessageCheck.schedule(this);
