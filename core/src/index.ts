@@ -24,6 +24,7 @@
  */
 
 import { paletteFor as defaultPalette } from "./art.ts";
+import type { Keyring, Sealed } from "./e2e.ts";
 
 export const PROTOCOL = 1;
 
@@ -44,7 +45,7 @@ export type GroupChange =
  *  about 1 KB), so a chat shows what it is before anyone downloads it. */
 /** An attachment. `voice`: a voice message (recorded in the app; the message's text is what it says, written out
  *  and checked by the sender), `dur` its length in seconds. */
-export type FileRef = { name: string; path: string; size: number; type?: string; w?: number; h?: number; thumb?: string; voice?: boolean; dur?: number };
+export type FileRef = { name: string; path: string; size: number; type?: string; w?: number; h?: number; thumb?: string; voice?: boolean; dur?: number; k?: string; iv?: string }; // k, iv: an encrypted file's epoch and nonce (see e2e.ts)
 export type Upload = { name: string; data: Uint8Array } & Pick<FileRef, "type" | "w" | "h" | "thumb" | "voice" | "dur">;
 export const PHOTO_MAX = 50 * 1024;
 /**
@@ -112,6 +113,8 @@ export type Message = {
   answer?: { choice: number | null }; // this message answers `replyTo`, an ask: the index of the choice picked (the text is that choice word
                                 // for word), or null when the answer was written
   closed?: { at: string; note: string }; // an ask its author closed: it takes no more answers (note: why, e.g. "answered in the terminal")
+  enc?: Sealed;                 // end-to-end encrypted (0.9.0): text, files, ask and edits are sealed in here (e2e.ts); `text` is a placeholder
+  locked?: boolean;             // read, not stored: encrypted, and this device has no key for it (yet)
   /** A notice: someone joined, made or changed a group, or edited or deleted message `target` of this channel. */
   system?: { type: "join" | "group" | "change" | "edit" | "delete" | "close"; device?: Device; group?: Group; change?: GroupChange; target?: string };
 };
@@ -229,9 +232,9 @@ export function answersTo(ask: Pick<Message, "id">, list: Message[]): Record<str
   return out;
 }
 
-const rand = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => (b % 36).toString(36)).join("");
+export const rand = (n: number) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => (b % 36).toString(36)).join("");
 const slug = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "grup";
-const stamp = (d = new Date()) => d.toISOString().replace(/[-:]/g, "").replace(/\.(\d{3})Z$/, "$1Z");
+export const stamp = (d = new Date()) => d.toISOString().replace(/[-:]/g, "").replace(/\.(\d{3})Z$/, "$1Z");
 
 // ---------- base64 that works in Node and browsers ----------
 const enc = new TextEncoder();
@@ -312,6 +315,30 @@ export class Bus {
   private api: string;
   private etags = new Map<string, string>();
   private blobCache = new Map<string, unknown>();
+  /** End-to-end encryption (e2e.ts): unset, messages go as they are (tests, older setups); set, every message is
+   *  sealed, and resolving to null (the account's key locked on this device) refuses to write any. */
+  keys?: Promise<Keyring | null>;
+  /** A message as stored, opened: its sealed fields back, or `locked`. */
+  async opened(m: Message): Promise<Message> {
+    if (!m.enc || !this.keys) return m.enc ? { ...m, locked: true } : m;
+    const k = await this.keys.catch(() => null);
+    return k ? k.open(m) : { ...m, locked: true };
+  }
+  async readMessage(sha: string): Promise<Message> { return this.opened(await this.json<Message>(sha)); }
+  /** The keys to write with, if this repository's chats are encrypted. */
+  private async sealer(): Promise<Keyring | null> {
+    if (!this.keys) return null;
+    const k = await this.keys;
+    if (!k) throw new Error("This device's encryption key is locked: enter your password in the app first.");
+    return k;
+  }
+  /** Who is in a chat now (ids): a DM's two, a group's members, everyone for #all. */
+  async membersOf(channel: string): Promise<string[]> {
+    if (isDm(channel)) return channel.slice(3).split("-");
+    const head = await this.head();
+    if (channel === "all") return (await this.devices(head ?? undefined)).map((d) => d.id);
+    return (await this.group(channel, head)).members;
+  }
 
   constructor(o: BusOptions) {
     this.repo = o.repo;
@@ -451,7 +478,7 @@ export class Bus {
   }
 
   /** A JSON file as of `at` (the branch head by default), or null when there is none. */
-  private async readJson<T>(path: string, at?: string | null): Promise<T | null> {
+  async readJson<T>(path: string, at?: string | null): Promise<T | null> {
     const ref = at ?? (await this.head());
     if (!ref) return null;
     try {
@@ -572,19 +599,23 @@ export class Bus {
     if (o.ask) extra.ask = checkChoices(o.ask);
     if (o.answer) { if (!o.replyTo) throw new Error("An answer replies to the ask it answers."); extra.answer = { choice: o.answer.choice }; }
     const msg = this.newMessage(channel, from, text, extra);
+    const keys = await this.sealer();
     const out: Record<string, Uint8Array | string> = {};
     if (files.length) {
-      msg.files = files.map((f) => {
-        const name = f.name.replace(/[^\w.\-]+/g, "_").slice(-80) || "file";
+      msg.files = await Promise.all(files.map(async (f, i) => {
+        // sealed files are named by number: the name is in the sealed message
+        const name = keys ? String(i) : f.name.replace(/[^\w.\-]+/g, "_").slice(-80) || "file";
         const path = `channels/${channel}/files/${msg.id}-${name}`;
-        out[path] = f.data;
-        const extra = Object.fromEntries(Object.entries({ type: f.type, w: f.w, h: f.h, thumb: f.thumb, voice: f.voice || undefined, dur: f.dur }).filter(([, v]) => v !== undefined));
+        const sealed = keys ? await keys.sealBytes(channel, f.data, path) : null;
+        out[path] = sealed ? sealed.data : f.data;
+        const extra = Object.fromEntries(Object.entries({ type: f.type, w: f.w, h: f.h, thumb: f.thumb, voice: f.voice || undefined, dur: f.dur, k: sealed?.k, iv: sealed?.iv }).filter(([, v]) => v !== undefined));
         return { name: f.name, path, size: f.data.length, ...extra };
-      });
+      }));
     }
-    out[msgPath(msg)] = JSON.stringify(msg);
+    const stored = keys ? await keys.seal(msg) : msg;
+    out[msgPath(msg)] = JSON.stringify(stored);
     await this.commit(out, `msg: ${handle({ nick: from.nick, id: from.id })} → ${channel}`);
-    return msg;
+    return stored.enc ? { ...msg, enc: stored.enc } : msg;
   }
 
   /**
@@ -594,6 +625,15 @@ export class Bus {
    * so the app hides its author and shows "forwarded"; forwarding your own message looks like a normal new one.
    */
   async forward(channel: string, from: Device, sources: Message[]): Promise<Message[]> {
+    if (this.keys) {
+      // sealed: each goes again, its files opened and sealed with the new chat's key
+      const sent: Message[] = [];
+      for (const src of sources) {
+        const files = await Promise.all((src.files ?? []).map(async (f) => ({ name: f.name, data: await this.fileOf(f), ...Object.fromEntries(Object.entries({ type: f.type, w: f.w, h: f.h, thumb: f.thumb, voice: f.voice, dur: f.dur }).filter(([, v]) => v !== undefined)) })));
+        sent.push(await this.send(channel, from, src.text ?? "", files, src.from !== from.id ? { forwarded: true } : {}));
+      }
+      return sent;
+    }
     const out: Message[] = sources.map((src) => this.newMessage(channel, from, src.text ?? "", {
       ...(src.files?.length ? { files: src.files } : {}),
       ...(src.from !== from.id ? { forwarded: true } : {}),
@@ -653,7 +693,7 @@ export class Bus {
     const head = at ?? (await this.head());
     if (!head) return [];
     const entries = (await this.tree(head)).filter((e) => e.path.startsWith(`channels/${channel}/`) && isMessagePath(e.path)).sort((a, b) => a.path.localeCompare(b.path));
-    return Promise.all(entries.slice(-limit).map((e) => this.json<Message>(e.sha)));
+    return Promise.all(entries.slice(-limit).map((e) => this.readMessage(e.sha)));
   }
 
   /**
@@ -666,7 +706,7 @@ export class Bus {
     const mine = new Set(channels);
     const rest = (await this.tree(head)).filter((e) => isMessagePath(e.path) && mine.has(e.path.split("/")[1]) && !have.has(e.path)).sort((a, b) => b.path.split("/")[2].localeCompare(a.path.split("/")[2]));
     const page = rest.slice(0, limit);
-    return { messages: await Promise.all(page.map((e) => this.json<Message>(e.sha))), left: rest.length - page.length };
+    return { messages: await Promise.all(page.map((e) => this.readMessage(e.sha))), left: rest.length - page.length };
   }
 
   /** Newest `limit` messages of several channels from one tree listing (app start-up). */
@@ -682,7 +722,7 @@ export class Bus {
     }
     await Promise.all([...byChannel].map(async ([ch, list]) => {
       list.sort((a, b) => a.path.localeCompare(b.path));
-      out[ch] = await Promise.all(list.slice(-limit).map((e) => this.json<Message>(e.sha)));
+      out[ch] = await Promise.all(list.slice(-limit).map((e) => this.readMessage(e.sha)));
     }));
     return out;
   }
@@ -705,9 +745,18 @@ export class Bus {
       devicesChanged = paths.some((p) => p.path.startsWith("devices/"));
     }
     const wanted = paths.filter((p) => isMessagePath(p.path) && channels.has(p.path.split("/")[1]) && !seen?.has(p.path));
-    const messages = await Promise.all(wanted.map((p) => this.json<Message>(p.sha)));
+    const messages = await Promise.all(wanted.map((p) => this.readMessage(p.sha)));
     wanted.forEach((p) => seen?.add(p.path));
     return { messages: messages.sort((a, b) => a.id.localeCompare(b.id)), metaChanged, devicesChanged };
+  }
+
+  /** An attachment's bytes, opened when it is sealed. */
+  async fileOf(f: Pick<FileRef, "path" | "k" | "iv">): Promise<Uint8Array> {
+    const data = await this.file(f.path);
+    if (!f.iv || !f.k) return data;
+    const keys = this.keys && (await this.keys.catch(() => null));
+    if (!keys) throw new Error("This device's encryption key is locked.");
+    return keys.openBytes(f.path.split("/")[1], f.k, f.iv, data, f.path);
   }
 
   /** A file by path: its sha from the contents API (one small call), then the blob (up to 100 MB). */
@@ -729,12 +778,15 @@ export class Bus {
     // ponytail: orphan commits are force-pushed, so a heartbeat landing at the same moment can undo a status;
     // the CLI writes its status again with every heartbeat, which repairs it within minutes
     await this.commit(async (parent) => {
-      let keep = status?.replace(/\s+/g, " ").trim().slice(0, STATUS_MAX);
-      if (keep === undefined && parent) {
+      const keys = await this.sealer();
+      const set = status?.replace(/\s+/g, " ").trim().slice(0, STATUS_MAX);
+      let keep: { status?: string; statusEnc?: Sealed } = set ? (keys ? { statusEnc: await keys.sealFor("all", set, path) } : { status: set }) : {};
+      if (set === undefined && parent) {
         const entry = (await this.tree(parent)).find((e) => e.path === path);
-        keep = entry ? (await this.json<{ status?: string }>(entry.sha)).status : undefined;
+        const was = entry ? await this.json<{ status?: string; statusEnc?: Sealed }>(entry.sha) : {};
+        keep = was.statusEnc ? { statusEnc: was.statusEnc } : was.status ? { status: was.status } : {};
       }
-      return { [path]: JSON.stringify({ id: me.id, lastSeen: new Date().toISOString(), ...(keep ? { status: keep } : {}) }) };
+      return { [path]: JSON.stringify({ id: me.id, lastSeen: new Date().toISOString(), ...keep }) };
     }, `presence: ${handle(me)}`, { branch: "presence", orphan: true });
   }
 
@@ -847,28 +899,34 @@ export class Bus {
    */
   async amend(me: Device, m: Pick<Message, "channel" | "id">, text: string | null): Promise<{ message: Message; notice: Message }> {
     let out!: { message: Message; notice: Message };
+    const keys = await this.sealer();
     await this.commit(async (parent) => {
-      const cur = await this.readJson<Message>(msgPath(m), parent);
-      if (!cur) throw new Error("No such message.");
+      const stored = await this.readJson<Message>(msgPath(m), parent);
+      if (!stored) throw new Error("No such message.");
+      const cur = await this.opened(stored);
+      if (cur.locked) throw new Error("This device has no key for that message.");
       if (cur.from !== me.id || cur.system) throw new Error("Only its author can change a message.");
       if (cur.deleted) throw new Error("That message was deleted.");
       const now = new Date().toISOString();
       const files: Files = {};
       let message: Message;
       if (text === null) {
-        const { files: attached, edits: _e, edited: _d, ask: _a, ...rest } = cur;
+        const { files: attached, edits: _e, edited: _d, ask: _a, enc: _s, ...rest } = cur;
         message = { ...rest, text: "", deleted: now };
         for (const f of attached ?? []) if (f.path.startsWith(`channels/${cur.channel}/files/${cur.id}-`)) files[f.path] = null; // a forwarded file stays with its original
       } else {
         if (!text.trim()) throw new Error("An edit needs some text.");
         if (text === cur.text) throw new Error("Nothing changed.");
-        message = { ...cur, text, edited: now, edits: [...(cur.edits ?? []), { text: cur.text, at: cur.edited ?? cur.ts }] };
+        const { enc: _s, ...plain } = cur;
+        message = { ...plain, text, edited: now, edits: [...(cur.edits ?? []), { text: cur.text, at: cur.edited ?? cur.ts }] };
         if (cur.answer) message.answer = { choice: null }; // an edited answer is a written one now
       }
-      const notice = this.newMessage(cur.channel, me, text === null ? `${handle(me)} deleted a message` : `${handle(me)} edited a message: ${text}`,
+      // the notice tells agents the new text, unless the chat is sealed: then they read the message again
+      const notice = this.newMessage(cur.channel, me, text === null ? `${handle(me)} deleted a message` : keys ? `${handle(me)} edited a message` : `${handle(me)} edited a message: ${text}`,
         { system: { type: text === null ? "delete" : "edit", target: cur.id } });
-      out = { message, notice };
-      return { ...files, [msgPath(cur)]: JSON.stringify(message), [msgPath(notice)]: JSON.stringify(notice) };
+      const sealed = keys && text !== null ? await keys.seal(message) : message;
+      out = { message: sealed.enc ? { ...message, enc: sealed.enc } : message, notice };
+      return { ...files, [msgPath(cur)]: JSON.stringify(sealed), [msgPath(notice)]: JSON.stringify(notice) };
     }, `${text === null ? "delete" : "edit"}: ${handle(me)} ${m.id}`);
     return out;
   }
@@ -877,17 +935,20 @@ export class Bus {
    *  terminal, or one that waited too long). A notice says so, as for an edit. */
   async closeAsk(me: Device, m: Pick<Message, "channel" | "id">, note: string): Promise<Message> {
     const was = await this.readJson<Message>(msgPath(m));
-    if (was?.closed) return was;
+    if (was?.closed) return this.opened(was);
     let out!: Message;
     const already = new Error("closed meanwhile");
     await this.commit(async (parent) => {
       const cur = await this.readJson<Message>(msgPath(m), parent);
-      if (!cur?.ask || cur.deleted) throw new Error("No such question.");
+      const open = cur && (await this.opened(cur));
+      if (!cur || !open?.ask || cur.deleted) throw new Error("No such question.");
       if (cur.from !== me.id) throw new Error("Only its author can close a question.");
-      if (cur.closed) { out = cur; throw already; } // a retry after someone else's commit
-      out = { ...cur, closed: { at: new Date().toISOString(), note: note.replace(/\s+/g, " ").trim().slice(0, 100) } };
+      if (cur.closed) { out = open; throw already; } // a retry after someone else's commit
+      const closed = { at: new Date().toISOString(), note: note.replace(/\s+/g, " ").trim().slice(0, 100) };
+      out = { ...open, closed };
+      const stored = { ...cur, closed }; // a sealed question stays sealed
       const notice = this.newMessage(cur.channel, me, `${handle(me)} closed a question: ${out.closed!.note}`, { system: { type: "close", target: cur.id } });
-      return { [msgPath(cur)]: JSON.stringify(out), [msgPath(notice)]: JSON.stringify(notice) };
+      return { [msgPath(cur)]: JSON.stringify(stored), [msgPath(notice)]: JSON.stringify(notice) };
     }, `close: ${handle(me)} ${m.id}`).catch((e) => { if (e !== already) throw e; });
     return out;
   }
@@ -897,7 +958,11 @@ export class Bus {
     const head = at ?? (await this.head("drafts"));
     if (!head) return {};
     const entry = (await this.tree(head)).find((e) => e.path === `drafts/${me}.json`);
-    return entry ? (await this.json<{ drafts?: Drafts }>(entry.sha)).drafts ?? {} : {};
+    if (!entry) return {};
+    const doc = await this.json<{ drafts?: Drafts; enc?: { iv: string; ct: string } }>(entry.sha);
+    if (!doc.enc) return doc.drafts ?? {};
+    const keys = this.keys && (await this.keys.catch(() => null));
+    return keys ? JSON.parse(await keys.openSelf(doc.enc, `drafts/${me}`).catch(() => "{}")) : {};
   }
 
   /**
@@ -916,7 +981,8 @@ export class Bus {
         result = next;
         const same = (a: Drafts, b: Drafts) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((k) => b[k]?.text === a[k].text);
         if (same(next, cur)) { result = cur; throw new Unchanged(); }
-        return { [`drafts/${me.id}.json`]: JSON.stringify({ id: me.id, drafts: next }) };
+        const keys = await this.sealer();
+        return { [`drafts/${me.id}.json`]: JSON.stringify(keys ? { id: me.id, enc: await keys.sealSelf(JSON.stringify(next), `drafts/${me.id}`) } : { id: me.id, drafts: next }) };
       }, `drafts: ${handle(me)}`, { branch: "drafts", orphan: true });
     } catch (e) { if (!(e instanceof Unchanged)) throw e; }
     return result;
@@ -924,7 +990,8 @@ export class Bus {
 
   /** One message by channel and id (a pinned one older than the loaded history), or null when it is gone. */
   async message(channel: string, id: string): Promise<Message | null> {
-    return /^[a-z0-9-]+$/.test(channel) && /^[\w-]+$/.test(id) ? this.readJson<Message>(msgPath({ channel, id })) : null;
+    const m = /^[a-z0-9-]+$/.test(channel) && /^[\w-]+$/.test(id) ? await this.readJson<Message>(msgPath({ channel, id })) : null;
+    return m && this.opened(m);
   }
 
   /** Every device's presence, as of the "presence" branch head (or `at`). */
@@ -932,8 +999,12 @@ export class Bus {
     const head = at ?? (await this.head("presence"));
     if (!head) return {};
     const entries = (await this.tree(head)).filter((e) => /^presence\/\d{4}\.json$/.test(e.path));
-    const all = await Promise.all(entries.map((e) => this.json<{ id: string } & Presence>(e.sha)));
-    return Object.fromEntries(all.map(({ id, lastSeen, status }) => [id, status ? { lastSeen, status } : { lastSeen }]));
+    const all = await Promise.all(entries.map((e) => this.json<{ id: string; statusEnc?: Sealed } & Presence>(e.sha)));
+    const keys = this.keys && (await this.keys.catch(() => null));
+    return Object.fromEntries(await Promise.all(all.map(async ({ id, lastSeen, status, statusEnc }) => {
+      const said = statusEnc ? (keys ? await keys.openFor("all", statusEnc, `presence/${id}.json`) : null) : status;
+      return [id, said ? { lastSeen, status: said } : { lastSeen }];
+    })));
   }
 }
 
@@ -1008,8 +1079,9 @@ export function newestByChannel(list: Pick<Message, "id" | "channel">[]): Record
 }
 
 /** A short one-line preview of a message, for a reply quote or a chat-list row. */
-export function snippet(m: Pick<Message, "text" | "files"> | undefined, max = 80): string {
+export function snippet(m: Pick<Message, "text" | "files" | "locked"> | undefined, max = 80): string {
   if (!m) return "";
+  if (m.locked) return "🔒";
   const t = (m.text ?? "").replace(/\s+/g, " ").trim();
   if (t) return t.length > max ? t.slice(0, max - 1) + "…" : t;
   return m.files?.length ? `📎 ${m.files[0].name}` : "";
@@ -1127,6 +1199,8 @@ export class Watcher {
    *  (a pull to refresh). */
   async tick(full = false): Promise<Message[]> {
     this.ticks++;
+    // the encryption keys too (free while the branch has not moved): new members' keys get the chats' keys
+    this.bus.keys?.then((k) => k?.sync()).catch(() => {});
     const out: Message[] = [];
     let empty = false; // the branch moved but compare brought nothing for this device
     const next = (await this.bus.headIfChanged()) ?? this.resume;
@@ -1171,7 +1245,7 @@ export class Watcher {
     if (!this.head) return [];
     const mine = this.channels;
     const missing = (await this.bus.tree(this.head)).filter((e) => isMessagePath(e.path) && mine.has(e.path.split("/")[1]) && !this.seen.has(e.path));
-    const found = await Promise.all(missing.map((e) => this.bus.json<Message>(e.sha)));
+    const found = await Promise.all(missing.map((e) => this.bus.readMessage(e.sha)));
     missing.forEach((e) => this.seen.add(e.path));
     return found;
   }

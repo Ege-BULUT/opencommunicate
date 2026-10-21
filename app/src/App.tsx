@@ -5,6 +5,7 @@ import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, en
 import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
 import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
+import { answerPasswordQuestions, backUp, keysFor, rememberPassword } from "./keys.ts";
 import { NoDictation, NoVoice, record, transcribe, warmUp, type Recording, dictate, dictationLang, installVoice, readAloud, setDictationLang, stopReading, whisperReady, type Dictation } from "./voice.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode, type VoiceFile } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
@@ -491,6 +492,7 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
     setError(""); setBusy(true);
     try {
       const { session: s, needsPassword } = await claim(token, repo.trim(), account, password);
+      rememberPassword(s.repo, s.device.id, password); // unlocks this account's encryption key without asking again
       if (needsPassword) awaitPassword(s); else finish(s);
     }
     catch (e) { setError(claimProblem(e, repo.trim())); }
@@ -562,7 +564,7 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
       {stage === "password" && joined && (
         <>
           <p>{S.yourAccount(handle(joined.device))}</p>
-          <PasswordForm username={handle(joined.device)} label={S.savePassword} onSave={async (pw) => { await setPassword(joined, pw); finish(joined); }} />
+          <PasswordForm username={handle(joined.device)} label={S.savePassword} onSave={async (pw) => { await setPassword(joined, pw); rememberPassword(joined.repo, joined.device.id, pw); finish(joined); }} />
           <div className="actions start">
             {!invite && <button className="ghost" onClick={back}>{S.back}</button>}
             <button className="ghost" onClick={otherAccount}>{S.signInOther}</button>
@@ -581,7 +583,20 @@ type Pending = Message & { pending?: boolean; failed?: boolean };
 function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }: { session: Session; onSession: (s: Session) => void; onSignOut: () => void; chats: Session[]; activity: Record<string, boolean>; onOpen: (repo: string) => void; onAdd?: () => void }) {
   // the bus and the watcher follow the chat and the token; a change to this device (picture, notifications) keeps them
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const bus = useMemo(() => new Bus({ repo: session.repo, token: sourceFor(session) }), [session.repo, credKey(session), session.source]);
+  const bus = useMemo(() => {
+    const b = new Bus({ repo: session.repo, token: sourceFor(session) });
+    b.keys = keysFor(b, session.repo, session.device); // end-to-end encryption (keys.ts)
+    return b;
+  }, [session.repo, credKey(session), session.source]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the account's password when the keys need it: to unlock them from another device's backup, or to make one
+  const [keyQuestion, setKeyQuestion] = useState<{ reason: "unlock" | "protect"; again: boolean; answer: (pw: string | null) => void } | null>(null);
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    answerPasswordQuestions((reason, again) => new Promise((resolve) => setKeyQuestion({ reason, again, answer: (pw) => { setKeyQuestion(null); resolve(pw); } })));
+    bus.keys?.then((k) => setLocked(!k), () => setLocked(false));
+  }, [bus]);
+  // asked later (the question was put off): the keys again, then the chat read again with them
+  const unlock = async () => { bus.keys = keysFor(bus, session.repo, me); if (await bus.keys.catch(() => null)) location.reload(); };
   const [me, setMe] = useState<Device>(session.device);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const watcher = useMemo(() => new Watcher(bus, session.device), [bus, session.device.id]);
@@ -1022,6 +1037,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         </header>
         <UpdateBanner />
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
+        {locked && <div className="alert" role="alert"><span>🔒 {S.keysLocked}</span><button className="ghost" onClick={unlock}>{S.unlock}</button></div>}
         <button className="me" onClick={() => setDialog("chats")} title={S.chatsTitle} aria-label={`${S.chatsTitle}: ${session.repo.split("/")[1]}`}>
           <Avatar name={me.nick} seed={me.id} shape={me.kind === "agent" ? "agent" : "person"} size={28} picture={pictureOf(me)} />
           <span className="me-text"><b>{handle(me)}</b><span className="muted">{session.repo.split("/")[1]}</span></span>
@@ -1080,6 +1096,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           <button className="icon info" title={S.details} aria-label={S.chatDetails} onClick={() => setDialog("channel")}><Info /></button>
         </header>
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
+        {locked && <div className="alert" role="alert"><span>🔒 {S.keysLocked}</span><button className="ghost" onClick={unlock}>{S.unlock}</button></div>}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
           quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} answers={(m) => answersTo(m, (messages[m.channel] ?? []).filter((x) => !x.failed))} onAnswer={answer} onReply={addReply} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
@@ -1136,7 +1153,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         onForward={() => { setForwarding([menu.m]); setMenu(null); }}
         onSelect={() => { setSelected(new Set([menu.m.id])); setMenu(null); }}
         onInfo={() => { setInfo(menu.m); setMenu(null); }}
-        onRead={menu.m.text ? () => { readOut(menu.m); setMenu(null); } : undefined}
+        onRead={menu.m.text && !menu.m.locked ? () => { readOut(menu.m); setMenu(null); } : undefined}
         onEdit={menu.m.from === me.id && menu.m.text && !menu.m.forwarded ? () => { setReplies([]); setEditing(menu.m); setMenu(null); } : undefined}
         onDelete={menu.m.from === me.id ? () => { amend(menu.m, null); setMenu(null); } : undefined}
         onClose={() => setMenu(null)} />}
@@ -1145,6 +1162,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       {forwarding && <ChatPicker me={me} devices={devices} groups={groups} count={forwarding.length} onPick={(ch) => doForward(ch, forwarding)} onClose={() => setForwarding(null)} />}
       {reading && <div className="toast reading" role="status">🔊 {S.readingAloud} <button onClick={() => { stopReading(); setReading(null); }}>{S.stopReading}</button></div>}
       {toast && <div className="toast" role="status">{toast}</div>}
+      {keyQuestion && <KeyPassword key={String(keyQuestion.again)} reason={keyQuestion.reason} again={keyQuestion.again} me={me} onAnswer={keyQuestion.answer} />}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut}
         showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }} />}
     </div>
@@ -1196,6 +1214,24 @@ function UpdateBanner() {
         ? <button className="primary mini" onClick={() => desktopApp()?.installUpdate?.()}>{S.restartToUpdate}</button>
         : <><button className="primary mini" onClick={() => openLink(offer.url!, false)}>{S.getUpdate}</button><button className="mini" aria-label={S.later} title={S.later} onClick={skip}>×</button></>}
     </div>
+  );
+}
+
+/** The account's password, for its encryption key: to unlock it from the backup another device made, or to make
+ *  that backup. "Later" leaves the chat locked on this device (a banner offers it again). */
+function KeyPassword({ reason, again, me, onAnswer }: { reason: "unlock" | "protect"; again: boolean; me: Device; onAnswer: (pw: string | null) => void }) {
+  const [pw, setPw] = useState("");
+  const send = () => { if (pw) { onAnswer(pw); setPw(""); } };
+  return (
+    <Sheet title={S.keysTitle} onClose={() => onAnswer(null)}>
+      <p>{reason === "unlock" ? S.keysUnlock(handle(me)) : S.keysProtect}</p>
+      {again && <p className="error small">{S.keysWrong}</p>}
+      <form onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <input type="text" name="username" autoComplete="username" value={handle(me)} readOnly hidden />
+        <label>{S.password}<input type="password" autoComplete="current-password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+        <div className="actions"><button type="button" className="ghost" onClick={() => onAnswer(null)}>{S.later}</button><button className="primary" disabled={!pw}>{reason === "unlock" ? S.unlock : S.save}</button></div>
+      </form>
+    </Sheet>
   );
 }
 
@@ -1477,7 +1513,8 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               {m.forwarded && <div className="fwd-tag">{S.forwardedTag}</div>}
               {quotedIds(m).map((id) => { const q = quoted(id); return <button key={id} className="quote" onClick={() => onJump(id)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{q.deleted ? S.deletedMsg : snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>; })}
               {m.deleted && <div className="text deleted">🚫 {S.deletedMsg}</div>}
-              {m.text && <div className="text">{linkify(m.text)}</div>}
+              {m.locked && <div className="text deleted">🔒 {S.lockedMsg}</div>}
+              {m.text && !m.locked && <div className="text">{linkify(m.text)}</div>}
               {m.edits && openEdits.has(m.id) && <div className="edits" aria-label={S.earlier}>{m.edits.map((e, i) => <div key={i}><span className="muted">{when(e.at)}</span> {e.text}</div>)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
               {m.ask && still && (() => {
@@ -1532,7 +1569,7 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
   const load = async () => {
     if (!file.path) return null;
     setBusy(true); setError("");
-    try { return await fetchFile(bus, file.path, keep); }
+    try { return await fetchFile(bus, file, keep); }
     catch (e) { setError((e as Error).message); return null; }
     finally { setBusy(false); }
   };
@@ -1990,7 +2027,7 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
         <p className="muted small">{S.passwordHelp(handle(me))}</p>
         {recordError ? <p className="error small">{recordError}</p>
           : record === undefined ? <p className="muted small">{S.checking}</p>
-          : <PasswordForm current={record} username={handle(me)} label={record ? S.changePassword : S.savePassword} onSave={async (pw) => setRecord(await bus.setPassword(me, pw))} />}
+          : <PasswordForm current={record} username={handle(me)} label={record ? S.changePassword : S.savePassword} onSave={async (pw) => { setRecord(await bus.setPassword(me, pw)); await backUp(bus, session.repo, me, pw); }} />}
         <h3>{S.media}</h3>
         <p className="small">{S.mediaHelp}</p>
         {(["image", "video"] as const).map((k) => (

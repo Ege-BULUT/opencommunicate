@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { Bus } from "../core/src/index.ts";
+import { newIdentity, setUpKeys } from "../core/src/e2e.ts";
 import { fakeGitHub, seeded, serve } from "./fakegh.mjs";
 
 const CLI = path.join(import.meta.dirname, "..", "cli", "dist", "opencom.mjs");
@@ -19,6 +20,12 @@ export async function world() {
     homes[d.id] = fs.mkdtempSync(path.join(os.tmpdir(), `opencom-${d.nick}-`));
     fs.writeFileSync(path.join(homes[d.id], "config.json"), JSON.stringify({ repo: "ege/team-chat", device: d }));
   }
+  // the chat is end-to-end encrypted: the test's Bus speaks as ege-bulut with the same key as ege's CLI home (one
+  // account on two devices); the agent's CLI makes its own key on its first command
+  const egeKey = await newIdentity();
+  fs.writeFileSync(path.join(homes[s.ege.id], "key.json"), JSON.stringify(egeKey));
+  s.bus.keys = setUpKeys(s.bus, s.ege.id, { stored: egeKey, save: () => {}, members: (ch) => s.bus.membersOf(ch) });
+  await s.bus.keys;
   const env = (id) => ({ ...process.env, OPENCOM_TOKEN: "t", OPENCOM_HOME: homes[id], OPENCOM_TEST_API: api.url, LANG: "en_US.UTF-8" });
   /** The CLI as device `id`, left running (for mcp, watch). */
   const start = (id, args) => spawn(process.execPath, ["--import", PRELOAD, CLI, ...args], { env: env(id), stdio: ["pipe", "pipe", "pipe"] });

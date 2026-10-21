@@ -194,11 +194,15 @@ public class MessageCheck extends JobService {
         return f.format(new Date(ms));
     }
 
-    /** core's addressedTo: a DM, a reply to one of my messages, or a mention of @nick, nick#id, @all, @herkes, @everyone. */
+    /** core's addressedTo: a DM, a reply to or quote of one of my messages, or a mention of @nick, nick#id, @all,
+     *  @herkes, @everyone (in an encrypted message the words are sealed, so only replies and quotes count). */
     static boolean addressedTo(JSONObject m, String nick, String id) {
         if (DM.matcher(m.optString("channel")).matches()) return true;
         String[] reply = m.optString("replyTo").split("-");
         if (reply.length > 1 && reply[1].equals(id)) return true;
+        JSONArray quotes = m.optJSONArray("quotes");
+        for (int i = 0; quotes != null && i < quotes.length(); i++) { String[] q = quotes.optString(i).split("-"); if (q.length > 1 && q[1].equals(id)) return true; }
+        if (m.has("enc")) return false;
         String n = Pattern.quote(nick);
         return Pattern.compile("(^|[^\\w])(@(" + n + "(#" + id + ")?|all|herkes|everyone)(?![\\w])|" + n + "#" + id + "(?!\\d))", Pattern.CASE_INSENSITIVE)
             .matcher(m.optString("text")).find();
@@ -209,7 +213,8 @@ public class MessageCheck extends JobService {
         if (!nm.areNotificationsEnabled()) return;
         if (Build.VERSION.SDK_INT >= 26 && getSystemService(NotificationManager.class).getNotificationChannel(CHANNEL) == null)
             getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel(CHANNEL, "Default", NotificationManager.IMPORTANCE_DEFAULT));
-        String text = m.optString("text");
+        // an encrypted message's words stay sealed here: the app shows them when opened
+        String text = m.has("enc") ? "🔒" : m.optString("text");
         JSONArray files = m.optJSONArray("files");
         if (text.isEmpty() && files != null && files.length() > 0) text = "📎 " + files.optJSONObject(0).optString("name");
         Intent open = new Intent(this, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);

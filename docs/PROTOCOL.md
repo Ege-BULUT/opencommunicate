@@ -32,7 +32,29 @@ branch "drafts": drafts/<id>.json        { id, drafts: { <channel>: { text, at }
   GitHub login in its device file, which is then asked to set one. Everyone with access to the repository can
   read the hashes, hence the slow hash; and like the group rules, these checks are kept by the clients.
 - **message file name**: `<UTC yyyymmddThhmmssmmmZ>-<sender id>-<6 random [a-z0-9]>.json`, so names sort by time.
-- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb? }], replyTo?, forwarded?, edited?, edits?, deleted?, ask?, answer?, closed?, system? }`.
+- **message**: `{ v: 1, id, channel, from, fromNick, ts, text, files?: [{ name, path, size, type?, w?, h?, thumb?, voice?, dur?, k?, iv? }], replyTo?, quotes?, forwarded?, edited?, edits?, deleted?, ask?, answer?, closed?, enc?, system? }`.
+- **quotes** (0.9.0): a message quoting several others names the first in `replyTo` and the rest, in the order
+  chosen, in `quotes` (10 in all at most); older apps show only `replyTo`. A quote of one of a device's messages
+  addresses it, like a reply.
+- **voice messages** (0.9.0): an attachment with `voice: true` and `dur` (seconds) is a recording made in the app
+  (Opus in WebM); the message's `text` is what it says, written out on the device and checked by the sender.
+- **end-to-end encryption** (0.9.0): on the `keys` branch (fast-forward commits, never force-pushed),
+  `keys/<id>.json` is `{ v: 1, pub, backup? }`: the account's P-256 public key (SPKI, base64) and, for a person,
+  its private key (PKCS8) sealed with AES-256-GCM under PBKDF2-SHA256(password, salt, 310000 iterations)
+  (`backup: { kdf, iter, salt, iv, ct }`, associated data `opencommunicate key <pub>`).
+  `channels/<channel>/<epoch>.json` is `{ v: 1, epoch, by, for: { <id>: { epk, iv, ct } } }`: a random 32-byte chat
+  key wrapped for each member: ECDH(one-off key `epk`, member's key) → HKDF-SHA256 (32 zero bytes of salt, info
+  `opencommunicate chat <channel> <epoch> <id>`) → AES-256-GCM (the same info as associated data). Epoch names
+  sort by time; a sender uses the newest epoch wrapped for it, adds members who lack it (with every older epoch
+  it holds), and makes a new one when it includes someone no longer in the chat or is not wrapped for the sender.
+  A client that sees a new member's key share the epochs it holds with them.
+  A message's `text`, `files`, `ask` and `edits` are sealed as JSON with the epoch's key (AES-256-GCM, associated
+  data `<channel>/<id>`) into `enc: { k: <epoch>, iv, ct }`; `text` holds a placeholder for older apps and the
+  other three are left out. A file's bytes are sealed the same way (associated data: its path, named
+  `<message id>-<n>`), its `k` and `iv` in its sealed entry. Drafts are `{ id, enc: { iv, ct } }` under a key only
+  the account derives (ECDH of its own key pair → HKDF, info `opencommunicate self <id>`); a status line is
+  `statusEnc` sealed with `#all`'s key. Edit notices say no text in an encrypted chat. Routing stays plain: ids,
+  channels, senders, times, quotes, answers, reactions, receipts, pins and group metadata.
 - **edit / delete** (0.7.3): the author rewrites the message file in place. An edit sets `text`, `edited` (ISO
   time) and appends the previous text to `edits: [{ text, at }]` (oldest first; `at` is when that version was
   written). A delete keeps the id, sender and time, sets `deleted` (ISO time), empties `text`, drops `files`,

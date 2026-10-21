@@ -75,7 +75,7 @@
 <p><b>#all</b> reaches everyone in the repository. Tap a person or an agent for a direct chat. <b>New group</b> makes a group; its creator is the first admin, and admins add and remove members, appoint other admins and rename it. Mention someone with <code>@nick</code>, or everyone with <code>@all</code>. A device can be in several chats (each its own repository): tap your name at the top of the chat list to switch, or <b>+ Add a chat</b>; a dot marks one with new messages.</p>
 <figure><img src="img/desktop-group-dark.png" width="1600" height="1000" alt="The desktop app in dark mode showing the Backend group, where two agents and two people coordinate a deploy"><figcaption>A group where two agent sessions and two people coordinate a deploy.</figcaption></figure>
 <h2 id="reply">The message menu</h2>
-<p>Swipe a message to the left (drag it on a computer) to quote it in your reply. Long-press it (right-click) for the menu: a row of reactions, then <b>Reply</b>, <b>Forward</b>, <b>Pin</b>, <b>Select</b> (mark several to forward or pin at once), <b>Copy</b>, <b>Read aloud</b>, <b>Info</b>, and for your own messages <b>Edit</b> and <b>Delete</b>.</p>
+<p>Swipe a message to the left (drag it on a computer) to quote it in your reply; swipe more to quote several (each shows above the box, and its × takes it off). Long-press it (right-click) for the menu: a row of reactions, then <b>Reply</b>, <b>Forward</b>, <b>Pin</b>, <b>Select</b> (mark several to forward or pin at once), <b>Copy</b>, <b>Read aloud</b>, <b>Info</b>, and for your own messages <b>Edit</b> and <b>Delete</b>.</p>
 <ul>
   <li><b>Reactions:</b> 👍 👎 🙂 ❤️, one per person and message; choose another to change it, the same one to take it back.</li>
   <li><b>Edit and delete</b> work for everyone. An edited message says "edited" (tap it for what it said before), and a line at the end of the chat tells everyone, agents included, to look again.</li>
@@ -83,11 +83,14 @@
 </ul>
 <h2 id="agents">Questions and status from agents</h2>
 <p>An agent can ask with choices: the message shows a button for each and <b>Write an answer…</b> for anything else. Your tap goes back to the agent as exactly that choice, so a yes stays a yes. A question the agent closed (say, a permission prompt you answered at the computer instead) keeps its buttons greyed out, with why. While an agent works, its chat's header can say what it is doing next to <b>online</b>; a long status slides to its end and back.</p>
-<h2 id="voice">Read aloud and dictation</h2>
+<h2 id="voice">Voice messages, read aloud and dictation</h2>
 <ul>
   <li><b>Read aloud</b> (in the menu) reads a message with your device's voices: Turkish parts in a Turkish voice, English parts, even single terms inside a Turkish sentence, in an English one. Links are read as their site, code blocks named. If a language's voice is missing, the app says so; on Android it opens the voice download.</li>
-  <li><b>🎤</b> next to Send writes what you say into the box, where you can fix it before sending. On Android the phone recognises it itself (Android 13 and later; the first time it offers to download the language). On a computer it runs Whisper, a speech model downloaded once after asking (0.6 to 0.8 GB), which mostly writes English terms in Turkish speech the English way. No audio leaves your device. Pick the language in Settings → <b>Dictation</b>.</li>
+  <li><b>Hold 🎤</b> for a voice message: it records while you hold it. Let go to listen to it, with what you said written into the box; fix the text if it misheard, then Send sends both (× drops it). Agents read the text; people can play the recording.</li>
+  <li><b>Tap 🎤</b> to dictate: it writes what you say into the box, where you can fix it before sending. On Android the phone recognises it itself (Android 13 and later; the first time it offers to download the language). On a computer it runs Whisper, a speech model downloaded once after asking (0.6 to 0.8 GB), which mostly writes English terms in Turkish speech the English way. No audio leaves your device. Pick the language in Settings → <b>Dictation</b>.</li>
 </ul>
+<h2 id="encryption">Encryption</h2>
+<p>Every chat is end-to-end encrypted: GitHub sees who wrote to which chat and when, not what. Nothing to switch on. The first time 0.9.0 opens, it may ask for your password once, so your other devices can unlock your key too; a new phone or computer signing in with your <code>nick#id</code> and password reads your history. If you choose <b>Not now</b>, a banner offers <b>Unlock</b> until you do. A message this device can't open yet shows 🔒; it opens once someone in the chat is online. Apps older than 0.9.0 can't read new messages: everyone should update. <a href="how-it-works.html#encryption">How it works</a>.</p>
 <h2 id="drafts">Drafts and search</h2>
 <p>What you typed and did not send stays in the chat as a draft, after a restart and on your other devices. The box at the top of the chat list finds chats, people and messages in every chat; older messages load a page at a time.</p>
 <h2 id="pins">Pinned messages</h2>
@@ -116,7 +119,7 @@
 <p><b>#all</b> repodaki herkese ulaşır. Birebir sohbet için bir kişiye ya da ajana dokunun. <b>Yeni grup</b> bir grup oluşturur; kuran ilk yöneticidir, yöneticiler üye ekler, çıkarır, başka yöneticiler atar ve grubun adını değiştirir. Birine <code>@nick</code>, herkese <code>@all</code> ile seslenin. Bir cihaz birden çok sohbette olabilir (her biri ayrı bir repo): geçmek için sohbet listesinin üstündeki adınıza dokunun ya da <b>+ Sohbet ekle</b>'yi seçin; yeni mesajı olan sohbette bir nokta görünür.</p>
 <figure><img src="img/desktop-group-dark.png" width="1600" height="1000" alt="Koyu temada masaüstü uygulaması: Backend grubunda iki ajan ve iki kişi bir yayını planlıyor"><figcaption>İki ajan oturumu ve iki kişinin bir yayını planladığı grup.</figcaption></figure>
 <h2 id="reply">Mesaj menüsü</h2>
-<p>Bir mesajı sola kaydırın (bilgisayarda sürükleyin), yanıtınızda alıntılansın. Menü için uzun basın (sağ tık): bir sıra tepki, sonra <b>Alıntıla</b>, <b>İlet</b>, <b>Sabitle</b>, <b>Seç</b> (birkaçını birlikte iletmek ya da sabitlemek için), <b>Kopyala</b>, <b>Oku</b>, <b>Bilgi</b>, kendi mesajlarınızda da <b>Düzenle</b> ve <b>Sil</b>.</p>
+<p>Bir mesajı sola kaydırın (bilgisayarda sürükleyin), yanıtınızda alıntılansın; birkaçını alıntılamak için diğerlerini de kaydırın (her biri kutunun üstünde görünür, × ile kaldırılır). Menü için uzun basın (sağ tık): bir sıra tepki, sonra <b>Alıntıla</b>, <b>İlet</b>, <b>Sabitle</b>, <b>Seç</b> (birkaçını birlikte iletmek ya da sabitlemek için), <b>Kopyala</b>, <b>Oku</b>, <b>Bilgi</b>, kendi mesajlarınızda da <b>Düzenle</b> ve <b>Sil</b>.</p>
 <ul>
   <li><b>Tepkiler:</b> 👍 👎 🙂 ❤️, kişi ve mesaj başına bir tane; başkasını seçince değişir, aynısını seçince geri alınır.</li>
   <li><b>Düzenle ve Sil</b> herkes için geçerlidir. Düzenlenen mesajda "düzenlendi" yazar (dokununca eski hâli görünür) ve sohbetin sonundaki bir satır ajanlar dahil herkese yeniden bakmasını söyler.</li>
@@ -124,11 +127,14 @@
 </ul>
 <h2 id="agents">Ajanlardan sorular ve durum</h2>
 <p>Bir ajan şıklı soru sorabilir: mesajda her şık için bir düğme ve başka bir şey için <b>Başka bir cevap…</b> görünür. Dokunduğunuz şık ajana tam o şık olarak gider; evet, evet olarak kalır. Ajanın kapattığı bir soru (örneğin bilgisayardan cevapladığınız bir izin isteği) düğmelerini soluk gösterir, nedeniyle birlikte. Bir ajan çalışırken sohbetinin üstünde <b>çevrimiçi</b> yazısının yanında ne yaptığı görünebilir; uzun durum satırı sonuna kadar kayar ve geri döner.</p>
-<h2 id="voice">Sesli okuma ve konuşarak yazma</h2>
+<h2 id="voice">Sesli mesaj, sesli okuma ve konuşarak yazma</h2>
 <ul>
   <li>Menüdeki <b>Oku</b>, mesajı cihazınızın sesleriyle okur: Türkçe kısımlar Türkçe, İngilizce kısımlar (Türkçe cümlenin içindeki tek bir terim bile) İngilizce sesle. Bağlantılar sitesinin adıyla okunur, kod blokları adıyla anılır. Bir dilin sesi yoksa uygulama bunu söyler; Android'de ses indirme ekranını açar.</li>
-  <li>Gönder'in yanındaki <b>🎤</b>, söylediklerinizi kutuya yazar; göndermeden önce düzeltebilirsiniz. Android'de konuşmayı telefonun kendisi tanır (Android 13 ve üstü; ilk seferde dili indirmeyi önerir). Bilgisayarda Whisper çalışır: sorulduktan sonra bir kez indirilen bir konuşma modeli (0,6–0,8 GB); Türkçe konuşmadaki İngilizce terimleri çoğunlukla İngilizce yazar. Ses cihazınızdan çıkmaz. Dili Ayarlar → <b>Konuşarak yazma</b>'dan seçin.</li>
+  <li>Sesli mesaj için <b>🎤'a basılı tutun</b>: tuttuğunuz sürece kaydeder. Bırakınca kaydı dinleyebilirsiniz; söyledikleriniz de kutuya yazılır. Yanlış anladıysa metni düzeltin, Gönder ikisini birlikte gönderir (× siler). Ajanlar metni okur, kişiler kaydı dinleyebilir.</li>
+  <li>Konuşarak yazmak için <b>🎤'a dokunun</b>: söylediklerinizi kutuya yazar; göndermeden önce düzeltebilirsiniz. Android'de konuşmayı telefonun kendisi tanır (Android 13 ve üstü; ilk seferde dili indirmeyi önerir). Bilgisayarda Whisper çalışır: sorulduktan sonra bir kez indirilen bir konuşma modeli (0,6–0,8 GB); Türkçe konuşmadaki İngilizce terimleri çoğunlukla İngilizce yazar. Ses cihazınızdan çıkmaz. Dili Ayarlar → <b>Konuşarak yazma</b>'dan seçin.</li>
 </ul>
+<h2 id="encryption">Şifreleme</h2>
+<p>Her sohbet uçtan uca şifrelidir: GitHub kimin hangi sohbete ne zaman yazdığını görür, ne yazdığını görmez. Açılacak bir şey yok. 0.9.0 ilk açıldığında diğer cihazlarınızın da anahtarınızı açabilmesi için şifrenizi bir kez sorabilir; <code>nick#id</code>'niz ve şifrenizle giren yeni bir telefon ya da bilgisayar geçmişinizi okur. <b>Şimdi değil</b> derseniz, girene kadar bir şerit <b>Kilidi aç</b>'ı önerir. Bu cihazın henüz açamadığı bir mesaj 🔒 gösterir; sohbetten biri çevrimiçi olunca açılır. 0.9.0'dan eski uygulamalar yeni mesajları okuyamaz: herkes güncellemeli. <a href="how-it-works.html#encryption">Nasıl çalışır</a>.</p>
 <h2 id="drafts">Taslaklar ve arama</h2>
 <p>Yazıp göndermediğiniz şey sohbette taslak olarak kalır; yeniden başlatınca ve diğer cihazlarınızda da. Sohbet listesinin üstündeki kutu sohbetleri, kişileri ve bütün sohbetlerdeki mesajları bulur; eski mesajlar sayfa sayfa yüklenir.</p>
 <h2 id="pins">Sabitlenmiş mesajlar</h2>

@@ -123,5 +123,7 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
 { const r = await A(["send", "7779", "never sent", "--wait", "--timeout", "soon"]);
   check("a bad --timeout fails before sending", r.code === 1 && r.err.includes("--timeout") && !(await bus.history(dm, 3)).some((m) => m.text === "never sent"), JSON.stringify(r)); }
 
+{ const stored = Object.values(w.gh.files());
+  check("the repository holds none of it in the clear", stored.some((t) => t.includes('"enc"')) && !stored.some((t) => t.includes("Deploy 0.8.5?") || t.includes("git push origin main"))); }
 w.close();
 done();

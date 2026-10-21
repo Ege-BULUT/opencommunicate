@@ -67,8 +67,19 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.8.9" open>
-  <summary><span class="v">0.8.9</span><span class="h">Approvals close themselves, dictation without the freeze <span class="tag">Latest</span></span><time datetime="2026-10-21">21 October 2026</time></summary>
+<details class="rel" id="en-0.9.0" open>
+  <summary><span class="v">0.9.0</span><span class="h">End-to-end encryption, voice messages, several quotes <span class="tag">Latest</span></span><time datetime="2026-10-21">21 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>End-to-end encryption.</b> Every chat is now encrypted on your device before it reaches GitHub: GitHub sees who wrote to which chat and when, not what. Text, files (names, previews, bytes), choices, earlier versions, drafts and status lines are sealed. Your key is backed up locked with your password, so the app may ask for it once; your other devices and a new phone unlock it the same way. Someone added to a group later still reads its history; someone who left reads nothing after. Push notifications only say there is a message. Everyone in a chat should update: older apps show "Encrypted message, update to read it". <a href="how-it-works.html#encryption">How it works</a>.</li>
+  <li><b>Voice messages.</b> Hold 🎤 to record; let go to listen to it, with what you said written into the box. Fix the text if it misheard, then Send sends both; nothing goes before that. Agents read the text, people can play it. Written out on your device: Whisper on a computer, Android's own recognizer on the phone.</li>
+  <li><b>Quote several messages.</b> Swipe (or Reply) on more than one message: each shows above the box, and its × takes it off. The message shows every quote.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.0">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.8.9">
+  <summary><span class="v">0.8.9</span><span class="h">Approvals close themselves, dictation without the freeze</span><time datetime="2026-10-21">21 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>A permission question you answered at the computer closes on the phone.</b> When Claude Code's prompt is answered in the terminal, or nobody answers in time, the Allow / Deny question sent by <code>opencom approve</code> greys out its buttons and says why, instead of waiting for a tap that would change nothing.</li>
@@ -448,8 +459,19 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.8.9" open>
-  <summary><span class="v">0.8.9</span><span class="h">İzin soruları kendini kapatıyor, konuşarak yazma takılmıyor <span class="tag">Son sürüm</span></span><time datetime="2026-10-21">21 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.9.0" open>
+  <summary><span class="v">0.9.0</span><span class="h">Uçtan uca şifreleme, sesli mesaj, çoklu alıntı <span class="tag">Son sürüm</span></span><time datetime="2026-10-21">21 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Uçtan uca şifreleme.</b> Her sohbet artık GitHub'a ulaşmadan önce cihazınızda şifreleniyor: GitHub kimin hangi sohbete ne zaman yazdığını görür, ne yazdığını görmez. Metin, dosyalar (adları, önizlemeleri, içerikleri), şıklar, eski hâller, taslaklar ve durum satırları şifrelidir. Anahtarınız şifrenizle kilitlenerek yedeklenir; uygulama bunun için şifrenizi bir kez sorabilir. Diğer cihazlarınız ve yeni bir telefon da anahtarı aynı şekilde açar. Gruba sonradan eklenen biri geçmişi okuyabilir; ayrılan biri ayrıldıktan sonrasını okuyamaz. Anlık bildirimler yalnızca bir mesaj olduğunu söyler. Sohbetteki herkes güncellemeli: eski uygulamalar "Şifreli mesaj, okumak için güncelleyin" gösterir. <a href="how-it-works.html#encryption">Nasıl çalışır</a>.</li>
+  <li><b>Sesli mesaj.</b> 🎤'a basılı tutup kaydedin; bırakınca dinleyin, söyledikleriniz de kutuya yazılmış olsun. Yanlış anladıysa metni düzeltin, Gönder ikisini birlikte gönderir; öncesinde hiçbir şey gitmez. Ajanlar metni okur, kişiler kaydı dinler. Yazıya döküm cihazınızda yapılır: bilgisayarda Whisper, telefonda Android'in kendi tanıyıcısı.</li>
+  <li><b>Birden çok mesajı alıntılayın.</b> Birden fazla mesajı kaydırın (ya da Alıntıla'yı seçin): her biri kutunun üstünde görünür, × ile kaldırılır. Mesaj bütün alıntıları gösterir.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.0">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.8.9">
+  <summary><span class="v">0.8.9</span><span class="h">İzin soruları kendini kapatıyor, konuşarak yazma takılmıyor</span><time datetime="2026-10-21">21 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Bilgisayardan cevapladığınız izin sorusu telefonda kapanır.</b> Claude Code'un sorusu terminalden cevaplanınca ya da zamanında kimse cevaplamayınca, <code>opencom approve</code>'un gönderdiği İzin ver / Reddet sorusu artık bir şey değiştirmeyecek bir dokunuşu beklemez: düğmeleri soluklaşır ve nedenini söyler.</li>

@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { Bus, PALETTES, quotedIds, STATUS_MAX, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
+import { setUpKeys } from "../../core/src/e2e.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
@@ -197,7 +198,7 @@ const line = (m: Message, me: Device, devices: Device[], groups: Group[], quoted
   const name = (id: string) => handle(devices.find((d) => d.id === id) ?? { nick: "?", id });
   const rs = reactions ? reactionsOn(m, reactions) : [];
   const reacted = rs.length ? `  [${rs.map((r) => `${r.emoji} ${r.ids.map(name).join(", ")}`).join(" · ")}]` : "";
-  const body = m.deleted ? "(deleted)" : `${m.text}${m.edited ? " (edited)" : ""}`;
+  const body = m.deleted ? "(deleted)" : m.locked ? "🔒 (encrypted; this device has no key for it yet)" : `${m.text}${m.edited ? " (edited)" : ""}`;
   const ask = !m.ask || m.deleted ? "" : m.closed ? `  [closed: ${m.closed.note}]` : `  [choices: ${m.ask.map((c, i) => `${i + 1} ${c}`).join(" | ")}; answer: opencom answer <chat> ${m.id} <text>]`;
   const answer = m.answer && !m.deleted ? `  (answer: ${m.answer.choice === null ? "written" : `choice ${m.answer.choice + 1}`})` : "";
   return `${local(m.ts)}  ${label(m.channel, me, devices, groups)}  ${who}: ${body}${m.files?.length ? `  [${m.files.map((f) => f.name).join(", ")}]` : ""}${quote}${answer}${ask}${reacted}`;
@@ -223,6 +224,16 @@ async function main(argv: string[]) {
 
   const cfg = readConfig();
   const bus = new Bus({ repo: cfg.repo, token: token() });
+  // end-to-end encryption: this device's key in key.json next to the config (OPENCOM_PASSWORD unlocks the
+  // account's key from its backup, for a person's account used here too)
+  const KEY = path.join(CONFIG_DIR, "key.json");
+  bus.keys = setUpKeys(bus, cfg.device.id, {
+    stored: (() => { try { return JSON.parse(fs.readFileSync(KEY, "utf8")); } catch { return null; } })(),
+    save: (id) => fs.writeFileSync(KEY, JSON.stringify(id), { mode: 0o600 }),
+    password: async () => process.env.OPENCOM_PASSWORD || null,
+    members: (ch) => bus.membersOf(ch),
+  });
+  bus.keys.catch(() => {}); // a command that writes reports it
   const me = cfg.device;
   const load = async () => { const head = await bus.head(); return { devices: await bus.devices(head ?? undefined), groups: await bus.groups(head ?? undefined) }; };
   const seconds = (fallback: number) => {
@@ -545,7 +556,7 @@ async function main(argv: string[]) {
           for (const m of shown) {
             const quoted = m.replyTo ? recent.get(m.replyTo) : undefined;
             console.log(f.json
-              ? JSON.stringify({ ...m, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me), replyPreview: quoted ? { from: quoted.from, fromNick: quoted.fromNick, text: snippet(quoted) } : undefined })
+              ? JSON.stringify({ ...m, enc: undefined, channelLabel: label(m.channel, me, w.devices, w.groups), toMe: addressedTo(m, me), replyPreview: quoted ? { from: quoted.from, fromNick: quoted.fromNick, text: snippet(quoted) } : undefined })
               : line(m, me, w.devices, w.groups, recent));
           }
           if (w.head) fs.writeFileSync(cursor, w.head);

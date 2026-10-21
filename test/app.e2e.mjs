@@ -1,5 +1,5 @@
 // The app in Chromium against the in-memory GitHub: `npm run build -w app`, then
-//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|dictate|voice|all]
+//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|dictate|voice|all]
 // CHROMIUM=<path> uses that browser instead of Playwright's. "all" leaves out dictate and voice, which need Whisper's files
 // (WHISPER_DIR=<a folder holding onnx-community/whisper-large-v3-turbo>) and a 16 kHz recording (VOICE_WAV=<file>);
 // GPU=1 runs it on WebGPU, in a visible window.
@@ -9,6 +9,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { fakeGitHub } from "./fakegh.mjs";
 import { Bus, dmChannel, msgPath } from "../core/src/index.ts";
+import { setUpKeys } from "../core/src/e2e.ts";
 
 const dist = path.join(import.meta.dirname, "..", "app", "dist");
 const only = process.argv[2] ?? "all";
@@ -32,13 +33,18 @@ const ege = { id: "7779", nick: "ege-bulut", kind: "person", login: "ege", joine
 const agent = { id: "2082", nick: "claude-oc", kind: "agent", login: "ege", joinedAt: "2026-10-01T00:00:00.000Z" };
 const dm = dmChannel(ege.id, agent.id);
 
-async function setup(delay, args = [], routes = async () => false) {
+async function setup(delay, args = [], routes = async () => false, prepare = async () => {}) {
   const gh = fakeGitHub({ delay });
   const bus = new Bus({ repo: REPO, token: "t", fetch: gh.fetch });
   await bus.commit({
     "opencommunicate.json": JSON.stringify({ protocol: 1, name: "team-chat", createdAt: "2026-10-01T00:00:00.000Z" }),
     "devices/7779.json": JSON.stringify(ege), "devices/2082.json": JSON.stringify(agent), "channels/all/.keep": "",
   }, "setup");
+  // the chat is end-to-end encrypted: the test's Bus speaks as the agent with its own key, published before the
+  // app (ege-bulut) makes its key and the DM's
+  bus.keys = setUpKeys(bus, agent.id, { stored: null, save: () => {}, members: (ch) => bus.membersOf(ch) });
+  await bus.keys;
+  await prepare(gh);
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args, headless: !process.env.GPU });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 800 }, locale: "en-US", hasTouch: false });
   await ctx.route("**/*", async (route) => {
@@ -62,6 +68,9 @@ async function setup(delay, args = [], routes = async () => false) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log("pageerror:", e.message));
   await page.goto(base);
+  // the app makes its key on start: wait for it, so what the test sends next is sealed for it too
+  for (let i = 0; i < 100 && !gh.files("keys")?.["keys/7779.json"]; i++) await sleep(100);
+  await sleep(300);
   return { gh, bus, browser, page };
 }
 
@@ -71,7 +80,7 @@ if (only === "all" || only === "drafts") {
   let slowed = 0;
   // the first drafts write lands 3 s late, like a slow phone connection
   const draftsRef = (method, p, body) => (method === "PATCH" && p.endsWith("/git/refs/heads/drafts")) || (method === "POST" && p.endsWith("/git/refs") && body.ref === "refs/heads/drafts");
-  const { gh, browser, page } = await setup((method, p, body) => (draftsRef(method, p, body) && slowed++ === 0 ? 3000 : 0));
+  const { gh, bus, browser, page } = await setup((method, p, body) => (draftsRef(method, p, body) && slowed++ === 0 ? 3000 : 0));
   await openDm(page);
   const box = page.locator("textarea");
   await box.pressSequentially("half of a long message", { delay: 5 });
@@ -86,7 +95,7 @@ if (only === "all" || only === "drafts") {
   check("chat list shows no draft tag", row === 0);
   await openDm(page);
   check("composer is empty after reopening", (await page.locator("textarea").inputValue()) === "", await page.locator("textarea").inputValue());
-  const sent = Object.entries(gh.files()).filter(([p]) => p.startsWith(`channels/${dm}/`)).map(([, t]) => JSON.parse(t).text);
+  const sent = (await bus.history(dm)).map((m) => m.text);
   check("the message was sent", sent.includes("half of a long message and the rest"));
   await browser.close();
 }
@@ -100,8 +109,8 @@ if (only === "all" || only === "asks") {
   check("a button per choice and one to write", JSON.stringify(labels) === JSON.stringify(["Yes, push", "Not yet", "Write an answer…"]), JSON.stringify(labels));
   await page.getByRole("button", { name: "Not yet" }).click();
   await sleep(1500);
-  const answers = () => Object.entries(gh.files()).filter(([p]) => p.startsWith(`channels/${dm}/`) && p !== msgPath(ask)).map(([, t]) => JSON.parse(t));
-  const a1 = answers().find((m) => m.text === "Not yet");
+  const answers = () => bus.history(dm).then((l) => l.filter((m) => m.id !== ask.id));
+  const a1 = (await answers()).find((m) => m.text === "Not yet");
   check("picking sends the choice, as a reply, with its index", !!a1 && a1.replyTo === ask.id && a1.answer?.choice === 1, JSON.stringify(a1));
   await sleep(500);
   check("my pick is marked", (await page.locator(".choice.on").allTextContents()).join() === "✓ Not yet");
@@ -110,7 +119,7 @@ if (only === "all" || only === "asks") {
   await page.locator("textarea").fill("after lunch");
   await page.locator("textarea").press("Enter");
   await sleep(1500);
-  const a2 = answers().find((m) => m.text === "after lunch");
+  const a2 = (await answers()).find((m) => m.text === "after lunch");
   check("a written answer has choice null", !!a2 && a2.replyTo === ask.id && a2.answer && a2.answer.choice === null, JSON.stringify(a2));
   await sleep(500);
   check("then the write button is marked", (await page.locator(".choice.on").allTextContents()).join() === "✓ Write an answer…");
@@ -293,7 +302,7 @@ if (only === "dictate") {
 
 if (only === "voice") {
   // hold 🎤: a voice message to listen to and its text to fix, sent only with Send
-  const { gh, browser, page, files } = await withWhisper();
+  const { gh, bus, browser, page, files } = await withWhisper();
   await page.evaluate(() => localStorage.setItem("oc.whisper", "1")); // the model was agreed to before
   await openDm(page);
   const mic = page.locator(".mic-btn");
@@ -314,7 +323,7 @@ if (only === "voice") {
   await page.locator("textarea").fill("Fixed: " + said.slice(0, 40));
   await page.getByRole("button", { name: "Send" }).click();
   await sleep(2500);
-  const sent = Object.entries(gh.files()).filter(([p]) => p.endsWith(".json")).map(([, t]) => JSON.parse(t)).find((m) => m.text?.startsWith("Fixed: "));
+  const sent = (await bus.history(dm)).find((m) => m.text?.startsWith("Fixed: "));
   const f = sent?.files?.[0];
   check("Send sends the audio with the fixed text", !!f && f.voice === true && f.dur > 8 && f.type === "audio/webm" && f.size > 10000, JSON.stringify(sent));
   await page.locator(`#m-${sent.id} .voice-note`).waitFor({ timeout: 15000 });
@@ -327,6 +336,37 @@ if (only === "voice") {
   check("a short press-and-release leaves nothing", (await page.locator(".voice-preview, .voice-rec").count()) === 0);
   await browser.close();
   files.close();
+}
+
+if (only === "all" || only === "keys") {
+  // ege's account already has a key, made on another device and locked with the password: this new device asks for
+  // the password once, then reads what was sealed for the account; and what it sends is sealed in the repository
+  let early;
+  const { gh, bus, browser, page } = await setup(() => 0, [], async () => false, async (fake) => {
+    const other = new Bus({ repo: REPO, token: "t", fetch: fake.fetch });
+    other.keys = setUpKeys(other, ege.id, { stored: null, save: () => {}, password: async () => "ege's password", members: (ch) => other.membersOf(ch) });
+    await other.keys;
+    early = await other.send(dm, ege, "sealed before this device", []);
+  });
+  await page.locator(".sheet", { hasText: "🔒 Encryption" }).waitFor({ timeout: 15000 });
+  check("a new device asks for the password to unlock the account's key", (await page.locator(".sheet").innerText()).includes("ege-bulut#7779's password"));
+  await page.locator(".sheet input[type=password]").fill("not it");
+  await page.locator(".sheet button.primary").click();
+  await page.locator(".sheet .error").waitFor({ timeout: 15000 });
+  check("a wrong password says so and asks again", (await page.locator(".sheet .error").innerText()).includes("didn't unlock"));
+  await page.locator(".sheet input[type=password]").fill("ege's password");
+  await page.locator(".sheet button.primary").click();
+  await page.locator(".sheet").waitFor({ state: "detached", timeout: 15000 });
+  await openDm(page);
+  await page.locator(`#m-${early.id} .text`).waitFor({ timeout: 15000 });
+  check("then it reads what was sealed for the account", (await page.locator(`#m-${early.id} .text`).innerText()) === "sealed before this device");
+  await page.locator("textarea").fill("sent from the new device");
+  await page.locator("textarea").press("Enter");
+  await sleep(2000);
+  const sent = (await bus.history(dm)).find((m) => m.text === "sent from the new device");
+  const stored = sent && JSON.parse(gh.files()[msgPath(sent)]);
+  check("what it sends is sealed in the repository, and the agent opens it", !!stored?.enc && !JSON.stringify(stored).includes("new device"), JSON.stringify(stored)?.slice(0, 200));
+  await browser.close();
 }
 
 if (only === "all" || only === "quotes") {
@@ -345,7 +385,7 @@ if (only === "all" || only === "quotes") {
   await page.locator("textarea").fill("about the first and third");
   await page.locator("textarea").press("Enter");
   await sleep(1500);
-  const sent = Object.entries(gh.files()).filter(([p]) => p.endsWith(".json")).map(([, t]) => JSON.parse(t)).find((m) => m.text === "about the first and third");
+  const sent = (await bus.history(dm)).find((m) => m.text === "about the first and third");
   check("sent with replyTo and quotes, in the order chosen", sent?.replyTo === a.id && JSON.stringify(sent?.quotes) === JSON.stringify([c.id]), JSON.stringify(sent));
   check("the bars are gone", (await bars.count()) === 0);
   await page.locator(`#m-${sent.id} .quote`).first().waitFor();

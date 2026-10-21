@@ -51,14 +51,16 @@ export async function storedSize(): Promise<number> {
 
 const memory = new Map<string, Promise<Uint8Array>>();
 
-/** A file's bytes: from memory, else from the device, else from GitHub (then kept on the device if `keep`). */
-export function fetchFile(bus: Bus, path: string, keep: boolean): Promise<Uint8Array> {
+/** A file's bytes: from memory, else from the device, else from GitHub, opened if it is sealed (then kept on the
+ *  device if `keep`). */
+export function fetchFile(bus: Bus, file: string | Pick<FileRef, "path" | "k" | "iv">, keep: boolean): Promise<Uint8Array> {
+  const ref = typeof file === "string" ? { path: file } : file, path = ref.path;
   let p = memory.get(path);
   if (!p) {
     p = (async () => {
       const local = await stored(path);
       if (local) return local;
-      const data = await bus.file(path);
+      const data = await bus.fileOf(ref);
       if (keep) await store(path, data);
       return data;
     })();
