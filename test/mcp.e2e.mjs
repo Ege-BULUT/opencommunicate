@@ -1,0 +1,52 @@
+// `opencom mcp` over stdio against the fake GitHub: the handshake, every tool, errors, and stdout carrying only
+// JSON-RPC.   npm run build -w cli && node test/mcp.e2e.mjs
+import readline from "node:readline";
+import { checks, world } from "./harness.mjs";
+
+const w = await world();
+const { check, done } = checks();
+const p = w.start("2082", ["mcp"]);
+let stderr = ""; p.stderr.on("data", (d) => (stderr += d));
+const waiting = new Map(); let next = 1; const raw = [];
+readline.createInterface({ input: p.stdout }).on("line", (l) => { raw.push(l); const m = JSON.parse(l); waiting.get(m.id)?.(m); });
+const rpc = (method, params) => new Promise((r) => { const id = next++; waiting.set(id, r); p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n"); });
+const tool = async (name, args = {}) => { const m = await rpc("tools/call", { name, arguments: args }); return { text: m.result.content[0].text, error: !!m.result.isError }; };
+const ege = async (...a) => (await w.run("7779", a)).out;
+
+const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "smoke", version: "1" } });
+check("initialize", init.result.protocolVersion === "2025-06-18" && init.result.serverInfo.name === "opencommunicate" && !!init.result.capabilities.tools, init.result.serverInfo.version);
+p.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+const old = await rpc("initialize", { protocolVersion: "1999-01-01", capabilities: {}, clientInfo: { name: "x", version: "1" } });
+check("an unknown protocol version gets ours", old.result.protocolVersion === "2025-06-18");
+const list = await rpc("tools/list", {});
+check("tools listed", list.result.tools.map((t) => t.name).join() === "send,inbox,history,answer,react,status,contacts,groups");
+check("inbox starts from now", (await tool("inbox")).text === "No new messages.");
+const sent = await tool("send", { to: "7779", text: "Deploy?", choices: ["Yes", "Not yet"] });
+check("send with choices", /^sent to @ege-bulut#7779 \(id .+\)$/.test(sent.text), sent.text);
+const id = sent.text.match(/id (.+)\)/)[1];
+await ege("answer", "2082", id, "yes");
+await ege("send", "Team", "unrelated chatter");
+await ege("send", "Team", "@claude-oc are you there?");
+const inbox = await tool("inbox");
+check("inbox brings the answer with its choice", inbox.text.includes("(answer: choice 1)") && inbox.text.includes(`[`), inbox.text);
+check("inbox brings a mention, not chatter", inbox.text.includes("are you there") && !inbox.text.includes("unrelated"));
+check("inbox is empty again", (await tool("inbox")).text === "No new messages.");
+const hist = await tool("history", { chat: "Team", n: 5 });
+check("history lines start with ids", hist.text.split("\n").every((l) => /^\[\d{8}T\d{9}Z-\d{4}-[a-z0-9]{6}\] /.test(l)), hist.text);
+const mention = hist.text.split("\n").find((l) => l.includes("are you there")).match(/^\[(.+?)\]/)[1];
+check("react", (await tool("react", { chat: "Team", id: mention, reaction: "up" })).text === "reacted 👍");
+check("status", (await tool("status", { text: "running the MCP smoke test" })).text === "status: running the MCP smoke test");
+const contacts = await tool("contacts");
+check("contacts show the status", contacts.text.includes("claude-oc#2082 (agent, you) online — running the MCP smoke test"), contacts.text);
+check("groups", (await tool("groups")).text.startsWith("#Team:"));
+const bad = await tool("send", { to: "9999", text: "x" });
+check("a failing call is an error result, not a crash", bad.error && /No one with id 9999/.test(bad.text));
+const unknown = await rpc("nope/method", {});
+check("unknown method", unknown.error?.code === -32601);
+check("stdout carries only JSON-RPC", raw.every((l) => JSON.parse(l).jsonrpc === "2.0"));
+p.stdin.end();
+await new Promise((r) => p.on("exit", r));
+check("exits when stdin closes", true);
+if (stderr.trim()) console.log("stderr:", stderr.trim());
+w.close();
+done();
