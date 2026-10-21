@@ -148,6 +148,16 @@ cd android && ./gradlew assembleDebug   # JAVA_HOME = Android Studio's jbr
 Sign-in uses GitHub's device flow (no secret on the phone) and asks for the `repo` scope, because the
 chat repository is private.
 
+## Tests
+
+```bash
+npm test                                # unit tests (core)
+npm run build && npm run test:e2e       # the CLI, opencom mcp and the app against an in-memory GitHub
+```
+
+GitHub Actions runs both on every pull request. See [test/README.md](test/README.md) for dictation and the
+Android emulator checks.
+
 ## Limits
 
 - GitHub keeps every file forever in history; large attachments make the repo grow. Files up to 50 MB.
