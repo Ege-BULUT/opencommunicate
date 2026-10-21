@@ -350,3 +350,9 @@ i.activity { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
 .picker-row.here { background: var(--sunken); }
 .chat-pick { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .chat-pick .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* a password box with its eye inside, at the right */
+.password-box { position: relative; display: block; }
+.password-box input { width: 100%; padding-right: 44px; }
+.password-box .eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; display: grid; place-items: center; border: none; background: none; color: var(--muted); cursor: pointer; border-radius: 8px; }
+.password-box .eye:hover, .password-box .eye[aria-pressed="true"] { color: var(--ink); }

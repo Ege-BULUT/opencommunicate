@@ -350,7 +350,13 @@ if (only === "all" || only === "keys") {
   });
   await page.locator(".sheet", { hasText: "🔒 Encryption" }).waitFor({ timeout: 15000 });
   check("a new device asks for the password to unlock the account's key", (await page.locator(".sheet").innerText()).includes("ege-bulut#7779's password"));
-  await page.locator(".sheet input[type=password]").fill("not it");
+  const box = page.locator(".sheet .password-box input");
+  await box.fill("not it");
+  await page.getByRole("button", { name: "Show password" }).click();
+  check("the eye shows the password", (await box.getAttribute("type")) === "text" && (await box.inputValue()) === "not it");
+  await page.getByRole("button", { name: "Hide password" }).click();
+  check("and hides it again", (await box.getAttribute("type")) === "password");
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "password-box.png") }).catch(() => {});
   await page.locator(".sheet button.primary").click();
   await page.locator(".sheet .error").waitFor({ timeout: 15000 });
   check("a wrong password says so and asks again", (await page.locator(".sheet .error").innerText()).includes("didn't unlock"));
