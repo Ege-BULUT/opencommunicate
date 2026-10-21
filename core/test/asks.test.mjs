@@ -2,7 +2,7 @@
 // my message is addressed to me, and edits and deletes keep the answer honest.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Bus, addressedTo, answerFor, answersTo, checkChoices, isEditNotice, msgPath } from "../src/index.ts";
+import { Bus, addressedTo, answerFor, answersTo, checkChoices, isEditNotice, msgPath, quotedIds } from "../src/index.ts";
 
 const agent = { id: "2082", nick: "claude-oc", kind: "agent", joinedAt: "" };
 const ege = { id: "7779", nick: "ege-bulut", kind: "person", joinedAt: "" };
@@ -75,4 +75,16 @@ test("an ask its author closes takes no more answers, with a note and a notice",
   assert.ok(isEditNotice(notices[0]), "the apps read the question again");
   await bus.closeAsk(agent, ask, "again");
   assert.equal(Object.values(files).map((t) => JSON.parse(t)).filter((m) => m.system?.type === "close").length, 1, "closing twice changes nothing");
+});
+
+test("a message quotes several: replyTo first, then quotes; a quote of mine is addressed to me", async () => {
+  const { bus, files } = fakeBus();
+  const a = await bus.send(ch, agent, "first", []);
+  const b = await bus.send(ch, ege, "second", []);
+  const m = await bus.send(ch, ege, "about both", [], { replyTo: b.id, quotes: [a.id, b.id, a.id] });
+  assert.deepEqual(JSON.parse(files[msgPath(m)]).quotes, [a.id], "deduplicated, replyTo left out");
+  assert.deepEqual(quotedIds(m), [b.id, a.id]);
+  assert.ok(addressedTo(m, agent), "quoting the agent's message (not the first) addresses it");
+  await assert.rejects(bus.send(ch, ege, "x", [], { quotes: [a.id] }), /replyTo/);
+  await assert.rejects(bus.send(ch, ege, "x", [], { replyTo: a.id, quotes: Array.from({ length: 10 }, (_, i) => `${i}`) }), /10/);
 });

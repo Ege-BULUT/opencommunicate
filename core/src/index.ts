@@ -101,6 +101,7 @@ export type Message = {
   text: string;
   files?: FileRef[];
   replyTo?: string;              // the id of a message in the same channel this one quotes
+  quotes?: string[];             // more messages of the channel it quotes, after replyTo (older apps show only replyTo)
   forwarded?: boolean;          // this text/files came from someone else's message (author hidden, shown "forwarded")
   edited?: string;              // when the text was last changed; `edits` keeps what it said before, oldest first
   edits?: { text: string; at: string }[];
@@ -174,11 +175,14 @@ export function applyGroupChange(g: Group, change: GroupChange, by: string): Gro
 
 /** The device that wrote message `id` (ids are <time>-<device id>-<random>). */
 export const authorOf = (id: string) => id.split("-")[1];
+/** Every message a message quotes: `replyTo`, then `quotes`. */
+export const quotedIds = (m: Pick<Message, "replyTo" | "quotes">): string[] => (m.replyTo ? [m.replyTo, ...(m.quotes ?? [])] : []);
+export const QUOTES_MAX = 10;
 
 /** True when a message is meant for this device: a DM, a reply to one of its messages, a mention of @nick /
  *  nick#id, or @all / @herkes. */
 export function addressedTo(m: Message, me: Pick<Device, "nick" | "id">): boolean {
-  if (isDm(m.channel) || (m.replyTo && authorOf(m.replyTo) === me.id)) return true;
+  if (isDm(m.channel) || quotedIds(m).some((id) => authorOf(id) === me.id)) return true;
   const nick = me.nick.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`(^|[^\\w])(@(${nick}(#${me.id})?|all|herkes|everyone)(?![\\w])|${nick}#${me.id}(?!\\d))`, "i").test(m.text ?? "");
 }
@@ -552,10 +556,16 @@ export class Bus {
   }
 
   /** `ask`: choices for the reader to pick from (see checkChoices); `answer`: this answers `replyTo`, an ask. */
-  async send(channel: string, from: Device, text: string, files: Upload[] = [], opts: string | { replyTo?: string; forwarded?: boolean; ask?: string[]; answer?: { choice: number | null } } = {}): Promise<Message> {
+  async send(channel: string, from: Device, text: string, files: Upload[] = [], opts: string | { replyTo?: string; quotes?: string[]; forwarded?: boolean; ask?: string[]; answer?: { choice: number | null } } = {}): Promise<Message> {
     const o = typeof opts === "string" ? { replyTo: opts } : opts;
     const extra: Partial<Message> = {};
     if (o.replyTo) extra.replyTo = o.replyTo;
+    const more = [...new Set(o.quotes ?? [])].filter((id) => id !== o.replyTo);
+    if (more.length) {
+      if (!o.replyTo) throw new Error("Quotes come after the message replied to (replyTo).");
+      if (more.length + 1 > QUOTES_MAX) throw new Error(`A message quotes ${QUOTES_MAX} messages at most.`);
+      extra.quotes = more;
+    }
     if (o.forwarded) extra.forwarded = true;
     if (o.ask) extra.ask = checkChoices(o.ask);
     if (o.answer) { if (!o.replyTo) throw new Error("An answer replies to the ask it answers."); extra.answer = { choice: o.answer.choice }; }

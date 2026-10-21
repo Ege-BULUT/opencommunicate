@@ -1,5 +1,5 @@
 // The app in Chromium against the in-memory GitHub: `npm run build -w app`, then
-//   node test/app.e2e.mjs [drafts|asks|status|info|read|dictate|all]
+//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|dictate|all]
 // CHROMIUM=<path> uses that browser instead of Playwright's. "all" leaves out dictate, which needs Whisper's files
 // (WHISPER_DIR=<a folder holding onnx-community/whisper-large-v3-turbo>) and a 16 kHz recording (VOICE_WAV=<file>);
 // GPU=1 runs it on WebGPU, in a visible window.
@@ -286,6 +286,30 @@ if (only === "dictate") {
   clearInterval(progress);
   await browser.close();
   files.close();
+}
+
+if (only === "all" || only === "quotes") {
+  const { gh, bus, browser, page } = await setup(() => 0);
+  const a = await bus.send(dm, agent, "first point", []);
+  const b = await bus.send(dm, agent, "second point", []);
+  const c = await bus.send(dm, agent, "third point", []);
+  await openDm(page);
+  await page.locator(`#m-${c.id} .msg`).waitFor({ timeout: 15000 });
+  const quote = async (m) => { await page.locator(`#m-${m.id} .msg`).click({ button: "right" }); await page.getByRole("menuitem", { name: "↩ Reply" }).click(); };
+  await quote(a); await quote(b); await quote(c); await quote(a);
+  const bars = page.locator(".composer .reply-bar");
+  check("each quote has its own bar, none twice", (await bars.count()) === 3, String(await bars.count()));
+  await bars.nth(1).getByRole("button").click(); // × on "second point"
+  check("× takes off that one only", (await bars.allInnerTexts()).map((t) => t.includes("second")).join() === "false,false");
+  await page.locator("textarea").fill("about the first and third");
+  await page.locator("textarea").press("Enter");
+  await sleep(1500);
+  const sent = Object.entries(gh.files()).filter(([p]) => p.endsWith(".json")).map(([, t]) => JSON.parse(t)).find((m) => m.text === "about the first and third");
+  check("sent with replyTo and quotes, in the order chosen", sent?.replyTo === a.id && JSON.stringify(sent?.quotes) === JSON.stringify([c.id]), JSON.stringify(sent));
+  check("the bars are gone", (await bars.count()) === 0);
+  await page.locator(`#m-${sent.id} .quote`).first().waitFor();
+  check("the message shows both quotes", (await page.locator(`#m-${sent.id} .quote`).allInnerTexts()).map((t) => t.replace(/\s+/g, " ")).join(" | ").includes("first point") && (await page.locator(`#m-${sent.id} .quote`).count()) === 2);
+  await browser.close();
 }
 
 server.close();

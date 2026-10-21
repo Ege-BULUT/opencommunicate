@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Bus, ClaimError, DraftQueue, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -847,7 +847,9 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const unread = (ch: string) => (messages[ch] ?? []).filter((m) => m.from !== me.id && !isEditNotice(m) && (!read[ch] || m.id > read[ch])).length;
   const online = (id: string) => !!presence[id] && Date.now() - Date.parse(presence[id].lastSeen) < 10 * 60_000;
   const [filter, setFilter] = useState("");
-  const [reply, setReply] = useState<Message | null>(null);
+  // the messages the next one quotes, in the order chosen (swipe, or Reply in the menu, adds one; × takes it off)
+  const [replies, setReplies] = useState<Message[]>([]);
+  const addReply = (m: Message) => setReplies((r) => (r.some((x) => x.id === m.id) ? r : [...r, m].slice(-QUOTES_MAX)));
   const [menu, setMenu] = useState<{ m: Message; x: number; y: number } | null>(null);
   const [info, setInfo] = useState<Message | null>(null); // the message whose details are open
   const [reading, setReading] = useState<string | null>(null); // the message being read aloud
@@ -944,7 +946,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   useEffect(() => { desktopApp()?.badge(loud); }, [loud]);
 
   // what a failed message needs to go again, by its draft id; kept in memory, so a reload drops it
-  type SendOpts = { replyTo?: string; answer?: { choice: number | null } };
+  type SendOpts = { replyTo?: string; quotes?: string[]; answer?: { choice: number | null } };
   const unsent = useRef<Record<string, { channel: string; text: string; payload: Upload[]; opts: SendOpts }>>({});
   const drop = (channel: string, id: string) => setMessages((prev) => ({ ...prev, [channel]: (prev[channel] ?? []).filter((x) => x.id !== id) }));
   const deliver = async (channel: string, text: string, payload: Upload[], opts: SendOpts = {}) => {
@@ -967,15 +969,15 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   };
   const send = async (text: string, files: File[]) => {
     const payload = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()), ...(await describe(f)) })));
-    const q = reply;
-    setReply(null);
+    const [q, ...more] = replies;
+    setReplies([]);
     saveDraft(active, "");
-    // a reply to an ask answers it: with the choice its text is, or as a written answer
-    await deliver(active, text, payload, q ? { replyTo: q.id, ...(q.ask && !q.deleted ? { answer: answerFor(q, text) } : {}) } : {});
+    // a reply to an ask (alone) answers it: with the choice its text is, or as a written answer
+    await deliver(active, text, payload, q ? { replyTo: q.id, ...(more.length ? { quotes: more.map((m) => m.id) } : {}), ...(q.ask && !q.deleted && !q.closed && !more.length ? { answer: answerFor(q, text) } : {}) } : {});
   };
   /** Picks choice `i` of an ask, or with null starts a written answer (a reply to it). */
   const answer = (m: Message, i: number | null) => {
-    if (i === null) { setReply(m); return; }
+    if (i === null) { setReplies([m]); return; }
     return deliver(m.channel, m.ask![i], [], { replyTo: m.id, answer: { choice: i } });
   };
   /** A failed message goes again as a new one (new time, at the end of the chat); discard forgets it. */
@@ -1080,7 +1082,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
-          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} answers={(m) => answersTo(m, (messages[m.channel] ?? []).filter((x) => !x.failed))} onAnswer={answer} onReply={(m) => setReply(m)} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
+          quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} answers={(m) => answersTo(m, (messages[m.channel] ?? []).filter((x) => !x.failed))} onAnswer={answer} onReply={addReply} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
           selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} onResend={resend} onDiscard={discard} />
         {selected !== null
           ? <div className="select-bar">
@@ -1095,7 +1097,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
                 </span>;
               })()}
             </div>
-          : <Composer key={active} draft={drafts[active]?.text ?? ""} onDraft={(t) => saveDraft(active, t)} onSend={send} reply={reply} onCancelReply={() => setReply(null)}
+          : <Composer key={active} draft={drafts[active]?.text ?? ""} onDraft={(t) => saveDraft(active, t)} onSend={send} replies={replies} onCancelReply={(m) => setReplies((r) => r.filter((x) => x.id !== m.id))}
               onNotice={(t) => { setToast(t); setTimeout(() => setToast(""), 8000); }}
               editing={editing} onEdit={(t) => { const m = editing!; setEditing(null); if (t !== m.text) amend(m, t); }} onCancelEdit={() => setEditing(null)} people={(activeGroup ? devices.filter((d) => activeGroup.members.includes(d.id)) : isDm(active) ? devices.filter((d) => d.id === dmPeer(active, me.id)) : devices).filter((d) => d.id !== me.id)} />}
       </main>
@@ -1129,13 +1131,13 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       {menu && <MessageMenu m={menu.m} x={menu.x} y={menu.y} mine={menu.m.from === me.id}
         reaction={myReaction(menu.m)} onReact={(e) => { react(menu.m, myReaction(menu.m) === e ? null : e); setMenu(null); }}
         pinned={pinned.has(pinKey(menu.m))} onPin={() => { pin([menu.m], !pinned.has(pinKey(menu.m))); setMenu(null); }}
-        onReply={() => { setReply(menu.m); setMenu(null); }}
+        onReply={() => { addReply(menu.m); setMenu(null); }}
         onCopy={() => { navigator.clipboard?.writeText(menu.m.text || "").catch(() => {}); setMenu(null); }}
         onForward={() => { setForwarding([menu.m]); setMenu(null); }}
         onSelect={() => { setSelected(new Set([menu.m.id])); setMenu(null); }}
         onInfo={() => { setInfo(menu.m); setMenu(null); }}
         onRead={menu.m.text ? () => { readOut(menu.m); setMenu(null); } : undefined}
-        onEdit={menu.m.from === me.id && menu.m.text && !menu.m.forwarded ? () => { setReply(null); setEditing(menu.m); setMenu(null); } : undefined}
+        onEdit={menu.m.from === me.id && menu.m.text && !menu.m.forwarded ? () => { setReplies([]); setEditing(menu.m); setMenu(null); } : undefined}
         onDelete={menu.m.from === me.id ? () => { amend(menu.m, null); setMenu(null); } : undefined}
         onClose={() => setMenu(null)} />}
       {info && <MessageInfo m={(messages[info.channel] ?? []).find((x) => x.id === info.id) ?? info} list={messages[info.channel] ?? []} repo={bus.repo} branch={bus.branch}
@@ -1459,7 +1461,6 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
         const prev = list[i - 1];
         const run = !sep && !!prev && !prev.system && prev.from === m.from && Date.parse(m.ts) - Date.parse(prev.ts) < 5 * 60_000;
         const sender = devices.find((x) => x.id === m.from);
-        const q = m.replyTo ? quoted(m.replyTo) : undefined;
         const selectable = selecting && !m.pending && !m.failed && !m.system && !m.deleted;
         const still = !m.pending && !m.failed && !m.deleted; // can be replied to, reacted to, held for the menu
         const checked = !!selected?.has(m.id);
@@ -1474,7 +1475,7 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               onSwipe={() => !selecting && still && onReply(m)} onHold={(x, y) => !selecting && still && onMenu(m, x, y)}>
               {authors && !mine && !run && !m.forwarded && <div className="who" style={{ "--h": hue(m.from) } as CSSProperties}>{m.fromNick}<span className="muted">#{m.from}</span>{sender?.kind === "agent" && <span className="kind-tag">{S.agentTag}</span>}</div>}
               {m.forwarded && <div className="fwd-tag">{S.forwardedTag}</div>}
-              {m.replyTo && <button className="quote" onClick={() => onJump(m.replyTo!)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{q.deleted ? S.deletedMsg : snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>}
+              {quotedIds(m).map((id) => { const q = quoted(id); return <button key={id} className="quote" onClick={() => onJump(id)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{q.deleted ? S.deletedMsg : snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>; })}
               {m.deleted && <div className="text deleted">🚫 {S.deletedMsg}</div>}
               {m.text && <div className="text">{linkify(m.text)}</div>}
               {m.edits && openEdits.has(m.id) && <div className="edits" aria-label={S.earlier}>{m.edits.map((e, i) => <div key={i}><span className="muted">{when(e.at)}</span> {e.text}</div>)}</div>}
@@ -1578,7 +1579,7 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   );
 }
 
-function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editing, onEdit, onCancelEdit, onNotice }: { draft: string; onDraft: (text: string) => void; onSend: (text: string, files: File[]) => void; people: Device[]; reply: Message | null; onCancelReply: () => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void; onNotice: (text: string) => void }) {
+function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, editing, onEdit, onCancelEdit, onNotice }: { draft: string; onDraft: (text: string) => void; onSend: (text: string, files: File[]) => void; people: Device[]; replies: Message[]; onCancelReply: (m: Message) => void; editing: Message | null; onEdit: (text: string) => void; onCancelEdit: () => void; onNotice: (text: string) => void }) {
   const [text, setText] = useState(draft);
   // a draft from another device shows here until something is typed in this box
   const typed = useRef(false);
@@ -1605,7 +1606,7 @@ function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editin
     setText(""); setFiles([]); typed.current = false;
   };
   const replyInput = useRef<HTMLTextAreaElement | null>(null);
-  useEffect(() => { if (reply) replyInput.current?.focus(); }, [reply]);
+  useEffect(() => { if (replies.length) replyInput.current?.focus(); }, [replies.length]);
   // Dictation: what is said goes after what the box held when it started, and the box is read-only meanwhile.
   // One run at a time, kept in a ref: a stop asked for while it starts, or the chat closing, stops it once it has.
   const [listening, setListening] = useState<"starting" | "on" | null>(null);
@@ -1640,7 +1641,7 @@ function Composer({ draft, onDraft, onSend, people, reply, onCancelReply, editin
   return (
     <div className="composer">
       {editing && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{S.editingLabel}</b><span className="muted"> · {snippet(editing, 70)}</span></span><button className="reply-x" aria-label={S.cancelEdit} onClick={onCancelEdit}>×</button></div>}
-      {reply && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{reply.fromNick}</b><span className="muted"> · {snippet(reply, 70)}</span></span><button className="reply-x" aria-label={S.cancelReply} onClick={onCancelReply}>×</button></div>}
+      {replies.map((r) => <div key={r.id} className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{r.fromNick}</b><span className="muted"> · {snippet(r, 70)}</span></span><button className="reply-x" aria-label={S.cancelReply} onClick={() => onCancelReply(r)}>×</button></div>)}
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
       {consent && <div className="reply-bar"><span className="reply-text">{S.dictationDownload}</span><button className="mini" onClick={listen}>{S.download}</button><button className="reply-x" aria-label={S.cancel} onClick={() => setConsent(false)}>×</button></div>}
       {stage !== null && <div className="reply-bar" role="status"><span className="reply-text muted">{stage === "transcribing" ? S.transcribing : S.downloadingModel(Math.round(stage * 100))}</span></div>}
