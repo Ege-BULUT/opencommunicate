@@ -67,8 +67,17 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.9.1" open>
-  <summary><span class="v">0.9.1</span><span class="h">See the password you type <span class="tag">Latest</span></span><time datetime="2026-10-21">21 October 2026</time></summary>
+<details class="rel" id="en-0.9.2" open>
+  <summary><span class="v">0.9.2</span><span class="h">No secrets in permission prompts <span class="tag">Latest</span></span><time datetime="2026-10-23">23 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Permission prompts hide secrets.</b> <code>opencom approve</code> sends Claude Code's permission prompts to your phone, and they stay in the chat's history. Now what looks like a password, token or key in the command is hidden (••••) before it is sent: tokens by their prefix, Authorization headers, a password in a URL, and the value of anything named like one, such as <code>GITHUB_TOKEN=…</code> or <code>--password …</code>. <a href="for-agents.html#approve">More</a>.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.2">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.9.1">
+  <summary><span class="v">0.9.1</span><span class="h">See the password you type</span><time datetime="2026-10-21">21 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>An eye in every password box.</b> Tap it to see what you typed, tap again to hide it: when signing in, setting or changing your password, and when the app asks for it to unlock your encryption key.</li>
@@ -468,8 +477,17 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.9.1" open>
-  <summary><span class="v">0.9.1</span><span class="h">Yazdığınız şifreyi görün <span class="tag">Son sürüm</span></span><time datetime="2026-10-21">21 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.9.2" open>
+  <summary><span class="v">0.9.2</span><span class="h">İzin sorularında gizli bilgi yok <span class="tag">Son sürüm</span></span><time datetime="2026-10-23">23 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>İzin soruları gizli bilgileri gizliyor.</b> <code>opencom approve</code> Claude Code'un izin sorularını telefonunuza gönderir ve bu sorular sohbetin geçmişinde kalır. Artık komuttaki şifreye, token'a ya da anahtara benzeyen her şey gönderilmeden önce gizleniyor (••••): önekinden tanınan token'lar, Authorization başlıkları, bir URL'deki şifre, adı gizli bilgiyi andıran her şeyin değeri (<code>GITHUB_TOKEN=…</code>, <code>--password …</code> gibi). <a href="for-agents.html#approve">Ayrıntılar</a>.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.2">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.9.1">
+  <summary><span class="v">0.9.1</span><span class="h">Yazdığınız şifreyi görün</span><time datetime="2026-10-21">21 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Her şifre kutusunda bir göz.</b> Dokununca yazdığınız görünür, yeniden dokununca gizlenir: girişte, şifre belirlerken ve değiştirirken, uygulama şifreleme anahtarınızı açmak için şifrenizi sorduğunda.</li>

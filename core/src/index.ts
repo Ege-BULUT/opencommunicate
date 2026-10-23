@@ -123,6 +123,27 @@ export type Message = {
 export const isEditNotice = (m: Pick<Message, "system">) => m.system?.type === "edit" || m.system?.type === "delete" || m.system?.type === "close";
 
 export const handle = (d: Pick<Device, "nick" | "id">) => `${d.nick}#${d.id}`;
+
+const HIDDEN = "••••";
+const SECRET_NAME = String.raw`[\w.-]*(?:pass(?:word|wd|phrase)?|pwd|secret|token|key|credentials?|auth(?:orization)?|cookie)`;
+const SECRET_VALUE = String.raw`("(?:[^"\\]|\\.)*"|'[^']*'|[^\s"'&;|<>]+)`;
+/** `s` (a command a permission prompt sends to the phone, kept in the chat's history for good) with what looks like
+ *  a secret hidden: private key blocks, tokens by their prefix (ghp_, sk-, xoxb-, AKIA…), JWTs, Authorization and
+ *  Cookie headers, the password in a URL or after curl -u, and the value of anything named like a secret
+ *  (GITHUB_TOKEN=…, --password …, "api_key": "…").
+ *  ponytail: patterns only; a secret with no telltale name or prefix (mysql -pX, sshpass -p X) still shows. */
+export function hideSecrets(s: string): string {
+  const quoted = (v: string) => (v[0] === '"' || v[0] === "'" ? v[0] + HIDDEN + v[0] : HIDDEN);
+  return s
+    .replace(/-----BEGIN ([A-Z ]*)PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g, `-----BEGIN $1PRIVATE KEY----- ${HIDDEN}`)
+    .replace(/\b(gh[pousr]_|github_pat_|glpat-|xox[abprs]-|sk-|npm_|AIza|hf_)[\w-]{20,}/g, `$1${HIDDEN}`)
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, `AKIA${HIDDEN}`)
+    .replace(/\beyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]*/g, HIDDEN)
+    .replace(/\b((?:proxy-)?authorization|cookie)\s*:\s*[^"'\\\n]+/gi, `$1: ${HIDDEN}`)
+    .replace(/(\/\/[^\s/:@]+:)[^\s/@]+@/g, `$1${HIDDEN}@`)
+    .replace(/((?:^|\s)(?:-u|--user)(?:\s+|=)[^\s:"']+:)[^\s"']+/g, `$1${HIDDEN}`)
+    .replace(new RegExp(String.raw`((?<![\w.-])--?${SECRET_NAME}\s+|\b${SECRET_NAME}\s*[=:]\s*|"${SECRET_NAME}"\s*:\s*)${SECRET_VALUE}`, "gi"), (all, k, v) => (v.startsWith(HIDDEN) ? all : k + quoted(v)));
+}
 /** A new chat repository's name: what the person typed, made a valid GitHub name, always ending in "-chat". */
 export const chatRepoName = (typed: string) => {
   const base = typed.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[-.]+|-+$/g, "").replace(/-?chat$/i, "");
