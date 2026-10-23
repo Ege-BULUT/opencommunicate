@@ -129,7 +129,11 @@ answer refuses it with your text as the reason, so "not yet, run the tests first
 still shows in the terminal, and whichever is answered first counts. When it is answered in the terminal (the
 hook sees the tool call get its result in the session's transcript), or no answer comes in time (`--timeout`,
 540 seconds by default; the hook then ends without a decision and the terminal prompt stays), the question on
-the phone closes: its buttons grey out, with why. `--lang tr` asks in Turkish. In `~/.claude/settings.json` (or a project's `.claude/settings.json`):
+the phone closes: its buttons grey out, with why. The question stays in the chat's history, so what looks like a
+secret in the command is hidden (••••) before it is sent: tokens by their prefix (`ghp_`, `sk-`…), Authorization
+and Cookie headers, a password in a URL or after `curl -u`, and the value of anything named like one
+(`GITHUB_TOKEN=…`, `--password …`). A secret with neither a telltale name nor a prefix still shows, so keep secrets
+in environment variables rather than typed into commands. `--lang tr` asks in Turkish. In `~/.claude/settings.json` (or a project's `.claude/settings.json`):
 
 ```json
 {

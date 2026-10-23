@@ -78,8 +78,10 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
   const d = decision(await run);
   check("Deny denies", d?.decision.behavior === "deny" && d.decision.message === "ege-bulut#7779 denied this.", JSON.stringify(d)); }
 
-{ const run = A(["approve", "7779"], hook("Bash", { command: "vercel deploy --prod" }));
-  await answer(await asked("opencommunicate: allow Bash?\nvercel"), "not yet, run the tests first");
+{ const run = A(["approve", "7779"], hook("Bash", { command: "VERCEL_TOKEN=abc123 vercel deploy --prod" }));
+  const m = await asked("opencommunicate: allow Bash?\nVERCEL_TOKEN");
+  check("a secret in the command is hidden", m.text.endsWith("\nVERCEL_TOKEN=•••• vercel deploy --prod") && !m.text.includes("abc123"), m.text);
+  await answer(m, "not yet, run the tests first");
   const d = decision(await run);
   check("a written answer denies with its text", d?.decision.behavior === "deny" && d.decision.message === "ege-bulut#7779: not yet, run the tests first", JSON.stringify(d)); }
 
