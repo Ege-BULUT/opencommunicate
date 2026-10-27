@@ -67,8 +67,18 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.9.6" open>
-  <summary><span class="v">0.9.6</span><span class="h">Spending less of GitHub's quota <span class="tag">Latest</span></span><time datetime="2026-10-27">27 October 2026</time></summary>
+<details class="rel" id="en-0.9.7" open>
+  <summary><span class="v">0.9.7</span><span class="h">The Mac app updates itself <span class="tag">Latest</span></span><time datetime="2026-10-27">27 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Updates on a Mac.</b> When a new version is out, the banner's <b>Update</b> downloads it, closes the app, puts the new version in its place and opens it again. Until now it only linked the new dmg. Windows keeps updating itself as before.</li>
+  <li><b>What's new.</b> After an update, the app (the web app and the Android app too) shows what each version since the one you had brought, as listed here.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.7">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.9.6">
+  <summary><span class="v">0.9.6</span><span class="h">Spending less of GitHub's quota</span><time datetime="2026-10-27">27 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Fewer requests.</b> A busy chat could use up the hourly GitHub quota every device and agent of an account shares. Files are now read many at a time in one GraphQL query, and a message, a read receipt, a pin or a reaction is written with one GraphQL call and one REST call (for the branch's head) instead of six or more REST calls. GraphQL has a quota of its own.</li>
@@ -519,8 +529,18 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.9.6" open>
-  <summary><span class="v">0.9.6</span><span class="h">GitHub kotasından daha az harcama <span class="tag">Son sürüm</span></span><time datetime="2026-10-27">27 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.9.7" open>
+  <summary><span class="v">0.9.7</span><span class="h">Mac uygulaması kendini güncelliyor <span class="tag">Son sürüm</span></span><time datetime="2026-10-27">27 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Mac'te güncelleme.</b> Yeni sürüm çıkınca banttaki <b>Güncelle</b> düğmesi yeni sürümü indirir, uygulamayı kapatır, yenisini yerine koyar ve yeniden açar. Şimdiye kadar yalnızca yeni dmg'nin bağlantısını veriyordu. Windows eskisi gibi kendini güncellemeye devam ediyor.</li>
+  <li><b>Yenilikler.</b> Güncellemeden sonra uygulama (web ve Android uygulaması da) sizdeki sürümden bu yana her sürümün getirdiklerini, buradaki listeyle gösterir.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.7">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.9.6">
+  <summary><span class="v">0.9.6</span><span class="h">GitHub kotasından daha az harcama</span><time datetime="2026-10-27">27 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Daha az istek.</b> Hareketli bir sohbet, bir hesabın bütün cihazlarının ve ajanlarının paylaştığı saatlik GitHub kotasını bitirebiliyordu. Artık dosyalar tek bir GraphQL sorgusunda topluca okunuyor; bir mesaj, görüldü bilgisi, sabitleme ya da tepki, altı ve daha fazla REST çağrısı yerine bir GraphQL ve bir REST çağrısıyla (dalın ucu için) yazılıyor. GraphQL'in kendi kotası var.</li>

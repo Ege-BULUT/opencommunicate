@@ -7,4 +7,6 @@ contextBridge.exposeInMainWorld("opencomDesktop", {
   info: () => ipcRenderer.invoke("app-info"),
   onUpdateReady: (cb) => ipcRenderer.on("update-ready", (_e, version) => cb(version)),
   installUpdate: () => ipcRenderer.invoke("update-install"),
+  updateMac: (url) => ipcRenderer.invoke("update-mac", url),
+  onUpdateProgress: (cb) => ipcRenderer.on("update-progress", (_e, share) => cb(share)),
 });

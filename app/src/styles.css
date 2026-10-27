@@ -388,3 +388,5 @@ i.activity { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
 .tip-btn { flex: none; width: 28px; height: 28px; border-radius: 50%; color: var(--muted); font-size: 16px; }
 .tip { display: none; position: absolute; left: 32px; right: 4px; top: calc(100% - 2px); z-index: 5; background: var(--ink); color: var(--bg); padding: 8px 10px; border-radius: 10px; font-size: 13px; line-height: 1.4; box-shadow: 0 6px 20px rgb(0 0 0 / .2); pointer-events: none; }
 .saver-row:hover .tip, .tip-wrap:focus-within .tip { display: block; }
+.news ul { margin: 6px 0 10px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.news h3 { margin: 10px 0 0; font-size: 14px; }
