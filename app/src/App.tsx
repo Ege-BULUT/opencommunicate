@@ -10,6 +10,7 @@ import { answerPasswordQuestions, backUp, keysFor, rememberPassword } from "./ke
 import { NoDictation, NoVoice, record, transcribe, warmUp, type Recording, dictate, dictationLang, installVoice, readAloud, setDictationLang, stopReading, whisperReady, type Dictation } from "./voice.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode, type VoiceFile } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
+import { MessageText } from "./markdown.tsx";
 import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, noteHead, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
@@ -823,7 +824,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           if (await watcher.tickDrafts().catch(() => false)) takeDrafts(watcher.drafts, draftsAsked);
           for (const m of fresh) {
             if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
-            if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.locked ? "🔒" : m.text || S.fileNotice);
+            if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.locked ? "🔒" : snippet({ text: m.text }, 200) || S.fileNotice);
           }
           if (await watcher.tickPresence().catch(() => false)) setPresence(watcher.presence);
           if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); }
@@ -1360,7 +1361,6 @@ function highlight(m: Message, q: string): ReactNode {
   return <>{from > 0 && "…"}{text.slice(from, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length, i + q.length + 80)}</>;
 }
 
-const linkify = (text: string) => text.split(/(https?:\/\/\S+)/g).map((part, i) => (/^https?:\/\//.test(part) ? <a key={i} href={part} onClick={(e) => { e.preventDefault(); openLink(part); }}>{part}</a> : part));
 const num = (x: number) => x.toLocaleString(LOCALE, { maximumFractionDigits: 1 });
 const size = (n: number) => (n < 1024 ? `${n} B` : n < 1e6 ? `${num(n / 1024)} KB` : `${num(n / 1e6)} MB`);
 const time = (iso: string) => new Date(iso).toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
@@ -1392,19 +1392,20 @@ function systemText(m: Message, devices: Device[]): string {
  *  little movement fires onHold with the point to anchor a menu. A normal tap still works (links, buttons). */
 function Swipeable({ className, children, onSwipe, onHold }: { className: string; children: ReactNode; onSwipe: () => void; onHold: (x: number, y: number) => void }) {
   const ref = useRef<HTMLDivElement>(null);
-  const start = useRef<{ x: number; y: number } | null>(null);
+  const start = useRef<{ x: number; y: number; fixed: boolean } | null>(null);
   const dx = useRef(0);
   const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearHold = () => { if (hold.current) { clearTimeout(hold.current); hold.current = null; } };
-  const begin = (x: number, y: number) => {
-    start.current = { x, y }; dx.current = 0;
+  // on a table or code that scrolls sideways, a sideways drag scrolls it: the bubble stays put
+  const begin = (x: number, y: number, target: EventTarget) => {
+    start.current = { x, y, fixed: !!(target as Element).closest?.(".scroll-x") }; dx.current = 0;
     clearHold();
     hold.current = setTimeout(() => { if (start.current && Math.abs(dx.current) < 8) { onHold(x, y); start.current = null; if (ref.current) ref.current.style.transform = ""; } }, 500);
   };
   const move = (x: number, y: number) => {
     if (!start.current) return;
     const ddx = x - start.current.x, ddy = y - start.current.y;
-    if (Math.abs(ddy) > Math.abs(ddx)) { start.current = null; clearHold(); if (ref.current) ref.current.style.transform = ""; return; } // vertical: let the list scroll
+    if (Math.abs(ddy) > Math.abs(ddx) || start.current.fixed) { start.current = null; clearHold(); if (ref.current) ref.current.style.transform = ""; return; } // vertical: let the list scroll
     dx.current = Math.max(-80, Math.min(0, ddx));
     if (Math.abs(ddx) > 6) clearHold();
     if (ref.current) ref.current.style.transform = `translateX(${dx.current}px)`;
@@ -1418,10 +1419,10 @@ function Swipeable({ className, children, onSwipe, onHold }: { className: string
   return (
     <div ref={ref} className={`${className} swipeable`}
       onContextMenu={(e) => { e.preventDefault(); onHold(e.clientX, e.clientY); }}
-      onTouchStart={(e) => begin(e.touches[0].clientX, e.touches[0].clientY)}
+      onTouchStart={(e) => begin(e.touches[0].clientX, e.touches[0].clientY, e.target)}
       onTouchMove={(e) => move(e.touches[0].clientX, e.touches[0].clientY)}
       onTouchEnd={end}
-      onPointerDown={(e) => { if (e.pointerType === "mouse") begin(e.clientX, e.clientY); }}
+      onPointerDown={(e) => { if (e.pointerType === "mouse") begin(e.clientX, e.clientY, e.target); }}
       onPointerMove={(e) => { if (e.pointerType === "mouse") move(e.clientX, e.clientY); }}
       onPointerUp={(e) => { if (e.pointerType === "mouse") end(); }}
       onPointerLeave={(e) => { if (e.pointerType === "mouse" && start.current) end(); }}>
@@ -1546,7 +1547,7 @@ function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, 
               {quotedIds(m).map((id) => { const q = quoted(id); return <button key={id} className="quote" onClick={() => onJump(id)}>{q ? <><span className="quote-who">{q.from === me.id ? S.you : q.fromNick}</span><span className="quote-text">{q.deleted ? S.deletedMsg : snippet(q, 90)}</span></> : <span className="quote-text muted">{S.quotedMessage}</span>}</button>; })}
               {m.deleted && <div className="text deleted">🚫 {S.deletedMsg}</div>}
               {m.locked && <div className="text deleted">🔒 {S.lockedMsg}</div>}
-              {m.text && !m.locked && <div className="text">{linkify(m.text)}</div>}
+              {m.text && !m.locked && <div className="text"><MessageText text={m.text} /></div>}
               {m.edits && openEdits.has(m.id) && <div className="edits" aria-label={S.earlier}>{m.edits.map((e, i) => <div key={i}><span className="muted">{when(e.at)}</span> {e.text}</div>)}</div>}
               {m.files?.map((f, i) => <Attachment key={`${i}-${f.name}`} file={f} bus={bus} />)}
               {m.ask && still && (() => {

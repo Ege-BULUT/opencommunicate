@@ -1,5 +1,5 @@
 // The app in Chromium against the in-memory GitHub: `npm run build -w app`, then
-//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|files|dictate|voice|all]
+//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|files|markdown|dictate|voice|all]
 // CHROMIUM=<path> uses that browser instead of Playwright's. "all" leaves out dictate and voice, which need Whisper's files
 // (WHISPER_DIR=<a folder holding onnx-community/whisper-large-v3-turbo>) and a 16 kHz recording (VOICE_WAV=<file>);
 // GPU=1 runs it on WebGPU, in a visible window.
@@ -481,6 +481,49 @@ if (only === "all" || only === "files") {
   await page.locator(`#m-${sent.id} .attach-img`).click();
   await page.keyboard.press("Escape");
   check("and Escape", !(await box.count()));
+  await browser.close();
+}
+
+// a ```md block shows as Markdown (a table scrolls sideways), any other fenced block as code, and nothing becomes HTML
+if (only === "all" || only === "markdown") {
+  const { bus, browser, page } = await setup(() => 0);
+  const cols = Array.from({ length: 8 }, (_, i) => `Column${i + 1}`);
+  const text = ["Here is the plan:", "```md", "## Release **0.9.5**", "", "- [x] tables", "- [ ] colours, *later*", "",
+    `| ${cols.join(" | ")} |`, `|${cols.map((_, i) => (i === 1 ? " -: " : " - ")).join("|")}|`, `| ${cols.map((c) => `${c.toLowerCase()}-value`).join(" | ")} |`, "",
+    "<script>window.ran = 1</script>", "", "[bad](javascript:window.ran=1) [site](https://example.com) ![pic](https://example.com/p.png) <img src=x onerror=window.ran=1>", "```",
+    "```py", "print(1)", "```", "That's all."].join("\n");
+  const m = await bus.send(dm, agent, text, []);
+  await openDm(page);
+  const msg = page.locator(`#m-${m.id} .msg`);
+  await msg.waitFor({ timeout: 15000 });
+  const md = msg.locator(".md");
+  await msg.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "markdown.png") }).catch(() => {});
+  check("a ```md block shows as Markdown", (await md.locator("h4").innerText()) === "Release 0.9.5" && (await md.locator("h4 strong").count()) === 1 && (await md.locator("li").count()) === 2 && await md.locator("li input[type=checkbox]").first().isChecked(), await md.innerHTML());
+  check("its table is a table, aligned as written", (await md.locator("th").count()) === 8 && (await md.locator("td").nth(1).evaluate((td) => getComputedStyle(td).textAlign)) === "right");
+  const widths = await msg.evaluate((b) => { const w = b.querySelector(".md .scroll-x"); const list = document.querySelector(".messages"); return { scroll: w.scrollWidth, shown: w.clientWidth, bubble: b.getBoundingClientRect().right, page: innerWidth, list: list.scrollWidth - list.clientWidth }; });
+  check("a wide table scrolls sideways inside the bubble, which keeps to the screen", widths.scroll > widths.shown && widths.bubble <= widths.page && widths.list === 0, JSON.stringify(widths));
+  check("HTML in it stays text, and runs nothing", (await md.innerText()).includes("<script>window.ran = 1</script>") && !(await md.locator("script").count()) && !(await page.evaluate(() => window.ran)));
+  check("only a web link is a link; an image is one too, not loaded", JSON.stringify(await md.locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")))) === JSON.stringify(["https://example.com", "https://example.com/p.png"]) && !(await md.locator("img").count()));
+  check("any other fenced block is code", (await msg.locator("pre.code").innerText()) === "print(1)");
+  check("the text around the blocks stays as written", (await msg.locator(".text").innerText()).startsWith("Here is the plan:") && (await msg.locator(".text").innerText()).trim().endsWith("That's all."));
+  // a sideways drag on the table scrolls it; elsewhere on the bubble it still replies
+  const drag = async (el) => { const b = await el.boundingBox(); await page.mouse.move(b.x + b.width - 20, b.y + 10); await page.mouse.down(); await page.mouse.move(b.x + b.width - 100, b.y + 12, { steps: 8 }); await page.mouse.up(); await sleep(200); };
+  await drag(md.locator(".scroll-x"));
+  check("a drag on the table doesn't reply to the message", !(await page.locator(".composer .reply-bar").count()));
+  await drag(msg.locator("pre.code"));
+  await drag(msg.locator(".meta"));
+  check("…nor on code, but one on the rest of the bubble does", (await page.locator(".composer .reply-bar").count()) === 1);
+  // and a finger: the table scrolls (the bubble only lets the list scroll up and down)
+  const cdp = await page.context().newCDPSession(page);
+  await md.locator(".scroll-x").evaluate((w) => { w.scrollLeft = 0; });
+  const box = await md.locator(".scroll-x").boundingBox();
+  const [x, y] = [box.x + box.width - 30, box.y + box.height / 2];
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+  for (let d = 10; d <= 150; d += 10) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - d, y }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await sleep(300);
+  check("a finger drags the table sideways", (await md.locator(".scroll-x").evaluate((w) => w.scrollLeft)) > 50, String(await md.locator(".scroll-x").evaluate((w) => w.scrollLeft)));
   await browser.close();
 }
 
