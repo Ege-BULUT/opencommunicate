@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
+import { createPortal } from "react-dom";
 import { Bus, ClaimError, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
@@ -1641,13 +1642,68 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
   );
 }
 
+/** An image full screen. The wheel, a pinch or a double tap zooms in on the point under it; once zoomed in, a drag
+ *  moves it about. A tap beside it, Escape or back closes it. It goes on the page itself: inside the message, the
+ *  bubble's own drag (to reply) would carry it along and take its presses. */
 function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; onSave: () => void; onClose: () => void }) {
   useBack(true, onClose);
-  return (
-        <div className="lightbox" onClick={onClose}>
-          <img src={url} alt={name} />
-          <div className="actions"><button className="ghost" onClick={(e) => { e.stopPropagation(); onSave(); }}>{S.saveToDevice}</button><button className="ghost" onClick={onClose}>{S.close}</button></div>
-        </div>
+  const stage = useRef<HTMLDivElement>(null);
+  const img = useRef<HTMLImageElement>(null);
+  const [view, setView] = useState({ s: 1, x: 0, y: 0 });
+  const points = useRef(new Map<number, { x: number; y: number }>());
+  const press = useRef({ travel: 0, onImage: false, tap: 0 });
+  // scaled by k about the point (px, py) on the screen, which then moves by (dx, dy); the image always covers the
+  // box it fits in when not zoomed
+  const zoom = (k: number, px: number, py: number, dx = 0, dy = 0) => setView((v) => {
+    const r = stage.current!.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const s = Math.min(8, Math.max(1, v.s * k)), f = s / v.s;
+    const within = (n: number, size: number) => { const m = (s - 1) * size / 2; return Math.min(m, Math.max(-m, n)); };
+    return { s, x: within(px + dx - cx - f * (px - cx - v.x), img.current!.offsetWidth), y: within(py + dy - cy - f * (py - cy - v.y), img.current!.offsetHeight) };
+  });
+  useEffect(() => {
+    const el = stage.current!;
+    const wheel = (e: WheelEvent) => { e.preventDefault(); zoom(Math.exp(-e.deltaY * (e.deltaMode ? 40 : 1) * (e.ctrlKey ? 0.01 : 0.002)), e.clientX, e.clientY); }; // ctrl: a trackpad's pinch
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    el.addEventListener("wheel", wheel, { passive: false });
+    window.addEventListener("keydown", key);
+    return () => { el.removeEventListener("wheel", wheel); window.removeEventListener("keydown", key); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
+  const down = (e: React.PointerEvent) => {
+    if (e.button) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    points.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (points.current.size === 1) { press.current.travel = 0; press.current.onImage = e.target === img.current; }
+  };
+  const move = (e: React.PointerEvent) => {
+    const p = points.current.get(e.pointerId);
+    if (!p) return;
+    const pair = () => { const [a, b] = [...points.current.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }; };
+    const before = points.current.size === 2 ? pair() : null;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    press.current.travel += Math.abs(dx) + Math.abs(dy);
+    p.x = e.clientX; p.y = e.clientY;
+    if (!before) return zoom(1, 0, 0, dx, dy);
+    const after = pair();
+    if (before.d) zoom(after.d / before.d, before.x, before.y, after.x - before.x, after.y - before.y);
+  };
+  const up = (e: React.PointerEvent) => {
+    if (!points.current.delete(e.pointerId) || points.current.size || press.current.travel > 8) return;
+    if (!press.current.onImage) return onClose();
+    // a second tap on the image soon after the first zooms in there, or back out
+    if (e.timeStamp - press.current.tap > 350) { press.current.tap = e.timeStamp; return; }
+    press.current.tap = 0;
+    if (view.s > 1) setView({ s: 1, x: 0, y: 0 }); else zoom(2.5, e.clientX, e.clientY);
+  };
+  const stop = (e: SyntheticEvent) => e.stopPropagation();
+  return createPortal(
+    <div className="lightbox" onClick={stop} onContextMenu={stop} onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onTouchStart={stop} onTouchMove={stop} onTouchEnd={stop}>
+      <div ref={stage} className={`lightbox-stage${view.s > 1 ? " zoomed" : ""}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={(e) => points.current.delete(e.pointerId)}>
+        <img ref={img} src={url} alt={name} draggable={false} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }} />
+      </div>
+      <div className="actions"><button className="ghost" onClick={onSave}>{S.saveToDevice}</button><button className="ghost" onClick={onClose}>{S.close}</button></div>
+    </div>,
+    document.body,
   );
 }
 
