@@ -19,7 +19,9 @@ export const native = () => Capacitor.isNativePlatform();
 type DesktopShell = {
   signInPost: (url: string, body: Record<string, string>) => Promise<any>; badge: (n: number) => void; focus: () => void;
   // since 0.7.6; older shells lack them
-  info?: () => Promise<{ version: string; platform: string; arch: string; selfUpdates: boolean; updateReady: string | null }>;
+  info?: () => Promise<{ version: string; platform: string; arch: string; selfUpdates: boolean; macUpdates?: boolean; updateReady: string | null; feed?: string }>;
+  updateMac?: (url: string) => Promise<void>;
+  onUpdateProgress?: (cb: (share: number) => void) => void;
   onUpdateReady?: (cb: (version: string) => void) => void;
   installUpdate?: () => Promise<void>;
 };

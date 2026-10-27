@@ -2,6 +2,9 @@
    has a stable origin (its saved session lives there); links open in the browser. */
 const { app, BrowserWindow, ipcMain, net, protocol, shell } = require("electron");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
+const { spawn } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 
 const ROOT = path.join(__dirname, "app");
@@ -52,9 +55,10 @@ app.whenReady().then(() => {
 });
 
 /* Updates. Windows updates itself: electron-updater reads latest.yml from the newest GitHub release, downloads
-   the installer in the background and the page offers a restart (or it installs on quit). macOS can't do that
-   without a paid Apple signature (Squirrel.Mac refuses unsigned apps), so there the page shows a download link
-   for the new dmg instead, as the Android app does for its APK. */
+   the installer in the background and the page offers a restart (or it installs on quit). macOS has no Squirrel
+   for an app without a paid Apple signature, so the Mac app replaces itself: the page finds the new dmg in the
+   newest release, this downloads it, and once the app has quit a small script copies the new app over this one
+   and opens it. OC_UPDATE_FEED (tests) points the page at another "newest release" and allows its downloads. */
 let updateReady = null; // the version downloaded and waiting for a restart
 let updater = null;
 if (app.isPackaged && process.platform === "win32") {
@@ -66,8 +70,50 @@ if (app.isPackaged && process.platform === "win32") {
   const check = () => updater.checkForUpdates().catch(() => {});
   app.whenReady().then(() => { setTimeout(check, 15_000); setInterval(check, 6 * 3600_000); });
 }
-ipcMain.handle("app-info", () => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, selfUpdates: !!updater, updateReady }));
+const FEED = process.env.OC_UPDATE_FEED;
+const macUpdates = app.isPackaged && process.platform === "darwin";
+ipcMain.handle("app-info", () => ({ version: app.getVersion(), platform: process.platform, arch: process.arch, selfUpdates: !!updater, macUpdates, updateReady, feed: FEED }));
 ipcMain.handle("update-install", () => { if (updateReady) { quitting = true; updater.quitAndInstall(true, true); } });
+ipcMain.handle("update-mac", async (_e, url) => {
+  const ours = /^https:\/\/github\.com\/Ege-BULUT\/opencommunicate\/releases\/download\/v[\d.]+\/OpenCommunicate-[\d.]+-mac-(arm64|x64)\.dmg$/.test(url) || (FEED && new URL(url).origin === new URL(FEED).origin);
+  if (!macUpdates || !ours) throw new Error("Not an OpenCommunicate release.");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "oc-update-"));
+  const dmg = path.join(dir, "update.dmg");
+  const res = await net.fetch(url);
+  if (!res.ok || !res.body) throw new Error(`The download failed (${res.status}).`);
+  const total = Number(res.headers.get("content-length")) || 0;
+  const out = fs.createWriteStream(dmg);
+  let got = 0, told = 0;
+  for await (const chunk of res.body) {
+    if (!out.write(chunk)) await new Promise((r) => out.once("drain", r));
+    got += chunk.length;
+    if (total && got - told > total / 100) { told = got; win?.webContents.send("update-progress", got / total); }
+  }
+  await new Promise((r, j) => out.end((e) => (e ? j(e) : r())));
+  const bundle = path.resolve(process.execPath, "../../.."); // …/OpenCommunicate.app
+  fs.writeFileSync(path.join(dir, "swap.sh"), SWAP);
+  spawn("/bin/sh", [path.join(dir, "swap.sh"), String(process.pid), dmg, bundle, dir], { detached: true, stdio: "ignore" }).unref();
+  quitting = true;
+  app.quit();
+});
+// $1 the app's pid, $2 the new dmg, $3 the app bundle, $4 a work folder. The old app stays unless the new one is
+// fully copied, and whichever is there is opened again.
+const SWAP = `while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+if hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$4/mnt" "$2" >/dev/null; then
+  new=$(ls -d "$4"/mnt/*.app | head -n 1)
+  if [ -n "$new" ] && ditto "$new" "$3.new"; then
+    rm -rf "$3.old"
+    if mv "$3" "$3.old"; then
+      if mv "$3.new" "$3"; then rm -rf "$3.old"; else mv "$3.old" "$3"; fi
+    fi
+  fi
+  rm -rf "$3.new"
+  hdiutil detach "$4/mnt" -quiet
+fi
+xattr -dr com.apple.quarantine "$3" 2>/dev/null
+open "$3"
+rm -rf "$4"
+`;
 
 // github.com's sign-in endpoints refuse browser (CORS) requests, so the main process makes those two calls
 const SIGN_IN = /^https:\/\/github\.com\/login\/(device\/code|oauth\/access_token)$/;

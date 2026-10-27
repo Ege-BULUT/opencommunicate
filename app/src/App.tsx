@@ -1097,6 +1097,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           </span>
         </header>
         <UpdateBanner />
+        <News />
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         {locked && <div className="alert" role="alert"><span>🔒 {S.keysLocked}</span><button className="ghost" onClick={unlock}>{S.unlock}</button></div>}
         <button className="me" onClick={() => setDialog("chats")} title={S.chatsTitle} aria-label={`${S.chatsTitle}: ${session.repo.split("/")[1]}`}>
@@ -1236,12 +1237,15 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
 const LATEST = "https://api.github.com/repos/Ege-BULUT/opencommunicate/releases/latest";
 const SKIPPED_KEY = "oc.updateSkipped";
 /**
- * A newer version. The Windows app downloads it by itself and offers a restart; the Android app and the Mac app
- * (which can't update itself unsigned) link the new APK or dmg from the newest GitHub release, checked at start
- * and every 6 hours. The web app is always the newest, so it shows nothing.
+ * A newer version. The Windows app downloads it by itself and offers a restart; the Mac app (which Squirrel won't
+ * update unsigned) downloads the new dmg when asked and replaces itself (desktop/main.cjs); the Android app links
+ * the new APK. Found in the newest GitHub release, checked at start and every 6 hours. The web app is always the
+ * newest, so it shows nothing.
  */
 function UpdateBanner() {
-  const [offer, setOffer] = useState<{ version: string; url?: string; ready?: boolean } | null>(null);
+  const [offer, setOffer] = useState<{ version: string; url?: string; ready?: boolean; mac?: boolean } | null>(null);
+  const [progress, setProgress] = useState<number | null>(null); // the Mac app's download, 0 to 1
+  const [failed, setFailed] = useState("");
   useEffect(() => {
     const shell = desktopApp();
     if (!native() && !shell?.info) return;
@@ -1256,11 +1260,12 @@ function UpdateBanner() {
       const want = (name: string) => (info ? name.endsWith(`-mac-${info.arch}.dmg`) : name.endsWith(".apk"));
       const check = async () => {
         try {
-          const rel = await (await fetch(LATEST)).json();
+          const rel = await (await fetch(info?.feed ?? LATEST)).json();
           const v = String(rel.tag_name ?? "").replace(/^v/, "");
           let skipped = null; try { skipped = localStorage.getItem(SKIPPED_KEY); } catch { /* private mode */ }
           if (stop || !v || !newerVersion(v, __APP_VERSION__) || skipped === v) return;
-          setOffer({ version: v, url: (rel.assets ?? []).find((a: { name: string }) => want(a.name))?.browser_download_url ?? rel.html_url });
+          const asset = (rel.assets ?? []).find((a: { name: string }) => want(a.name))?.browser_download_url;
+          setOffer({ version: v, url: asset ?? rel.html_url, mac: !!info?.macUpdates && !!asset });
         } catch { /* offline: the next check */ }
       };
       check();
@@ -1270,13 +1275,49 @@ function UpdateBanner() {
   }, []);
   if (!offer) return null;
   const skip = () => { try { localStorage.setItem(SKIPPED_KEY, offer.version); } catch { /* this session only */ } setOffer(null); };
+  const update = async () => {
+    const shell = desktopApp()!;
+    setFailed(""); setProgress(0);
+    shell.onUpdateProgress?.(setProgress);
+    try { await shell.updateMac!(offer.url!); setProgress(1); } // the app quits and opens again as the new version
+    catch (e) { setProgress(null); setFailed((e as Error).message); }
+  };
+  const later = <button className="mini" aria-label={S.later} title={S.later} onClick={skip}>×</button>;
   return (
     <div className="update" role="status">
-      <span>{offer.ready ? S.updateReady(offer.version) : S.updateOut(offer.version)}</span>
-      {offer.ready
-        ? <button className="primary mini" onClick={() => desktopApp()?.installUpdate?.()}>{S.restartToUpdate}</button>
-        : <><button className="primary mini" onClick={() => openLink(offer.url!, false)}>{S.getUpdate}</button><button className="mini" aria-label={S.later} title={S.later} onClick={skip}>×</button></>}
+      <span>{failed ? S.updateFailed(failed) : progress !== null ? (progress >= 1 ? S.updateRestarting : S.updating(Math.round(progress * 100))) : offer.ready ? S.updateReady(offer.version) : S.updateOut(offer.version)}</span>
+      {offer.ready ? <button className="primary mini" onClick={() => desktopApp()?.installUpdate?.()}>{S.restartToUpdate}</button>
+        : offer.mac && !failed ? progress === null && <><button className="primary mini" onClick={update}>{S.updateNow}</button>{later}</>
+        : <><button className="primary mini" onClick={() => openLink(offer.url!, false)}>{S.getUpdate}</button>{later}</>}
     </div>
+  );
+}
+
+/** After an update: what each version since the one last opened on this device brought, from the changelog
+ *  (vite.config.ts). A first run shows nothing. */
+const SEEN_VERSION = "oc.seenVersion";
+function News() {
+  const [since] = useState(() => { try { return localStorage.getItem(SEEN_VERSION); } catch { return null; } });
+  const [open, setOpen] = useState(true);
+  useEffect(() => { try { localStorage.setItem(SEEN_VERSION, __APP_VERSION__); } catch { /* private mode */ } }, []);
+  const versions = useMemo(() => {
+    const all = __NEWS__[lang] ?? __NEWS__.en ?? {};
+    if (!since || !newerVersion(__APP_VERSION__, since)) return [];
+    return Object.keys(all).filter((v) => newerVersion(v, since) && !newerVersion(v, __APP_VERSION__) && all[v].length)
+      .sort((a, b) => (newerVersion(a, b) ? -1 : 1)).map((v) => [v, all[v]] as const);
+  }, [since]);
+  if (!open || !versions.length) return null;
+  return (
+    <Sheet title={S.newsTitle(__APP_VERSION__)} className="news" onClose={() => setOpen(false)}>
+      <p>{S.newsLead}</p>
+      {versions.map(([v, items]) => (
+        <section key={v}>
+          {versions.length > 1 && <h3>{v}</h3>}
+          <ul>{items.map((it, i) => <li key={i}>{it.title && <b>{it.title} </b>}{it.text}</li>)}</ul>
+        </section>
+      ))}
+      <div className="actions"><button className="primary" onClick={() => setOpen(false)}>{S.close}</button></div>
+    </Sheet>
   );
 }
 

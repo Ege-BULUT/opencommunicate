@@ -1,5 +1,5 @@
 // The app in Chromium against the in-memory GitHub: `npm run build -w app`, then
-//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|files|markdown|quota|dictate|voice|all]
+//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|files|markdown|quota|update|dictate|voice|all]
 // CHROMIUM=<path> uses that browser instead of Playwright's. "all" leaves out dictate and voice, which need Whisper's files
 // (WHISPER_DIR=<a folder holding onnx-community/whisper-large-v3-turbo>) and a 16 kHz recording (VOICE_WAV=<file>);
 // GPU=1 runs it on WebGPU, in a visible window.
@@ -585,6 +585,39 @@ if (only === "all" || only === "quota") {
   await page.locator(`#m-${m2.id}`).waitFor({ timeout: 15000 });
   for (let i = 0; i < 40 && !receipt().includes(m2.id); i++) await sleep(250);
   check("turned back on, receipts go out again", receipt().includes(m2.id), receipt());
+  await browser.close();
+}
+
+// after an update, what's new since the version last opened here; on a Mac, the banner's Update downloads and restarts
+if (only === "all" || only === "update") {
+  const version = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "app", "package.json"), "utf8")).version;
+  const dmg = "https://github.com/Ege-BULUT/opencommunicate/releases/download/v9.9.9/OpenCommunicate-9.9.9-mac-arm64.dmg";
+  const feed = async (route, u) => u.hostname === "feed.test" && (await route.fulfill({ status: 200, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }, body: JSON.stringify({ tag_name: "v9.9.9", html_url: "https://github.com/x", assets: [{ name: "OpenCommunicate-9.9.9-mac-arm64.dmg", browser_download_url: dmg }] }) }), true);
+  const { browser, page } = await setup(() => 0, [], feed);
+  const news = page.locator(".news");
+  check("a first run shows no news", !(await news.count()));
+  await page.evaluate(() => localStorage.setItem("oc.seenVersion", "0.9.4"));
+  await page.reload();
+  await news.waitFor({ timeout: 15000 });
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "news.png") }).catch(() => {});
+  const heads = await news.locator("h3").allInnerTexts();
+  check("after an update, a note lists what each version since brought, newest first", (await news.locator("h2").innerText()) === `Updated to ${version}` && heads[0] === version && heads.at(-1) === "0.9.5" && (await news.locator("li").count()) >= heads.length, JSON.stringify(heads));
+  await news.getByRole("button", { name: "Close" }).last().click();
+  await page.reload();
+  await page.locator("textarea, .row").first().waitFor();
+  await sleep(1000);
+  check("closed, it doesn't come back", !(await news.count()));
+  // the Mac app: Update downloads the new dmg (the shell does the rest), with its progress
+  await page.context().addInitScript(() => {
+    window.opencomDesktop = { info: async () => ({ version: "0.9.6", platform: "darwin", arch: "arm64", selfUpdates: false, macUpdates: true, updateReady: null, feed: "https://feed.test/latest.json" }),
+      updateMac: (url) => { window.updatedFrom = url; window.progress?.(0.42); return new Promise(() => {}); }, onUpdateProgress: (cb) => { window.progress = cb; }, badge: () => {}, focus: () => {} };
+  });
+  await page.reload();
+  const banner = page.locator(".update");
+  await banner.waitFor({ timeout: 15000 });
+  check("a newer release is offered with Update", (await banner.innerText()).includes("OpenCommunicate 9.9.9 is out.") && await banner.getByRole("button", { name: "Update" }).isVisible());
+  await banner.getByRole("button", { name: "Update" }).click();
+  check("Update downloads that release's dmg for this Mac, with its progress", (await page.evaluate(() => window.updatedFrom)) === dmg && (await banner.innerText()).includes("Downloading the update… 42%"), await banner.innerText());
   await browser.close();
 }
 

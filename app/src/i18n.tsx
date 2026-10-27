@@ -386,6 +386,12 @@ const en = {
   updateOut: (v: string) => `OpenCommunicate ${v} is out.`,
   restartToUpdate: "Restart to update",
   getUpdate: "Download",
+  updateNow: "Update",
+  updating: (pct: number) => `Downloading the update… ${pct}%`,
+  updateRestarting: "Restarting with the new version…",
+  updateFailed: (why: string) => `The update didn't go through: ${why}`,
+  newsTitle: (v: string) => `Updated to ${v}`,
+  newsLead: "What's new:",
   later: "Not now",
 
   // errors from the session and media code
@@ -743,6 +749,12 @@ const tr: typeof en = {
   updateOut: (v) => `OpenCommunicate ${v} çıktı.`,
   restartToUpdate: "Yeniden başlat ve güncelle",
   getUpdate: "İndir",
+  updateNow: "Güncelle",
+  updating: (pct) => `Güncelleme indiriliyor… %${pct}`,
+  updateRestarting: "Yeni sürümle yeniden açılıyor…",
+  updateFailed: (why) => `Güncelleme yapılamadı: ${why}`,
+  newsTitle: (v) => `Güncelleme tamamlandı: ${v}`,
+  newsLead: "Yenilikler:",
   later: "Şimdi değil",
 
   signInNotStarted: "GitHub girişi başlatmadı.",
