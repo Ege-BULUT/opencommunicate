@@ -7,6 +7,6 @@
     "opencom": "dist/opencom.mjs"
   },
   "scripts": {
-    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/opencom.mjs --banner:js='#!/usr/bin/env node'"
+    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --loader:.md=text --outfile=dist/opencom.mjs --banner:js='#!/usr/bin/env node'"
   }
 }

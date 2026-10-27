@@ -1,6 +1,10 @@
 // `opencom mcp` over stdio against the fake GitHub: the handshake, every tool, errors, and stdout carrying only
 // JSON-RPC.   npm run build -w cli && node test/mcp.e2e.mjs
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import readline from "node:readline";
+import { dmChannel } from "../core/src/index.ts";
 import { checks, world } from "./harness.mjs";
 
 const w = await world();
@@ -19,7 +23,7 @@ p.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialize
 const old = await rpc("initialize", { protocolVersion: "1999-01-01", capabilities: {}, clientInfo: { name: "x", version: "1" } });
 check("an unknown protocol version gets ours", old.result.protocolVersion === "2025-06-18");
 const list = await rpc("tools/list", {});
-check("tools listed", list.result.tools.map((t) => t.name).join() === "send,inbox,history,answer,react,status,contacts,groups");
+check("tools listed", list.result.tools.map((t) => t.name).join() === "send,inbox,history,answer,react,status,save,contacts,groups");
 check("inbox starts from now", (await tool("inbox")).text === "No new messages.");
 const sent = await tool("send", { to: "7779", text: "Deploy?", choices: ["Yes", "Not yet"] });
 check("send with choices", /^sent to @ege-bulut#7779 \(id .+\)$/.test(sent.text), sent.text);
@@ -39,6 +43,9 @@ check("status", (await tool("status", { text: "running the MCP smoke test" })).t
 const contacts = await tool("contacts");
 check("contacts show the status", contacts.text.includes("claude-oc#2082 (agent, you) online — running the MCP smoke test"), contacts.text);
 check("groups", (await tool("groups")).text.startsWith("#Team:"));
+const shot = await w.bus.send(dmChannel("2082", "7779"), w.ege, "see this", [{ name: "shot.png", type: "image/png", data: new Uint8Array([137, 80, 78, 71]) }]);
+const saved = await tool("save", { chat: "7779", id: shot.id, dir: fs.mkdtempSync(path.join(os.tmpdir(), "opencom-mcp-save-")) });
+check("save writes a message's files and lists their paths", !saved.error && saved.text.endsWith("shot.png") && fs.readFileSync(saved.text).length === 4, saved.text);
 const bad = await tool("send", { to: "9999", text: "x" });
 check("a failing call is an error result, not a crash", bad.error && /No one with id 9999/.test(bad.text));
 const unknown = await rpc("nope/method", {});

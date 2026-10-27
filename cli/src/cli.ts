@@ -8,6 +8,8 @@ import path from "node:path";
 import { Bus, PALETTES, quotedIds, STATUS_MAX, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, hideSecrets, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { setUpKeys } from "../../core/src/e2e.ts";
+import { saveFiles } from "./mcp.ts";
+import GUIDE from "../../docs/AGENTS.md";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
@@ -61,6 +63,13 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom pin <chat> <id…> [--off] pin messages (by id, from the chat's recent history) for this account
                                    only, like WhatsApp's starred messages (--off: unpin)
   opencom pins [<chat>]            this account's pinned messages, newest pin first
+  opencom guide                    how agents use all of this: when, what for, how (docs/AGENTS.md)
+  opencom skill [--install] [--dir <dir>]
+                                   the guide as a Claude Code skill; --install writes it to
+                                   ~/.claude/skills/opencommunicate/SKILL.md (or <dir>/opencommunicate)
+  opencom save <chat> <id> [--out <dir>]
+                                   save a message's attachments (a screenshot someone pasted, a log),
+                                   opened, into <dir> (default: here); prints each file's path
   opencom react <chat> <id> <reaction> [--off]
                                    react to a message: up 👍, down 👎, smile 🙂 or heart ❤️ (the emoji
                                    works too); one per message, a new one replaces it (--off: take it back).
@@ -93,7 +102,7 @@ const USAGE = `opencom — chat over a private GitHub repository
                                    (blue ticks); off still reports them delivered (default: on)
   opencom ui [--port 4817]         open the desktop app in the browser
   opencom mcp                      serve this device's chat as an MCP server over stdio (tools: send,
-                                   inbox, history, answer, react, status, contacts, groups). Claude Code:
+                                   inbox, history, answer, react, status, save, contacts, groups). Claude Code:
                                    claude mcp add opencom -e OPENCOM_HOME=<dir> -- opencom mcp
 `;
 
@@ -151,7 +160,9 @@ const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catc
 const writeConfig = (c: Config) => { fs.mkdirSync(CONFIG_DIR, { recursive: true }); fs.writeFileSync(CONFIG, JSON.stringify(c, null, 2), { mode: 0o600 }); };
 
 // flags that take no value, so "send ege --wait hi" still sends "hi"
-const SWITCHES = new Set(["help", "wait", "json", "once", "to-me", "all", "edits", "off", "clear", "random", "reset"]);
+const SWITCHES = new Set(["help", "wait", "json", "once", "to-me", "all", "edits", "off", "clear", "random", "reset", "install"]);
+/** When a Claude Code session should load the guide (`opencom skill`). */
+const SKILL_WHEN = "How to use OpenCommunicate (the opencom CLI and MCP server) to work with people and other agents through a chat: listening for messages, replying, asking with choices and waiting for the answer, permission prompts on a phone, status, sending and opening files and screenshots, Markdown tables, reactions, quotes, groups, and sparing the account's shared GitHub quota. Use it whenever a task involves opencom, an OpenCommunicate chat, or messaging a person or agent through one.";
 function flags(args: string[]) {
   const out: Record<string, string[]> = {}, rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -208,6 +219,17 @@ async function main(argv: string[]) {
   const [cmd, ...args] = argv;
   const { f, rest } = flags(args);
   if (!cmd || cmd === "help" || f.help) { process.stdout.write(USAGE); return; }
+  // the agents' guide, with or without a chat set up
+  if (cmd === "guide") { console.log(GUIDE); return; }
+  if (cmd === "skill") {
+    const skill = `---\nname: opencommunicate\ndescription: ${JSON.stringify(SKILL_WHEN)}\n---\n\n${GUIDE}`;
+    if (!f.install) { console.log(skill); return; }
+    const dir = path.join(f.dir?.[0] ?? path.join(os.homedir(), ".claude", "skills"), "opencommunicate");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "SKILL.md"), skill);
+    console.log(path.join(dir, "SKILL.md"));
+    return;
+  }
 
   if (cmd === "init") {
     const repo = rest[0];
@@ -514,6 +536,16 @@ async function main(argv: string[]) {
       if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`);
       const changed = await bus.react(me, m, f.off ? null : (emoji as Reaction));
       console.log(!changed ? "no change" : f.off ? `took back your reaction in ${label(channel, me, devices, groups)}` : `reacted ${emoji} in ${label(channel, me, devices, groups)}`);
+      return;
+    }
+    case "save": {
+      const [to, id] = rest;
+      if (!to || !id) throw new Error("Usage: opencom save <chat> <message-id> [--out <dir>]");
+      const { devices, groups } = await load();
+      const channel = resolveTarget(to, me, devices, groups);
+      const m = (await bus.message(channel, id).catch(() => null)) ?? (await bus.history(channel, 200)).find((x) => x.id === id || x.id.endsWith(id));
+      if (!m) throw new Error(`No message ${id} in ${label(channel, me, devices, groups)} (last 200).`);
+      for (const p of await saveFiles(bus, m, f.out?.[0] ?? ".")) console.log(p);
       return;
     }
     case "pins": {
