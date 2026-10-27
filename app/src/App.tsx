@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { Bus, ClaimError, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, type Quota, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -11,6 +11,7 @@ import { NoDictation, NoVoice, record, transcribe, warmUp, type Recording, dicta
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode, type VoiceFile } from "./media.ts";
 import { LANGS, LOCALE, S, lang, setLang, type Lang } from "./i18n.tsx";
 import { MessageText } from "./markdown.tsx";
+import { SaverOptions, clock, fullest, percent, readSaver, saving, warnLevel, writeSaver, type Saver } from "./quota.tsx";
 import { accountProblem, canSignIn, checkAccount, claim, clearChats, clearSignIn, credKey, currentToken, dropCred, renewCred, loadChats, noteHead, pruneCreds, putCred, readStored, takeAuth, saveChats, sourceFor, tokenFor, withChat, withoutChat, type Chats, type Cred, desktopApp, finishSignIn, githubLogin, hosted, join, listRepos, native, readSignIn, repoExists, saveSession, saveSignIn, setPassword, startSignIn, type DeviceCode, type Session } from "./session.ts";
 
 const POLL_MS = 4000;
@@ -67,6 +68,21 @@ function Sheet({ title, className = "", onClose, children }: { title: string; cl
         {children}
       </div>
     </div>
+  );
+}
+/** The hourly GitHub quota at 50% or 75%: what it means, and switches to spend less. They take effect with Apply;
+ *  Cancel leaves everything as it was. */
+function QuotaWarning({ quota, saver, onApply, onClose }: { quota: Quota; saver: Saver; onApply: (s: Saver) => void; onClose: () => void }) {
+  const [draft, setDraft] = useState(saver);
+  return (
+    <Sheet title={S.quotaTitle(percent(quota))} className="quota-sheet" onClose={onClose}>
+      <p className="small">{S.quotaBody(percent(quota), clock(quota.reset * 1000))}</p>
+      <SaverOptions value={draft} resetAt={quota.reset * 1000} onChange={setDraft} />
+      <div className="actions">
+        <button className="ghost" onClick={onClose}>{S.cancel}</button>
+        <button className="primary" onClick={() => onApply(draft)}>{S.apply}</button>
+      </div>
+    </Sheet>
   );
 }
 const BusContext = createContext<Bus | null>(null);
@@ -665,6 +681,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   }, [draftQueue]);
   const saveDraft = (ch: string, text: string) => {
     setDrafts((d) => { const n = { ...d }; if (text.trim()) n[ch] = { text, at: new Date().toISOString() }; else delete n[ch]; return n; });
+    if (saving(saverRef.current, "drafts")) return; // kept on this device only
     draftQueue.set(ch, text);
     if (draftTimer.current) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(flushDrafts, 1500);
@@ -677,6 +694,16 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     window.addEventListener("pagehide", flushDrafts);
     return () => { document.removeEventListener("visibilitychange", away); window.removeEventListener("pagehide", flushDrafts); flushDrafts(); };
   }, [flushDrafts]);
+  // what this device leaves out to spare the hourly GitHub quota, and the warning when the quota runs low
+  const [saver, setSaverState] = useState<Saver>(readSaver);
+  const saverRef = useRef(saver);
+  saverRef.current = saver;
+  const setSaver = (v: Saver) => { writeSaver(v); setSaverState(v); };
+  const [quotaWarning, setQuotaWarning] = useState<Quota | null>(null);
+  useEffect(() => {
+    bus.onQuota = () => { const q = fullest(bus.quota); if (q && warnLevel(q)) setQuotaWarning({ ...q }); };
+    return () => { bus.onQuota = undefined; };
+  }, [bus]);
   const [showRead, setShowRead] = useState(readReceiptsOn);
   const showReadRef = useRef(showRead);
   showReadRef.current = showRead;
@@ -685,6 +712,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const flushAt = useRef<ReturnType<typeof setTimeout> | null>(null);
   const told = useRef<Record<string, Receipt>>({}); // what this session already sent: skip the round trip for it again
   const queueReceipts = useCallback((update: Record<string, Receipt>) => {
+    if (saving(saverRef.current, "receipts")) return;
     let any = false;
     for (const [ch, r] of Object.entries(update)) {
       const was = told.current[ch] ?? {};
@@ -791,7 +819,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           watcher.tickDrafts().then(() => takeDrafts(watcher.drafts, draftsAsked)).catch(() => {});
           setStatus(""); setAccount(null); seenHead();
           watcher.tickPresence().then(() => setPresence(watcher.presence)).catch(() => {});
-          bus.heartbeat(session.device).catch(() => {});
+          if (!saving(saverRef.current, "beat")) bus.heartbeat(session.device).catch(() => {});
           askNotifications();
           break;
         } catch (e) {
@@ -827,7 +855,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.locked ? "🔒" : snippet({ text: m.text }, 200) || S.fileNotice);
           }
           if (await watcher.tickPresence().catch(() => false)) setPresence(watcher.presence);
-          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(session.device).catch(() => {}); }
+          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); if (!saving(saverRef.current, "beat")) bus.heartbeat(session.device).catch(() => {}); }
           failures = 0;
           setStatus(""); setAccount(null);
         } catch (e) {
@@ -1197,7 +1225,9 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       {toast && <div className="toast" role="status">{toast}</div>}
       {keyQuestion && <KeyPassword key={String(keyQuestion.again)} reason={keyQuestion.reason} again={keyQuestion.again} me={me} onAnswer={keyQuestion.answer} />}
       {dialog === "settings" && <Settings session={session} me={me} bus={bus} problem={account} onMe={setMe} onSession={onSession} onClose={() => setDialog(null)} onSignOut={onSignOut}
-        showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }} />}
+        showRead={showRead} onShowRead={(on) => { try { localStorage.setItem(RECEIPTS_KEY, on ? "on" : "off"); } catch { /* private mode: this session only */ } setShowRead(on); }}
+        saver={saver} onSaver={setSaver} />}
+      {quotaWarning && <QuotaWarning quota={quotaWarning} saver={saver} onApply={(v) => { setSaver(v); setQuotaWarning(null); }} onClose={() => setQuotaWarning(null)} />}
     </div>
     </BusContext.Provider>
   );
@@ -2039,7 +2069,7 @@ function GroupDialog({ others, onClose, onCreate }: { others: Device[]; onClose:
   );
 }
 
-function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignOut, showRead, onShowRead }: { session: Session; me: Device; bus: Bus; problem: string | null; onMe: (d: Device) => void; onSession: (s: Session) => void; onClose: () => void; onSignOut: () => void; showRead: boolean; onShowRead: (on: boolean) => void }) {
+function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignOut, showRead, onShowRead, saver, onSaver }: { session: Session; me: Device; bus: Bus; problem: string | null; onMe: (d: Device) => void; onSession: (s: Session) => void; onClose: () => void; onSignOut: () => void; showRead: boolean; onShowRead: (on: boolean) => void; saver: Saver; onSaver: (s: Saver) => void }) {
   const [busy, setBusy] = useState(false);
   const [login, setLogin] = useState<string | null>(null);
   const [trouble, setTrouble] = useState<string | null>(problem);
@@ -2169,6 +2199,10 @@ function Settings({ session, me, bus, problem, onMe, onSession, onClose, onSignO
           {S.showRead}
         </label>
         <p className="muted small">{S.ticksHelp}</p>
+        <h3>{S.quotaSettings}</h3>
+        <p className="small">{S.quotaHelp}</p>
+        {(() => { const q = fullest(bus.quota); return q && <p className="muted small">{S.quotaNow(q.used, q.limit, clock(q.reset * 1000))}</p>; })()}
+        <SaverOptions value={saver} resetAt={(fullest(bus.quota)?.reset ?? Date.now() / 1000 + 3600) * 1000} onChange={onSaver} />
         <h3>{S.push}</h3>
         <p className="small">{S.pushHelp}</p>
         {native() && <button className="ghost" onClick={() => openLink("https://play.google.com/store/apps/details?id=io.heckel.ntfy")}>{S.ntfyPlay}</button>}

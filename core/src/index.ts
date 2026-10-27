@@ -3,7 +3,9 @@
  * Every message is its own file, so two devices writing at once never touch the same path; only the
  * branch pointer can race, and a write simply retries on the new head. Devices poll the branch head
  * with an ETag (a "304 Not Modified" does not count against GitHub's rate limit) and, when it moves,
- * ask GitHub which files changed. Works in Node (CLI) and in a browser/WebView (app).
+ * ask GitHub which files changed. Files are read many to a GraphQL query and written one GraphQL call to a
+ * commit, which spares the REST quota every device of an account shares. Works in Node (CLI) and in a
+ * browser/WebView (app).
  *
  * Repository layout (protocol 1, see docs/PROTOCOL.md). A message file changes after it is written only when its
  * author edits or deletes it (Bus.amend), with a notice in the same channel.
@@ -320,6 +322,8 @@ type Fetch = typeof fetch;
  */
 export type TokenSource = { current(): string | Promise<string>; renew?(rejected: string): Promise<string | null> };
 export type BusOptions = { repo: string; token: string | TokenSource; branch?: string; fetch?: Fetch; api?: string };
+/** Where an account stands in one of GitHub's hourly quotas ("core" for REST, "graphql"): `reset` in epoch seconds. */
+export type Quota = { resource: string; used: number; limit: number; reset: number };
 type Files = Record<string, Uint8Array | string | null>;
 type TreeEntry = { path: string; mode: "100644"; type: "blob"; sha: string | null };
 
@@ -327,6 +331,14 @@ export class GitHubError extends Error {
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
+export class GraphQLError extends Error {
+  errors: { type?: string; message: string }[];
+  constructor(errors: { type?: string; message: string }[]) { super(`GitHub GraphQL: ${errors.map((e) => e.message).join("; ")}`); this.errors = errors; }
+  /** The branch moved since its head was read: read it again and retry. */
+  get stale() { return this.errors.some((e) => e.type === "STALE_DATA" || /expected branch to point to/i.test(e.message)); }
+}
+/** Bigger commits (attachments) go the REST way, a blob at a time. */
+const GRAPHQL_COMMIT_MAX = 2_000_000;
 
 export class Bus {
   readonly repo: string;
@@ -335,7 +347,12 @@ export class Bus {
   private f: Fetch;
   private api: string;
   private etags = new Map<string, string>();
-  private blobCache = new Map<string, unknown>();
+  private blobCache = new Map<string, Promise<unknown>>();
+  private trees = new Map<string, Promise<{ path: string; sha: string; size?: number; type: string }[]>>();
+  private wanted = new Map<string, ((text: string | Error) => void)[]>();
+  /** The quotas as of the last answer from GitHub, by resource; `onQuota` hears of each change. */
+  quota: Record<string, Quota> = {};
+  onQuota?: (q: Quota) => void;
   /** End-to-end encryption (e2e.ts): unset, messages go as they are (tests, older setups); set, every message is
    *  sealed, and resolving to null (the account's key locked on this device) refuses to write any. */
   keys?: Promise<Keyring | null>;
@@ -379,6 +396,13 @@ export class Bus {
       const next = await this.auth.renew(token);
       if (next && next !== token) { token = next; res = await this.call(path, init, token); }
     }
+    const used = Number(res.headers.get("x-ratelimit-used")), limit = Number(res.headers.get("x-ratelimit-limit"));
+    if (limit) {
+      const q = { resource: res.headers.get("x-ratelimit-resource") ?? "core", used, limit, reset: Number(res.headers.get("x-ratelimit-reset")) };
+      const was = this.quota[q.resource];
+      this.quota[q.resource] = q;
+      if (was?.used !== q.used || was?.reset !== q.reset) this.onQuota?.(q);
+    }
     if (res.status === 304) return { status: 304, data: undefined as T, headers: res.headers };
     const text = await res.text();
     const data = text ? JSON.parse(text) : undefined;
@@ -398,6 +422,13 @@ export class Bus {
     });
   }
   private r = (p: string) => `/repos/${this.repo}${p}`;
+
+  /** A GraphQL query or mutation: its data, or a GraphQLError with GitHub's errors. */
+  async graphql<T = any>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+    const { data } = await this.gh("/graphql", { method: "POST", body: JSON.stringify({ query, variables }) });
+    if (data?.errors?.length) throw new GraphQLError(data.errors);
+    return data.data;
+  }
 
   async head(branch = this.branch): Promise<string | null> {
     // GitHub sends refs with max-age=60, so a plain read can come from the browser's cache: a commit made on a
@@ -421,9 +452,16 @@ export class Bus {
     return res.data.object.sha;
   }
 
-  async tree(sha: string): Promise<{ path: string; sha: string; size?: number; type: string }[]> {
-    const { data } = await this.gh(this.r(`/git/trees/${sha}?recursive=1`));
-    return data.tree;
+  /** The files at a commit (or tree). A commit never changes, so the last few are kept. */
+  tree(sha: string): Promise<{ path: string; sha: string; size?: number; type: string }[]> {
+    let t = this.trees.get(sha);
+    if (!t) {
+      t = this.gh(this.r(`/git/trees/${sha}?recursive=1`)).then(({ data }) => data.tree);
+      t.catch(() => this.trees.delete(sha));
+      this.trees.set(sha, t);
+      if (this.trees.size > 8) this.trees.delete(this.trees.keys().next().value!);
+    }
+    return t;
   }
 
   async blob(sha: string): Promise<Uint8Array> {
@@ -431,9 +469,38 @@ export class Bus {
     return fromBase64(data.content);
   }
 
-  async json<T>(sha: string): Promise<T> {
-    if (!this.blobCache.has(sha)) this.blobCache.set(sha, JSON.parse(dec.decode(await this.blob(sha))));
-    return this.blobCache.get(sha) as T;
+  /** A JSON file by its blob sha. The ones asked for together (a Promise.all over a tree) go to GitHub in one
+   *  GraphQL query; a blob GraphQL won't give as text comes over REST. */
+  json<T>(sha: string): Promise<T> {
+    let j = this.blobCache.get(sha);
+    if (!j) {
+      j = new Promise<string | Error>((r) => {
+        if (!this.wanted.size) queueMicrotask(() => this.fetchTexts());
+        (this.wanted.get(sha) ?? this.wanted.set(sha, []).get(sha)!).push(r);
+      }).then((t) => { if (t instanceof Error) throw t; return JSON.parse(t); });
+      j.catch(() => this.blobCache.delete(sha));
+      this.blobCache.set(sha, j);
+    }
+    return j as Promise<T>;
+  }
+  private async fetchTexts() {
+    const batch = this.wanted;
+    this.wanted = new Map();
+    const shas = [...batch.keys()];
+    const texts = new Map<string, string>();
+    const [owner, name] = this.repo.split("/");
+    for (let i = 0; i < shas.length; i += 100) {
+      const part = shas.slice(i, i + 100);
+      try {
+        const data = await this.graphql(`query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${part.map((s, n) => `b${n}: object(oid: "${s}") { ... on Blob { text isBinary isTruncated } }`).join(" ")} } }`, { owner, name });
+        part.forEach((s, n) => { const b = data.repository?.[`b${n}`]; if (b && typeof b.text === "string" && !b.isBinary && !b.isTruncated) texts.set(s, b.text); });
+      } catch { /* over REST below */ }
+    }
+    await Promise.all(shas.map(async (s) => {
+      let t: string | Error;
+      try { t = texts.get(s) ?? dec.decode(await this.blob(s)); } catch (e) { t = e as Error; }
+      for (const r of batch.get(s)!) r(t);
+    }));
   }
 
   /**
@@ -453,6 +520,34 @@ export class Bus {
       }
       return entries;
     };
+    // on a branch that exists, one GraphQL call makes the commit (the REST way takes one call per file and four
+    // more); a force push, a new branch, a big upload (attachments) or a refusal other than "the branch moved"
+    // goes the REST way
+    if (!opts.orphan) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const parent = await this.head(branch);
+        if (!parent) break;
+        const f = typeof files === "function" ? await files(parent) : files;
+        const changes = Object.entries(f);
+        const size = changes.reduce((n, [, c]) => n + (c === null ? 0 : typeof c === "string" ? c.length * 3 : c.length), 0);
+        if (size > GRAPHQL_COMMIT_MAX) break;
+        try {
+          const data = await this.graphql(`mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }`, { input: {
+            branch: { repositoryNameWithOwner: this.repo, branchName: branch },
+            expectedHeadOid: parent,
+            message: { headline: message },
+            fileChanges: {
+              additions: changes.filter(([, c]) => c !== null).map(([path, c]) => ({ path, contents: toBase64(typeof c === "string" ? enc.encode(c) : c!) })),
+              deletions: changes.filter(([, c]) => c === null).map(([path]) => ({ path })),
+            },
+          } });
+          return data.createCommitOnBranch.commit.oid;
+        } catch (e) {
+          if (!(e instanceof GraphQLError && e.stale)) break;
+          await new Promise((r) => setTimeout(r, 250 * (attempt + 1) + Math.random() * 250));
+        }
+      }
+    }
     const fixed = typeof files === "function" ? null : await blobs(files);
     for (let attempt = 0; attempt < 6; attempt++) {
       const parent = await this.head(branch);

@@ -1,5 +1,6 @@
-// In-memory GitHub (git data API subset) for the end-to-end tests. handle() is shared by the browser
-// (Playwright route) and node Buses (fetch option), so both see one repository.
+// In-memory GitHub (git data API subset, and the GraphQL the core uses: blobs by oid, createCommitOnBranch) for the
+// end-to-end tests. handle() is shared by the browser (Playwright route) and node Buses (fetch option), so both see one
+// repository. Answers carry GitHub's quota headers; `quota` sets where they stand.
 import crypto from "node:crypto";
 
 export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
@@ -7,7 +8,14 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
   const sha = () => crypto.randomBytes(20).toString("hex");
   const log = [], tokens = new Set(), refreshes = [];
   let refreshToken = "r1";
-  const res = (status, body, headers = {}) => ({ status, headers: { "content-type": "application/json", ...headers }, body: body === undefined ? "" : JSON.stringify(body) });
+  const reset = Math.floor(Date.now() / 1000) + 3600;
+  const quota = { core: { used: 0, limit: 5000, reset }, graphql: { used: 0, limit: 5000, reset } };
+  let resource = "core";
+  const res = (status, body, headers = {}) => {
+    const q = quota[resource];
+    if (status !== 304) q.used++;
+    return { status, headers: { "content-type": "application/json", "x-ratelimit-resource": resource, "x-ratelimit-limit": String(q.limit), "x-ratelimit-used": String(q.used), "x-ratelimit-remaining": String(q.limit - q.used), "x-ratelimit-reset": String(q.reset), ...headers }, body: body === undefined ? "" : JSON.stringify(body) };
+  };
   const listing = (t) => [...(trees.get(t) ?? new Map())].map(([path, s]) => ({ path, sha: s, type: "blob", mode: "100644", size: Buffer.from(blobs.get(s) ?? "", "base64").length }));
   const ancestors = (c) => { const out = new Set(); const walk = (x) => { if (!x || out.has(x)) return; out.add(x); for (const p of commits.get(x)?.parents ?? []) walk(p); }; walk(c); return out; };
 
@@ -20,6 +28,8 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
     const wait = delay(method, p, body);
     if (wait) await new Promise((r) => setTimeout(r, wait));
     tokens.add((hdr("Authorization") ?? "").replace("Bearer ", ""));
+    resource = p === "/graphql" ? "graphql" : "core";
+    if (p === "/graphql") return graphql(body.query ?? "", body.variables ?? {});
     if (p === "/user") return res(200, { login });
     if (p === "/login/oauth/access_token") {
       const f = new URLSearchParams(bodyText);
@@ -38,7 +48,7 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
       const s = refs.get(R(m[1]));
       if (!s) return res(404, { message: "Not Found" });
       const etag = `"${s}"`;
-      if (hdr("If-None-Match") === etag) return { status: 304, headers: { etag }, body: "" };
+      if (hdr("If-None-Match") === etag) return res(304, undefined, { etag });
       return res(200, { ref: `refs/heads/${m[1]}`, object: { sha: s, type: "commit" } }, { etag, "cache-control": "private, max-age=60" });
     }
     if ((m = rest.match(/^\/git\/trees\/([0-9a-f]+)$/))) { const t = commits.get(m[1])?.tree ?? m[1]; return trees.has(t) ? res(200, { sha: t, tree: listing(t), truncated: false }) : res(404, { message: "Not Found" }); }
@@ -88,6 +98,24 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
     return res(404, { message: `Not Found (fake): ${method} ${rest}` });
   }
 
+  function graphql(query, v) {
+    const failed = (type, message) => res(200, { data: null, errors: [{ type, message }] });
+    if (query.includes("createCommitOnBranch")) {
+      const i = v.input, key = `${i.branch.repositoryNameWithOwner}#${i.branch.branchName}`, cur = refs.get(key);
+      if (!cur) return failed("NOT_FOUND", `Could not resolve to a ref named ${i.branch.branchName}`);
+      if (cur !== i.expectedHeadOid) return failed("STALE_DATA", `Expected branch to point to "${i.expectedHeadOid}" but it did not.  Pull and try again.`);
+      const t = new Map(trees.get(commits.get(cur).tree));
+      for (const d of i.fileChanges?.deletions ?? []) { if (!t.delete(d.path)) return failed("NOT_FOUND", `A path was requested for deletion which does not exist as of commit oid \`${cur}\``); }
+      for (const a of i.fileChanges?.additions ?? []) { const b = crypto.createHash("sha1").update(a.contents).digest("hex"); blobs.set(b, a.contents); t.set(a.path, b); }
+      const ts = sha(), cs = sha();
+      trees.set(ts, t); commits.set(cs, { tree: ts, parents: [cur], message: i.message.headline }); refs.set(key, cs);
+      return res(200, { data: { createCommitOnBranch: { commit: { oid: cs } } } });
+    }
+    const repository = {};
+    for (const [, alias, oid] of query.matchAll(/(\w+): object\(oid: "([0-9a-f]+)"\)/g)) repository[alias] = blobs.has(oid) ? { text: Buffer.from(blobs.get(oid), "base64").toString("utf8"), isBinary: false, isTruncated: false } : null;
+    return res(200, { data: { repository } });
+  }
+
   /** A fetch for node Buses. */
   const fetch = async (url, init = {}) => {
     const r = await handle(init.method ?? "GET", String(url), init.headers ?? {}, init.body ?? "");
@@ -99,7 +127,7 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
     const t = trees.get(commits.get(ref(branch, repo ?? [...refs.keys()].find((k) => k.endsWith(`#${branch}`))?.split("#")[0]))?.tree) ?? new Map();
     return Object.fromEntries([...t].map(([path, s]) => [path, Buffer.from(blobs.get(s), "base64").toString("utf8")]));
   };
-  return { handle, fetch, files, ref, log, tokens, refreshes };
+  return { handle, fetch, files, ref, log, tokens, refreshes, quota };
 }
 
 /** The fake as an HTTP server on 127.0.0.1 (a free port), for the CLI and the Android emulator. */

@@ -1,5 +1,5 @@
 // The app in Chromium against the in-memory GitHub: `npm run build -w app`, then
-//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|files|markdown|dictate|voice|all]
+//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|files|markdown|quota|dictate|voice|all]
 // CHROMIUM=<path> uses that browser instead of Playwright's. "all" leaves out dictate and voice, which need Whisper's files
 // (WHISPER_DIR=<a folder holding onnx-community/whisper-large-v3-turbo>) and a 16 kHz recording (VOICE_WAV=<file>);
 // GPU=1 runs it on WebGPU, in a visible window.
@@ -52,7 +52,7 @@ async function setup(delay, args = [], routes = async () => false, prepare = asy
     const u = new URL(req.url());
     if (u.hostname === "api.github.com") {
       const r = await gh.handle(req.method(), req.url(), req.headers(), req.postData() ?? "");
-      return route.fulfill({ status: r.status, headers: { ...r.headers, "access-control-allow-origin": "*", "access-control-expose-headers": "etag" }, body: r.body });
+      return route.fulfill({ status: r.status, headers: { ...r.headers, "access-control-allow-origin": "*", "access-control-expose-headers": "etag, x-ratelimit-limit, x-ratelimit-used, x-ratelimit-remaining, x-ratelimit-reset, x-ratelimit-resource" }, body: r.body });
     }
     if (u.hostname === "127.0.0.1") return route.continue();
     if (await routes(route, u)) return;
@@ -506,6 +506,10 @@ if (only === "all" || only === "markdown") {
   check("HTML in it stays text, and runs nothing", (await md.innerText()).includes("<script>window.ran = 1</script>") && !(await md.locator("script").count()) && !(await page.evaluate(() => window.ran)));
   check("only a web link is a link; an image is one too, not loaded", JSON.stringify(await md.locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")))) === JSON.stringify(["https://example.com", "https://example.com/p.png"]) && !(await md.locator("img").count()));
   check("any other fenced block is code", (await msg.locator("pre.code").innerText()) === "print(1)");
+  const plain = await bus.send(dm, agent, "See www.example.com/a, the docs (https://example.com/b). And https://en.wikipedia.org/wiki/Bus_(computing)!", []);
+  const links = page.locator(`#m-${plain.id} .text a`);
+  await links.first().waitFor({ timeout: 15000 });
+  check("plain addresses are links, www. too, without the punctuation after them", JSON.stringify(await links.evaluateAll((as) => as.map((a) => [a.textContent, a.getAttribute("href")]))) === JSON.stringify([["www.example.com/a", "https://www.example.com/a"], ["https://example.com/b", "https://example.com/b"], ["https://en.wikipedia.org/wiki/Bus_(computing)", "https://en.wikipedia.org/wiki/Bus_(computing)"]]), JSON.stringify(await links.evaluateAll((as) => as.map((a) => a.getAttribute("href")))));
   check("the text around the blocks stays as written", (await msg.locator(".text").innerText()).startsWith("Here is the plan:") && (await msg.locator(".text").innerText()).trim().endsWith("That's all."));
   // a sideways drag on the table scrolls it; elsewhere on the bubble it still replies
   const drag = async (el) => { const b = await el.boundingBox(); await page.mouse.move(b.x + b.width - 20, b.y + 10); await page.mouse.down(); await page.mouse.move(b.x + b.width - 100, b.y + 12, { steps: 8 }); await page.mouse.up(); await sleep(200); };
@@ -524,6 +528,63 @@ if (only === "all" || only === "markdown") {
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await sleep(300);
   check("a finger drags the table sideways", (await md.locator(".scroll-x").evaluate((w) => w.scrollLeft)) > 50, String(await md.locator(".scroll-x").evaluate((w) => w.scrollLeft)));
+  await browser.close();
+}
+
+// the hourly GitHub quota: a warning at 50% and again at 75%, with switches that cut what this device writes
+if (only === "all" || only === "quota") {
+  const { gh, bus, browser, page } = await setup(() => 0);
+  await openDm(page);
+  const sheet = page.locator(".quota-sheet");
+  const saver = () => page.evaluate(() => JSON.parse(localStorage.getItem("oc.saver") ?? "{}"));
+  gh.quota.core.used = 2600;
+  await sheet.waitFor({ timeout: 15000 });
+  check("at 50% a warning says how much is used and when it starts again", /^GitHub quota (5\d)% used/.test(await sheet.locator("h2").innerText()) && (await sheet.innerText()).includes("starts again at"), await sheet.locator("h2").innerText());
+  const rows = sheet.locator(".saver-row");
+  check("…with five switches, all off", (await rows.count()) === 5 && !(await rows.locator("input:checked").count()));
+  await rows.nth(2).hover();
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "quota.png") }).catch(() => {});
+  check("hovering one says what it changes, with an example", await rows.nth(2).locator(".tip").isVisible() && (await rows.nth(2).locator(".tip").innerText()).includes("Example"));
+  await rows.nth(0).locator("input").check();
+  await sheet.getByRole("button", { name: "Cancel" }).click();
+  check("Cancel closes it and changes nothing", !(await sheet.count()) && JSON.stringify(await saver()) === "{}", JSON.stringify(await saver()));
+  await sleep(5000);
+  check("the same level doesn't warn twice", !(await sheet.count()));
+  gh.quota.core.used = 3800;
+  await sheet.waitFor({ timeout: 15000 });
+  check("at 75% it warns again", /^GitHub quota (7[5-9])% used/.test(await sheet.locator("h2").innerText()), await sheet.locator("h2").innerText());
+  await rows.nth(0).locator("input").check(); // read receipts paused till the reset
+  await rows.nth(4).locator("input").check(); // drafts kept here
+  await rows.nth(1).locator("input").check(); // receipts off for good: the pause goes
+  await rows.nth(1).locator("input").uncheck(); // …and back
+  await rows.nth(0).locator("input").check();
+  await sheet.getByRole("button", { name: "Apply" }).click();
+  const s1 = await saver();
+  check("Apply keeps the switches", typeof s1.receipts === "number" && s1.receipts > Date.now() && s1.drafts === "off" && !s1.beat, JSON.stringify(s1));
+  // receipts and drafts are left out now
+  const receipt = () => gh.files("receipts")["receipts/7779.json"] ?? "";
+  const draft = () => gh.files("drafts")["drafts/7779.json"] ?? "";
+  await sleep(4000);
+  const [r0, d0] = [receipt(), draft()];
+  const m1 = await bus.send(dm, agent, "while saving", []);
+  await page.locator(`#m-${m1.id}`).waitFor({ timeout: 15000 });
+  await page.locator("textarea").pressSequentially("not synced", { delay: 5 });
+  await sleep(6000);
+  check("paused, no read receipt is written", receipt() === r0 && !receipt().includes(m1.id), receipt());
+  check("draft sync off, the draft stays on this device", draft() === d0 && !draft().includes("not synced"));
+  await page.locator("textarea").fill("");
+  // Settings has the same switches: receipts back on there
+  await page.locator("button.back").click();
+  await page.getByRole("button", { name: "Settings" }).first().click();
+  const set = page.locator(".sheet .saver-row");
+  check("Settings shows the switches as they are", await set.nth(0).locator("input").isChecked() && await set.nth(4).locator("input").isChecked() && (await page.locator(".sheet").innerText()).includes("requests used"));
+  await set.nth(0).locator("input").uncheck();
+  await page.keyboard.press("Escape");
+  await openDm(page);
+  const m2 = await bus.send(dm, agent, "after saving", []);
+  await page.locator(`#m-${m2.id}`).waitFor({ timeout: 15000 });
+  for (let i = 0; i < 40 && !receipt().includes(m2.id); i++) await sleep(250);
+  check("turned back on, receipts go out again", receipt().includes(m2.id), receipt());
   await browser.close();
 }
 
