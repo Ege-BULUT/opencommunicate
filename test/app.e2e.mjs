@@ -1,5 +1,5 @@
 // The app in Chromium against the in-memory GitHub: `npm run build -w app`, then
-//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|dictate|voice|all]
+//   node test/app.e2e.mjs [drafts|asks|status|info|read|quotes|keys|files|dictate|voice|all]
 // CHROMIUM=<path> uses that browser instead of Playwright's. "all" leaves out dictate and voice, which need Whisper's files
 // (WHISPER_DIR=<a folder holding onnx-community/whisper-large-v3-turbo>) and a 16 kHz recording (VOICE_WAV=<file>);
 // GPU=1 runs it on WebGPU, in a visible window.
@@ -396,6 +396,34 @@ if (only === "all" || only === "quotes") {
   check("the bars are gone", (await bars.count()) === 0);
   await page.locator(`#m-${sent.id} .quote`).first().waitFor();
   check("the message shows both quotes", (await page.locator(`#m-${sent.id} .quote`).allInnerTexts()).map((t) => t.replace(/\s+/g, " ")).join(" | ").includes("first point") && (await page.locator(`#m-${sent.id} .quote`).count()) === 2);
+  await browser.close();
+}
+
+// an image pasted into the box and a file dropped on the chat join the message; a paste with text in it pastes the text
+if (only === "all" || only === "files") {
+  const { bus, browser, page } = await setup(() => 0);
+  await openDm(page);
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  const fire = (sel, type, files, text) => page.evaluate(([sel, type, files, text, png]) => {
+    const dt = new DataTransfer();
+    for (const [name, mime] of files) dt.items.add(new File([mime === "image/png" ? Uint8Array.from(atob(png), (c) => c.charCodeAt(0)) : "notes"], name, { type: mime }));
+    if (text) dt.setData("text/plain", text);
+    const e = type === "paste" ? new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }) : new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true });
+    document.querySelector(sel).dispatchEvent(e);
+    return e.defaultPrevented;
+  }, [sel, type, files, text, png]);
+  const chips = () => page.locator(".composer .chip").allInnerTexts();
+  check("a pasted screenshot is taken, with a name of its own", await fire("textarea", "paste", [["image.png", "image/png"]]) && /^📎 image-\d{14}\.png/.test((await chips())[0] ?? ""), JSON.stringify(await chips()));
+  check("a paste with text in it is left to paste the text", !(await fire("textarea", "paste", [["image.png", "image/png"]], "A1\tB1")) && (await chips()).length === 1, JSON.stringify(await chips()));
+  await fire(".messages", "dragenter", [["notes.txt", "text/plain"]]);
+  check("dragging a file over the chat shows where to drop it", await page.locator(".drop-hint").isVisible());
+  check("dropping it adds it", await fire(".messages", "drop", [["notes.txt", "text/plain"]]) && !(await page.locator(".drop-hint").count()) && (await chips())[1]?.startsWith("📎 notes.txt"), JSON.stringify(await chips()));
+  check("a file dropped outside a chat is not opened in place of the app", await page.evaluate(() => { const dt = new DataTransfer(); dt.items.add(new File(["x"], "x.txt")); const e = new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }); document.body.dispatchEvent(e); return e.defaultPrevented; }) && (await chips()).length === 2);
+  await page.locator("textarea").fill("both of them");
+  await page.locator("textarea").press("Enter");
+  let sent;
+  for (let i = 0; i < 60 && !sent; i++) { await sleep(250); sent = (await bus.history(dm)).find((m) => m.text === "both of them"); }
+  check("they are sent with the message", sent?.files?.length === 2 && /^image-\d{14}\.png$/.test(sent.files[0].name) && sent.files[1].name === "notes.txt", JSON.stringify(sent?.files?.map((f) => f.name)));
   await browser.close();
 }
 

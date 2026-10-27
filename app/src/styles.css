@@ -78,7 +78,8 @@ nav .muted.small { padding: 2px 10px; margin: 0; }
 .badge { background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; border-radius: 999px; min-width: 22px; height: 22px; padding: 0 7px; display: grid; place-items: center; }
 
 /* chat */
-.chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
+.drop-hint { position: absolute; inset: 8px; z-index: 5; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--panel) 88%, transparent); font-size: 17px; font-weight: 600; pointer-events: none; }
 .chat-head { display: flex; align-items: center; gap: 6px; padding: calc(8px + var(--sat)) 10px 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); min-height: 60px; }
 .chat-head b { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-head .back { display: none; font-size: 30px; margin-left: -8px; }
