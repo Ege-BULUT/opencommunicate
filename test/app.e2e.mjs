@@ -403,7 +403,7 @@ if (only === "all" || only === "quotes") {
 if (only === "all" || only === "files") {
   const { bus, browser, page } = await setup(() => 0);
   await openDm(page);
-  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  const png = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = 400; c.height = 300; c.getContext("2d").fillRect(0, 0, 400, 300); return c.toDataURL("image/png").split(",")[1]; });
   const fire = (sel, type, files, text) => page.evaluate(([sel, type, files, text, png]) => {
     const dt = new DataTransfer();
     for (const [name, mime] of files) dt.items.add(new File([mime === "image/png" ? Uint8Array.from(atob(png), (c) => c.charCodeAt(0)) : "notes"], name, { type: mime }));
@@ -424,6 +424,63 @@ if (only === "all" || only === "files") {
   let sent;
   for (let i = 0; i < 60 && !sent; i++) { await sleep(250); sent = (await bus.history(dm)).find((m) => m.text === "both of them"); }
   check("they are sent with the message", sent?.files?.length === 2 && /^image-\d{14}\.png$/.test(sent.files[0].name) && sent.files[1].name === "notes.txt", JSON.stringify(sent?.files?.map((f) => f.name)));
+
+  // the image full screen: zoomed with the wheel or a double click, moved about with a drag, closed from its button
+  // (in a desktop's window, where a press on Close used to drag the message under it along)
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const box = page.locator(".lightbox"), big = page.locator(".lightbox img");
+  const scale = () => big.evaluate((i) => new DOMMatrix(getComputedStyle(i).transform).a);
+  await page.locator(`#m-${sent.id} .attach-img`).click();
+  check("the image opens full screen", await box.isVisible());
+  const r = await big.boundingBox();
+  await page.mouse.move(r.x + r.width * 0.75, r.y + r.height / 2);
+  await page.mouse.wheel(0, -500);
+  await sleep(200);
+  check("the wheel zooms in", (await scale()) > 2, String(await scale()));
+  const before = await big.boundingBox();
+  await page.mouse.down();
+  await page.mouse.move(r.x + r.width * 0.75 - 60, r.y + r.height / 2 + 20, { steps: 5 });
+  await page.mouse.up();
+  const after = await big.boundingBox();
+  check("a drag moves it about, and leaves it open", Math.round(after.x - before.x) === -60 && Math.round(after.y - before.y) === 20 && await box.isVisible(), JSON.stringify([before, after]));
+  await page.mouse.dblclick(r.x + r.width / 2, r.y + r.height / 2);
+  await sleep(200);
+  check("a double click zooms back out", (await scale()) === 1, String(await scale()));
+  // two fingers spread apart zoom in, as on a phone
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, points) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+  const [cx, cy] = [r.x + r.width / 2, r.y + r.height / 2];
+  await touch("touchStart", [[cx - 50, cy], [cx + 50, cy]]);
+  for (let d = 50; d <= 100; d += 10) await touch("touchMove", [[cx - d, cy], [cx + d, cy]]);
+  await touch("touchEnd", []);
+  await sleep(200);
+  check("a pinch zooms in", Math.abs((await scale()) - 2) < 0.05 && await box.isVisible(), String(await scale()));
+  await page.mouse.dblclick(cx, cy);
+  await sleep(200);
+
+  // a click on Close, with the mouse moved a little while pressed: the message under it was dragged along, with it inside
+  const pressClose = async (dx, ms) => {
+    const c = await box.locator(".actions button").last().boundingBox();
+    await page.mouse.move(c.x + 10, c.y + 10);
+    await page.mouse.down();
+    if (dx) await page.mouse.move(c.x + 10 + dx, c.y + 10);
+    await sleep(ms);
+    const held = { width: (await box.boundingBox())?.width, menu: await page.locator(".msg-menu").count() };
+    await page.mouse.up();
+    return held;
+  };
+  let held = await pressClose(-3, 100);
+  check("pressed, Close leaves it covering the screen", held.width === 1280, JSON.stringify(held));
+  check("…and closes it", !(await box.count()));
+  await page.locator(`#m-${sent.id} .attach-img`).click();
+  held = await pressClose(0, 700);
+  check("held, it opens no menu for the message behind", held.width === 1280 && !held.menu && !(await box.count()), JSON.stringify(held));
+  await page.locator(`#m-${sent.id} .attach-img`).click();
+  await page.mouse.click(r.x - 20, r.y + 10);
+  check("so does a click beside the image", !(await box.count()));
+  await page.locator(`#m-${sent.id} .attach-img`).click();
+  await page.keyboard.press("Escape");
+  check("and Escape", !(await box.count()));
   await browser.close();
 }
 

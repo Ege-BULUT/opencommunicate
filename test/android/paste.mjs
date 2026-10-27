@@ -1,4 +1,4 @@
-// Pasting a copied image on an emulator, in a chat against the in-memory GitHub: the page's requests are caught
+// Pasting a copied image and zooming into one on an emulator, in a chat against the in-memory GitHub: the page's requests are caught
 // through Chrome DevTools (api.github.com goes to the fake, anything else fails), so nothing leaves the machine.
 // The image is copied in Chrome, from a page this test serves, as a person would copy one in another app (an image
 // copied in the app's own WebView never reaches Android's clipboard). Install the debug APK, open Chrome once past
@@ -33,6 +33,7 @@ await bus.keys;
 
 // the app with nothing stored; its background check gets an address that leads nowhere
 adb("shell", "pm", "clear", PKG);
+adb("shell", "pm", "grant", PKG, "android.permission.POST_NOTIFICATIONS"); // or Android asks over the app, which then can't read the clipboard
 execFileSync(ADB, ["shell", `run-as ${PKG} sh -c 'mkdir -p files && cat > files/oc-dev-api.txt'`], { input: "http://127.0.0.1:9" });
 adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1");
 let pid = "";
@@ -66,6 +67,7 @@ ws.addEventListener("message", async (e) => {
 });
 await send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
 
+let chromeTab; // closed at the end, or the next run would find it, in the background
 try {
   // signed in to the fake chat, then the page again
   const session = { repo: REPO, token: "t", device: ege, source: "app", account: "ege" };
@@ -76,19 +78,42 @@ try {
   for (let i = 0; i < 40 && !(await run(shown)); i++) { await run(`[...document.querySelectorAll("button.row")].find((b) => b.textContent.includes("claude-oc"))?.click(); 1`); await sleep(250); }
   check("the DM is open", await run(shown));
 
+  // the image full screen: two fingers spread apart zoom it in, a tap on Close closes it
+  await bus.send(dm, agent, "a photo", [{ name: "photo.png", type: "image/png", data: PNG }]);
+  for (let i = 0; i < 60 && !(await run(`!!document.querySelector(".media-preview, .attach-img")`)); i++) await sleep(500);
+  await run(`document.querySelector(".media-preview")?.click(); 1`); // downloaded with a tap
+  for (let i = 0; i < 40 && !(await run(`!!document.querySelector(".attach-img")`)); i++) await sleep(250);
+  await run(`document.querySelector(".attach-img").click(); 1`);
+  await sleep(500);
+  const [cx, cy] = await run(`(() => { const r = document.querySelector(".lightbox-stage").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+  const touch = (type, points) => send("Input.dispatchTouchEvent", { type, touchPoints: points.map(([x, y], id) => ({ x, y, id })) });
+  await touch("touchStart", [[cx - 40, cy], [cx + 40, cy]]);
+  for (let d = 40; d <= 80; d += 8) await touch("touchMove", [[cx - d, cy], [cx + d, cy]]);
+  await touch("touchEnd", []);
+  await sleep(300);
+  const scale = await run(`new DOMMatrix(getComputedStyle(document.querySelector(".lightbox img")).transform).a`);
+  check("a pinch zooms the image in", Math.abs(scale - 2) < 0.05, String(scale));
+  const [x, y] = await run(`(() => { const r = document.querySelector(".lightbox .actions button:last-child").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+  await touch("touchStart", [[x, y]]);
+  await touch("touchEnd", []);
+  await sleep(800);
+  check("a tap on Close closes it", !(await run(`!!document.querySelector(".lightbox")`)));
+
   // Chrome in front copies the image (with a user gesture, through its own DevTools), then the app comes back
   const copyInChrome = async () => {
     adb("reverse", "tcp:8765", "tcp:8765");
-    adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", "http://localhost:8765/", "com.android.chrome");
-    await sleep(3000);
+    const at = `http://localhost:8765/?${Date.now()}`; // not a tab Chrome kept from before
+    adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", at, "com.android.chrome");
     adb("forward", "tcp:9334", "localabstract:chrome_devtools_remote");
-    const tab = (await (await fetch("http://127.0.0.1:9334/json")).json()).find((p) => p.type === "page" && p.url.startsWith("http://localhost:8765"));
+    let tab; // Chrome's DevTools come up with it, a while after a cold start
+    for (let i = 0; i < 80 && !tab?.title; i++) { await sleep(250); try { tab = (await (await fetch("http://127.0.0.1:9334/json")).json()).find((p) => p.type === "page" && p.url === at); } catch { /* not yet */ } }
     const cws = new WebSocket(tab.webSocketDebuggerUrl);
     await new Promise((r) => cws.addEventListener("open", r, { once: true }));
-    const done = new Promise((r) => cws.addEventListener("message", (e) => r(JSON.parse(e.data).result?.result?.value)));
+    const done = new Promise((r) => cws.addEventListener("message", (e) => { const m = JSON.parse(e.data).result; r(m?.exceptionDetails?.exception?.description ?? m?.result?.value); }));
     cws.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { awaitPromise: true, returnByValue: true, userGesture: true, expression: `fetch("red.png").then((r) => r.blob()).then((b) => navigator.clipboard.write([new ClipboardItem({ "image/png": b })])).then(() => "copied")` } }));
     const said = await done;
     cws.close();
+    chromeTab = tab.id;
     adb("forward", "--remove", "tcp:9334");
     adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1"); // as its icon would
     await sleep(1500);
@@ -96,15 +121,18 @@ try {
   };
   const chips = () => run(`[...document.querySelectorAll(".composer .chip")].map((c) => c.textContent)`);
   check("the plugin sees no image while the clipboard holds text", await run(`navigator.clipboard.writeText("hello").then(() => Capacitor.Plugins.ClipboardImage.has()).then((r) => r.image === false)`));
-  check("Chrome copies the image", (await copyInChrome()) === "copied");
+  const copied = await copyInChrome();
+  check("Chrome copies the image", copied === "copied", copied);
   check("back in the app, the chat is still open", await run(shown));
-  check("…and the plugin sees it", await run(`Capacitor.Plugins.ClipboardImage.has().then((r) => r.image)`));
+  let seen = [];
+  for (let i = 0; i < 10 && !seen.at(-1); i++) { seen.push(await run(`Capacitor.Plugins.ClipboardImage.has().then((r) => r.image)`)); await sleep(500); }
+  check("…and the plugin sees it", seen.at(-1) === true, JSON.stringify(seen));
   await run(`document.querySelector(".attach-btn").click(); 1`);
   await sleep(500);
   const bar = await run(`[...document.querySelectorAll(".composer .reply-bar")].map((b) => b.textContent).join("|")`);
   check("📎 offers to paste the copied image", /You copied an image.*Paste it.*Choose a file/.test(bar), bar);
   await run(`[...document.querySelectorAll(".composer .reply-bar button")].find((b) => b.textContent === "Paste it").click(); 1`);
-  await sleep(1000);
+  for (let i = 0; i < 40 && !(await chips()).length; i++) await sleep(250);
   check("Paste it adds the image, with a name of its own", /^📎 image-\d{14}\.png/.test((await chips())[0] ?? ""), JSON.stringify(await chips()));
   check("and the offer is gone", !(await run(`[...document.querySelectorAll(".composer .reply-bar")].some((b) => b.textContent.includes("copied"))`)));
 
@@ -113,7 +141,7 @@ try {
   await run(`document.querySelector(".composer textarea").focus(); 1`);
   await sleep(500);
   adb("shell", "input", "keycombination", "113", "50");
-  await sleep(1500);
+  for (let i = 0; i < 40 && (await chips()).length < 2; i++) await sleep(250);
   check("Ctrl+V in the box adds it too", (await chips()).length === 2 && /^📎 image-\d{14}(-\d)?\.png/.test((await chips())[1] ?? ""), JSON.stringify(await chips()));
 
   await run(`document.querySelector(".composer .send").click(); 1`);
@@ -130,6 +158,7 @@ try {
   server.close();
   adb("forward", "--remove", "tcp:9333");
   adb("reverse", "--remove", "tcp:8765");
+  if (chromeTab) { adb("forward", "tcp:9334", "localabstract:chrome_devtools_remote"); await fetch(`http://127.0.0.1:9334/json/close/${chromeTab}`, { signal: AbortSignal.timeout(3000) }).catch(() => {}); adb("forward", "--remove", "tcp:9334"); }
   adb("shell", "pm", "clear", PKG); // no test chat left behind
 }
 console.log(`${results.filter(Boolean).length}/${results.length}`);

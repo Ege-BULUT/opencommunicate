@@ -243,7 +243,9 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 .media-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; min-width: 0; }
 .media-bar > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lightbox { position: fixed; inset: 0; z-index: 20; background: rgb(0 0 0 / .85); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: calc(12px + var(--sat)) 12px calc(12px + var(--sab)); }
-.lightbox img { max-width: 100%; max-height: calc(100% - 70px); object-fit: contain; border-radius: 8px; }
+.lightbox-stage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; user-select: none; cursor: zoom-in; }
+.lightbox-stage.zoomed { cursor: grab; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; -webkit-user-drag: none; }
 .lightbox .ghost { color: #fff; border-color: rgb(255 255 255 / .4); }
 
 /* invitations */
