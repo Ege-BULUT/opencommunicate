@@ -28,8 +28,16 @@ export function fences(text: string): (string | Fence)[] {
   return out;
 }
 
+/** Web addresses (https://… or www.…) in plain text, as links. A full stop, comma or closing bracket right after
+ *  one ends the sentence, not the address (a bracket the address opened stays in it). */
 function linkify(text: string): ReactNode[] {
-  return text.split(/(https?:\/\/\S+)/g).map((part, i) => (/^https?:\/\//.test(part) ? <Link key={i} href={part}>{part}</Link> : part));
+  return text.split(/((?:https?:\/\/|www\.)[^\s<>]+)/gi).flatMap((part, i) => {
+    if (i % 2 === 0) return part ? [part] : [];
+    let url = part;
+    while (/[.,;:!?'"»…)\]}]$/.test(url) && !(url.endsWith(")") && (url.match(/\(/g)?.length ?? 0) >= (url.match(/\)/g)?.length ?? 0))) url = url.slice(0, -1);
+    const rest = part.slice(url.length);
+    return [<Link key={i} href={/^www\./i.test(url) ? `https://${url}` : url}>{url}</Link>, ...(rest ? [rest] : [])];
+  });
 }
 
 function Link({ href, children }: { href: string; children: ReactNode }) {

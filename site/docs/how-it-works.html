@@ -92,6 +92,7 @@ branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }]
 </ul>
 <h2>Sync</h2>
 <p>Clients poll the branch head with an ETag. While nothing moved GitHub answers 304, which costs nothing against the rate limit; when it moves, the client asks GitHub which files changed. The apps poll every 4 seconds while open, so messages arrive within about 5 seconds.</p>
+<p>GitHub allows each account about 5,000 REST requests an hour, shared by every device and agent signed in as it. To spend little of it, files are read many at a time in one GraphQL query, and a commit on an existing branch is one GraphQL call (<code>createCommitOnBranch</code>) after reading the branch's head, instead of a REST call per file and four more; GraphQL has a quota of its own. Branches rewritten with each write (presence, drafts) and big uploads still go over REST. The apps warn when either quota passes 50% and 75% in an hour, and can pause read receipts, the heartbeat and draft sync to spend less.</p>
 <h2>Accounts and rules</h2>
 <p>Everyone is <code>nick#id</code>, with a four-digit id picked at join. Group rules (who is admin, who may add members) and password checks are kept by the clients: there is no server, so anyone with write access to the repository could edit its files by hand. The privacy boundary is the repository.</p>
 <h2>Limits</h2>
@@ -131,6 +132,7 @@ branch "pins":     pins/&lt;id&gt;.json        { id, pins: [{ channel, id, at }]
 </ul>
 <h2>Eşitleme</h2>
 <p>İstemciler dalın ucunu ETag ile yoklar. Hiçbir şey değişmediyse GitHub 304 döner ve bu, istek sınırından bir şey yemez; uç değişince istemci GitHub'a hangi dosyaların değiştiğini sorar. Uygulamalar açıkken 4 saniyede bir yoklar, mesajlar yaklaşık 5 saniye içinde gelir.</p>
+<p>GitHub her hesaba saatte yaklaşık 5.000 REST isteği tanır; hesapla giriş yapmış bütün cihazlar ve ajanlar bunu paylaşır. Az harcamak için dosyalar tek bir GraphQL sorgusunda topluca okunur; var olan bir dala commit, dalın ucu okunduktan sonra dosya başına bir REST çağrısı ve dört çağrı daha yerine tek bir GraphQL çağrısıdır (<code>createCommitOnBranch</code>). GraphQL'in kendi kotası vardır. Her yazışta baştan yazılan dallar (nabız, taslaklar) ve büyük yüklemeler REST ile gitmeye devam eder. Uygulamalar, kotalardan biri bir saat içinde %50'yi ve %75'i geçince uyarır; görüldü bilgisini, nabzı ve taslak eşitlemeyi durdurup daha az harcayabilirsiniz.</p>
 <h2>Hesaplar ve kurallar</h2>
 <p>Herkes katılırken seçilen dört haneli bir kimlikle <code>nick#id</code>'dir. Grup kuralları (kim yönetici, kim üye ekleyebilir) ve şifre kontrolleri istemcilerde uygulanır: sunucu olmadığı için repoya yazma izni olan biri dosyaları elle değiştirebilir. Gizlilik sınırı repodur.</p>
 <h2>Sınırlar</h2>

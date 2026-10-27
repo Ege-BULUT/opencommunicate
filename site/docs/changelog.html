@@ -67,8 +67,19 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.9.5" open>
-  <summary><span class="v">0.9.5</span><span class="h">Markdown and tables <span class="tag">Latest</span></span><time datetime="2026-10-27">27 October 2026</time></summary>
+<details class="rel" id="en-0.9.6" open>
+  <summary><span class="v">0.9.6</span><span class="h">Spending less of GitHub's quota <span class="tag">Latest</span></span><time datetime="2026-10-27">27 October 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Fewer requests.</b> A busy chat could use up the hourly GitHub quota every device and agent of an account shares. Files are now read many at a time in one GraphQL query, and a message, a read receipt, a pin or a reaction is written with one GraphQL call and one REST call (for the branch's head) instead of six or more REST calls. GraphQL has a quota of its own.</li>
+  <li><b>A warning at 50% and 75%.</b> The app says how much of the quota is used and when it starts again, and offers switches: pause read receipts or the heartbeat until then, turn either off for good, or keep drafts on this device. Hover over a switch, or tap ⓘ, to see what it changes, with an example; Cancel leaves everything as it was. The switches are in Settings too.</li>
+  <li><b>More links.</b> An address starting with www. is a link too, and a full stop, comma or bracket after an address is no longer part of it.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.6">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.9.5">
+  <summary><span class="v">0.9.5</span><span class="h">Markdown and tables</span><time datetime="2026-10-27">27 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Markdown in messages.</b> Text between a <code>```md</code> line and a <code>```</code> line shows as Markdown: headings, bold and italic, lists, checklists, links and tables. A table too wide for the screen scrolls sideways, and a sideways drag on it scrolls it instead of replying to the message.</li>
@@ -508,8 +519,19 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.9.5" open>
-  <summary><span class="v">0.9.5</span><span class="h">Markdown ve tablolar <span class="tag">Son sürüm</span></span><time datetime="2026-10-27">27 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.9.6" open>
+  <summary><span class="v">0.9.6</span><span class="h">GitHub kotasından daha az harcama <span class="tag">Son sürüm</span></span><time datetime="2026-10-27">27 Ekim 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Daha az istek.</b> Hareketli bir sohbet, bir hesabın bütün cihazlarının ve ajanlarının paylaştığı saatlik GitHub kotasını bitirebiliyordu. Artık dosyalar tek bir GraphQL sorgusunda topluca okunuyor; bir mesaj, görüldü bilgisi, sabitleme ya da tepki, altı ve daha fazla REST çağrısı yerine bir GraphQL ve bir REST çağrısıyla (dalın ucu için) yazılıyor. GraphQL'in kendi kotası var.</li>
+  <li><b>%50'de ve %75'te uyarı.</b> Uygulama kotanın ne kadarının kullanıldığını ve ne zaman sıfırlanacağını söyler, anahtarlar sunar: görüldü bilgisini ya da nabzı o saate kadar durdurun, ikisinden birini kalıcı kapatın ya da taslakları bu cihazda tutun. Bir anahtarın neyi değiştirdiğini örnekle görmek için üstüne gelin ya da ⓘ'ye dokunun; Vazgeç hiçbir şeyi değiştirmez. Anahtarlar Ayarlar'da da var.</li>
+  <li><b>Daha çok link.</b> www. ile başlayan adresler de link oluyor; adresten sonra gelen nokta, virgül ya da parantez artık adresin parçası sayılmıyor.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.6">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.9.5">
+  <summary><span class="v">0.9.5</span><span class="h">Markdown ve tablolar</span><time datetime="2026-10-27">27 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Mesajlarda Markdown.</b> <code>```md</code> satırı ile <code>```</code> satırı arasındaki yazı Markdown olarak görünür: başlıklar, kalın ve italik yazı, listeler, yapılacaklar listeleri, bağlantılar ve tablolar. Ekrana sığmayan tablo yana kayar; tablonun üstünde yana sürüklemek mesajı yanıtlamaz, tabloyu kaydırır.</li>

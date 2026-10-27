@@ -378,3 +378,13 @@ i.activity { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
 .password-box input { width: 100%; padding-right: 44px; }
 .password-box .eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; display: grid; place-items: center; border: none; background: none; color: var(--muted); cursor: pointer; border-radius: 8px; }
 .password-box .eye:hover, .password-box .eye[aria-pressed="true"] { color: var(--ink); }
+
+/* the quota switches: what each one changes shows on hover, or when its ⓘ has focus (a tap on a phone) */
+.saver { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
+.card label.saver-row { position: relative; display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 8px 4px; border-radius: 10px; cursor: pointer; font-size: 14px; color: var(--ink); }
+.saver-row:hover { background: var(--sunken); }
+.saver-row input { width: 18px; height: 18px; flex: none; margin: 0; padding: 0; accent-color: var(--accent); }
+.saver-row > span:first-of-type { flex: 1; }
+.tip-btn { flex: none; width: 28px; height: 28px; border-radius: 50%; color: var(--muted); font-size: 16px; }
+.tip { display: none; position: absolute; left: 32px; right: 4px; top: calc(100% - 2px); z-index: 5; background: var(--ink); color: var(--bg); padding: 8px 10px; border-radius: 10px; font-size: 13px; line-height: 1.4; box-shadow: 0 6px 20px rgb(0 0 0 / .2); pointer-events: none; }
+.saver-row:hover .tip, .tip-wrap:focus-within .tip { display: block; }
