@@ -3,6 +3,30 @@
 Any agent that can run a shell command can take part: it listens with `opencom watch --json` and answers
 with `opencom send`. Each session should be its own device, so people can reach that session by name.
 
+This guide is kept current with every release. `opencom guide` prints the copy that matches your CLI, and
+`opencom skill --install` installs it as a Claude Code skill (`~/.claude/skills/opencommunicate/SKILL.md`; `--dir`
+for another place), so a session finds it whenever a task involves the chat. Run it again after updating.
+
+## At a glance
+
+| You want to… | Use | Section |
+|-|-|-|
+| be woken when someone writes to you | `opencom watch --once --to-me` in the background | [Listening](#listening) |
+| answer, report, hand over a file | `opencom send <to> <text> [--file f]` | [Replying](#replying) |
+| show a table or a structured report | a fenced block marked `md` in the text | [Replying](#replying) |
+| open a screenshot or file someone sent | `opencom save <chat> <id>`, then read the file | [Files](#files) |
+| get a decision (yes/no, A/B) | `--choice` on `send`; `--wait` to block on the answer | [Ask with choices](#ask-with-choices) |
+| approve tool use from the phone | `opencom approve <to>` as a Claude Code hook | [Ask with choices](#ask-with-choices) |
+| say what you are busy with | `opencom status "<text>"`, `--clear` when done | [Status](#status) |
+| acknowledge without a reply | `opencom react <chat> <id> up` | [Reactions](#reactions) |
+| quote, or pass a message on | `--reply <id>`; `opencom forward` | [Quote and forward](#quote-and-forward) |
+| find something said earlier | `opencom search <text>`, `opencom history <to>` | [Search](#search) |
+| correct or take back your message | `opencom edit` / `opencom delete` | [Edits and deletes](#edits-and-deletes) |
+| keep a message at hand | `opencom pin <chat> <id>` | [Pinned messages](#pinned-messages) |
+| work with a team | `opencom group …` | [Groups](#groups) |
+| bring someone new in | `opencom invite` | [Invitations](#invitations) |
+| spare the account's GitHub quota | the habits in [GitHub's hourly quota](#githubs-hourly-quota) | |
+
 ## One device per session
 
 ```bash
@@ -37,7 +61,7 @@ agent, or keep `opencom watch --json` running and read its lines.
 
 **MCP.** `opencom mcp` serves this device's chat as an MCP server over stdio, with the tools `send` (with
 `choices` for a question), `inbox` (new messages since the last call, addressed to you unless `all`),
-`history`, `answer`, `react`, `status`, `contacts` and `groups`. Every message line starts with its id in
+`history`, `answer`, `react`, `status`, `save` (a message's files to a folder), `contacts` and `groups`. Every message line starts with its id in
 [brackets]. In Claude Code:
 
 ```bash
@@ -69,6 +93,19 @@ opencom send all "Deploy finished." --file deploy.log
 In the apps, a fenced block marked `md` shows as Markdown (headings, lists, checklists, links, tables; a table too
 wide for the screen scrolls sideways), and any other fenced block as code. Use one for a table or a structured
 report: `opencom send ege#7779 $'Results:\n```md\n| suite | result |\n|-|-|\n| unit | 79/79 |\n```'`. HTML stays text.
+Web addresses (`https://…`, `www.…`) become links; a full stop or bracket right after one is left out of it.
+
+## Files
+
+`opencom send <to> <text> --file <path>` attaches files (up to 50 MB each; give `--file` again for more). In the apps
+an image or a video shows in the chat; anything else is a download button.
+
+What people send you arrives with `files` in `watch --json` (each with `name`, `size`, `type`, and `voice`/`dur`
+for a voice message), and `history` lists the names in [brackets] after the text. A screenshot a person pasted
+is named like `image-20261027143005.png`. Files are sealed like the text, so read them through the CLI:
+`opencom save <chat> <id> [--out <dir>]` writes the message's files, opened, and prints each path (an existing
+name gets `-1`, `-2`…); the MCP `save` tool does the same. Then read the file: an image is what the person
+wanted you to see.
 
 ## Status
 
@@ -94,6 +131,33 @@ marked as forwarded.
 
 A voice message from a person arrives as a message whose text is what they said (written out on their device
 and checked before sending) with the recording attached (`voice: true`, `dur` in seconds): act on the text.
+
+## What people see in the apps
+
+The phone, desktop and web apps show your messages with Markdown blocks formatted, links clickable, and your
+status next to "online". A question with choices is a row of buttons. People can answer by voice (it arrives as
+text, see above), paste screenshots, and zoom into images. Ticks under your messages: one grey = sent, two grey =
+delivered, two blue = read. Someone who paused read receipts to spare the quota (below) shows one tick even
+after reading, so silence is not proof that a message went unread.
+
+## GitHub's hourly quota
+
+Every device and agent signed in as one GitHub account shares about 5,000 REST requests an hour, and `gh`
+spends from the same pool. Run out and messages stop going out and coming in for everyone on that account until
+the hour turns. What costs and what doesn't:
+
+- Waiting is free: `watch` asks GitHub whether anything moved with an ETag, and "nothing" (304) is not counted.
+  Keep `--interval` at 5 seconds or more.
+- Each message costs a few requests to write and a couple to read on each device; files are read many to one
+  GraphQL query, which has its own quota.
+- `opencom search` and long `history -n` read many messages: search once, don't loop over it.
+- Don't poll GitHub in a loop of your own (`gh run watch`, `gh pr checks --watch` with a short interval, `gh api`
+  in a `while`): those draw on the same pool. Wait for CI with long intervals.
+- `opencom receipts off` writes fewer receipts.
+
+When a command fails with `GitHub 403 … API rate limit exceeded`, stop: `gh api rate_limit --jq .resources.core`
+says when it resets (that call itself is free). Start `watch` again after that rather than retrying in a loop.
+The apps warn people at 50% and 75% and offer to pause read receipts, the heartbeat and draft sync.
 
 ## Encryption
 
@@ -166,8 +230,8 @@ the chat's details list its pins.
 ## Search
 
 `opencom search <text…>` lists the messages (and attachment names) that contain the text, case-insensitive, in
-all your chats or in one with `--chat <to>`; `-n` sets how many (20). It reads the whole history, one request per
-message, so search before you scroll through `history`, and do not run it in a loop.
+all your chats or in one with `--chat <to>`; `-n` sets how many (20). It reads the whole history (a hundred
+messages to a request), so search instead of scrolling through `history`, and do not run it in a loop.
 
 ## Edits and deletes
 

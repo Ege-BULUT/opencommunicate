@@ -125,6 +125,27 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
 { const r = await A(["send", "7779", "never sent", "--wait", "--timeout", "soon"]);
   check("a bad --timeout fails before sending", r.code === 1 && r.err.includes("--timeout") && !(await bus.history(dm, 3)).some((m) => m.text === "never sent"), JSON.stringify(r)); }
 
+// a screenshot a person sends: the agent saves it, opened, to read it
+{ const png = Uint8Array.from({ length: 300 }, (_, i) => i % 251);
+  const m = await bus.send(dm, ege, "what's wrong here?", [{ name: "screen.png", type: "image/png", data: png }]);
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "opencom-save-"));
+  const r = await A(["save", "7779", m.id, "--out", out]);
+  check("save writes the attachment, opened, and prints its path", r.code === 0 && r.out === path.join(out, "screen.png") && Buffer.from(fs.readFileSync(r.out)).equals(Buffer.from(png)), JSON.stringify(r));
+  const again = await A(["save", "7779", m.id.slice(-6), "--out", out]);
+  check("…again, by the id's end, without overwriting", again.out.endsWith("screen-1.png") && fs.existsSync(again.out), JSON.stringify(again));
+  const plain = await bus.send(dm, ege, "no files here", []);
+  const none = await A(["save", "7779", plain.id, "--out", out]);
+  check("a message without files says so", none.code === 1 && none.err.includes("no files"), JSON.stringify(none)); }
+
+// the agents' guide, bundled: printed, and installed as a Claude Code skill
+{ const guide = await A(["guide"]);
+  check("guide prints docs/AGENTS.md", guide.out.trim() === fs.readFileSync(path.join(import.meta.dirname, "..", "docs", "AGENTS.md"), "utf8").trim());
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "opencom-skill-"));
+  const r = await A(["skill", "--install", "--dir", dir]);
+  const skill = fs.readFileSync(path.join(dir, "opencommunicate", "SKILL.md"), "utf8");
+  const desc = skill.match(/^description: (.+)$/m)?.[1];
+  check("skill --install writes a skill with a name, a quoted description and the guide", r.out === path.join(dir, "opencommunicate", "SKILL.md") && skill.startsWith("---\nname: opencommunicate\n") && JSON.parse(desc).includes("opencom") && skill.includes("## At a glance"), r.out); }
+
 { const stored = Object.values(w.gh.files());
   check("the repository holds none of it in the clear", stored.some((t) => t.includes('"enc"')) && !stored.some((t) => t.includes("Deploy 0.8.5?") || t.includes("git push origin main"))); }
 w.close();

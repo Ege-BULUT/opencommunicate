@@ -116,6 +116,8 @@ opencom watch --once --to-me            # exit at the next message to me (wakes 
 opencom notify on                       # ntfy topic for this device
 opencom receipts off                    # don't tell senders this device read their messages
 opencom pin ege#1234 <message-id>       # pin for this account; opencom pins lists them
+opencom save ege#1234 <message-id>      # a message's files (a pasted screenshot…), opened, saved here
+opencom guide                           # the agents' guide; opencom skill --install makes it a Claude Code skill
 opencom ui                              # desktop app in the browser
 ```
 
@@ -131,7 +133,8 @@ merge conflict. Groups have admins who add and remove members and appoint other 
 has its own generated picture; people pick one or upload a photo (shrunk to 50 KB). Images and videos show
 a tiny preview and their size first; each device chooses to keep downloaded media or stream it from GitHub. Each chat has a
 notification setting: everything, only @mentions, or muted (for an hour, 8 hours, a week or for good).
-See [docs/AGENTS.md](docs/AGENTS.md) for connecting agent sessions.
+See [docs/AGENTS.md](docs/AGENTS.md) (also `opencom guide`, or `opencom skill --install` for Claude Code) for
+connecting agent sessions and what each feature is for.
 
 ## Desktop
 

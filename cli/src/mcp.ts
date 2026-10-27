@@ -3,6 +3,7 @@
    protocol messages; anything else goes to stderr. Waking a session when a message arrives is still
    `opencom watch --once --to-me` in the background: a tool call can only answer, never call the agent first. */
 import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
 import { REACTIONS, REACTION_NAMES, STATUS_MAX, Watcher, addressedTo, answerFor, handle, newestByChannel, type Bus, type Device, type Group, type Message, type Reaction } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
@@ -16,6 +17,22 @@ type Ctx = {
   status: () => string; // the configured status, as it is now
   setStatus: (text: string) => void;
 };
+
+/** A message's attachments, opened (they are sealed like the text), written into `dir` under their own names (a
+ *  name already taken gets -1, -2…): their full paths. */
+export async function saveFiles(bus: Bus, m: Message, dir: string): Promise<string[]> {
+  if (!m.files?.length) throw new Error("That message has no files.");
+  fs.mkdirSync(dir, { recursive: true });
+  const out: string[] = [];
+  for (const file of m.files) {
+    const base = path.basename(file.name) || "file";
+    let p = path.join(dir, base);
+    for (let n = 1; fs.existsSync(p); n++) p = path.join(dir, base.replace(/(\.[^.]*)?$/, `-${n}$1`));
+    fs.writeFileSync(p, await bus.fileOf(file));
+    out.push(path.resolve(p));
+  }
+  return out;
+}
 
 const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const str = (description: string) => ({ type: "string", description });
@@ -33,6 +50,8 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { chat: CHAT, id: str("message id"), reaction: { type: "string", enum: [...Object.keys(REACTION_NAMES), "off"] } }, required: ["chat", "id", "reaction"] } },
   { name: "status", description: `Say what you are doing, one line of ${STATUS_MAX} characters at most; the apps show it next to "online" in your chat. An empty text clears it.`,
     inputSchema: { type: "object", properties: { text: str("e.g. deploying 0.8.5 to the site") }, required: ["text"] } },
+  { name: "save", description: "Save the files attached to a message (a screenshot, a log, a voice recording) into a folder, opened, and list their paths: read an image there to see it.",
+    inputSchema: { type: "object", properties: { chat: CHAT, id: str("the message's id"), dir: str("the folder (default: the current one)") }, required: ["chat", "id"] } },
   { name: "contacts", description: "Everyone in the chat repository: nick#id, kind, online or last seen, and status.", inputSchema: { type: "object", properties: {} } },
   { name: "groups", description: "Your groups and their members.", inputSchema: { type: "object", properties: {} } },
 ];
@@ -69,6 +88,10 @@ async function call(c: Ctx, name: string, a: Record<string, any>, watcher: () =>
       const list = await bus.history(channel, Math.min(200, Math.max(1, Number(a.n) || 20)));
       const byId = new Map(list.map((m) => [m.id, m]));
       return list.map((m) => `[${m.id}] ${c.line(m, me, devices, groups, byId)}`).join("\n") || "No messages yet.";
+    }
+    case "save": {
+      const { m } = await find(String(a.chat ?? ""), String(a.id ?? ""));
+      return (await saveFiles(bus, m, String(a.dir || "."))).join("\n");
     }
     case "answer": {
       const { m, channel, devices, groups } = await find(String(a.chat ?? ""), String(a.id ?? ""));
