@@ -2,7 +2,7 @@
 // older() pages through what is not loaded yet, newest first.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Bus, msgPath, newerVersion, searchMessages } from "../src/index.ts";
+import { Bus, msgPath, newerVersion, searchMessages, snippet } from "../src/index.ts";
 
 test("newerVersion compares part by part as numbers", () => {
   assert.equal(newerVersion("0.7.10", "0.7.9"), true);
@@ -45,4 +45,9 @@ test("older() pages through what is not loaded, newest first", async () => {
   const next = await bus.older(["all"], have, 2, "head");
   assert.deepEqual(next.messages.map((m) => m.text), ["m2", "m1"]);
   assert.equal(next.left, 0, "the DM is not one of the channels asked for");
+});
+
+test("a snippet (a chat's last message, a notification) leaves out a fenced block's backtick lines", () => {
+  assert.equal(snippet({ text: "Plan:\n```md\n| a | b |\n|-|-|\n```\nok" }), "Plan: | a | b | |-|-| ok");
+  assert.equal(snippet({ text: "```\n```" }), "");
 });

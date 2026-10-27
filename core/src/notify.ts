@@ -1,7 +1,7 @@
 /* Phone notifications through ntfy (https://ntfy.sh, free, no account). A device that turns them on stores
    its own secret topic URL in devices/<id>.json (the bus repo is private); whoever sends a message posts a
    short notice to the recipients' topics. The ntfy app on the phone shows it at once. */
-import { dmPeer, handle, isDm, wantsNotice, type Device, type Group, type Message } from "./index.ts";
+import { dmPeer, handle, isDm, snippet, wantsNotice, type Device, type Group, type Message } from "./index.ts";
 
 export function recipients(m: Message, devices: Device[], groups: Group[]): Device[] {
   const others = devices.filter((d) => d.id !== m.from);
@@ -15,7 +15,7 @@ export async function notifyRecipients(m: Message, from: Device, devices: Device
   const where = m.channel === "all" ? "#all" : isDm(m.channel) ? "" : `#${groups.find((g) => g.channel === m.channel)?.name ?? m.channel}`;
   const title = `${handle(from)}${where ? ` → ${where}` : ""}`;
   // a sealed message's words go no further than the chat: ntfy.sh only hears that there is one
-  const body = m.enc ? "🔒" : (m.text || (m.files?.length ? `📎 ${m.files.map((x) => x.name).join(", ")}` : "")).slice(0, 200);
+  const body = m.enc ? "🔒" : snippet({ text: m.text }, 200) || (m.files?.length ? `📎 ${m.files.map((x) => x.name).join(", ")}` : "").slice(0, 200);
   // a recipient who muted the channel, or wants only mentions there, is skipped
   const targets = recipients(m, devices, groups).filter((d) => /^https:\/\/ntfy\.sh\/[\w-]{12,64}$/.test(d.notify ?? "") && wantsNotice(d, m));
   // Title and click go in the query string: HTTP headers must be Latin-1, and titles hold "→", emoji and Turkish.

@@ -1108,7 +1108,7 @@ export function newestByChannel(list: Pick<Message, "id" | "channel">[]): Record
 export function snippet(m: Pick<Message, "text" | "files" | "locked"> | undefined, max = 80): string {
   if (!m) return "";
   if (m.locked) return "🔒";
-  const t = (m.text ?? "").replace(/\s+/g, " ").trim();
+  const t = (m.text ?? "").replace(/^`{3,}.*$/gm, "").replace(/\s+/g, " ").trim(); // a fenced block's ```lang lines say nothing
   if (t) return t.length > max ? t.slice(0, max - 1) + "…" : t;
   return m.files?.length ? `📎 ${m.files[0].name}` : "";
 }

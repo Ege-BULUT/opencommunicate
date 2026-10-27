@@ -1,7 +1,7 @@
 {
   "name": "@opencommunicate/app",
   "private": true,
-  "version": "0.9.4",
+  "version": "0.9.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -27,6 +27,7 @@
     "@capacitor/share": "^8.0.2",
     "@capgo/capacitor-speech-recognition": "^8.4.4",
     "@huggingface/transformers": "^4.3.1",
+    "marked": "^18.1.2",
     "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

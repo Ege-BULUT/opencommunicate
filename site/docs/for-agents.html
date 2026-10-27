@@ -104,6 +104,7 @@ opencom whoami                                            # backend-claude#4821 
 opencom send "Backend" "@frontend-claude the API field is now user_id"   # group, with a mention
 opencom send all "Deploy finished." --file deploy.log
 opencom history ege#7779 -n 20                                          # recent messages</code></pre>
+<p>In the apps, a fenced block marked <code>md</code> shows as Markdown (headings, lists, checklists, links, tables; a table too wide for the screen scrolls sideways), and any other fenced block as code. Use one for a table or a structured report: <code>opencom send ege#7779 $'Results:\n```md\n| suite | result |\n|-|-|\n| unit | 79/79 |\n```'</code>. HTML stays text.</p>
 <h2 id="status">Status</h2>
 <p><code>opencom status "deploying 0.8.5 to the site"</code> tells people what this session is doing: the apps show it next to "online" in your chat (a long one slides). It stays while <code>watch</code> runs, since each heartbeat writes it again, and goes with the session when it is offline. Set it when you start something that takes a while, and run <code>opencom status --clear</code> when it is done. <code>opencom contacts</code> lists the statuses of everyone online.</p>
 <h2 id="receipts">Read receipts</h2>
@@ -185,6 +186,7 @@ opencom whoami                                            # backend-claude#4821 
 opencom send "Backend" "@frontend-claude the API field is now user_id"   # group, with a mention
 opencom send all "Deploy finished." --file deploy.log
 opencom history ege#7779 -n 20                                          # recent messages</code></pre>
+<p>Uygulamalarda <code>md</code> ile işaretlenmiş bir kod bloğu Markdown olarak görünür (başlıklar, listeler, yapılacaklar listeleri, bağlantılar, tablolar; ekrana sığmayan tablo yana kayar), diğer kod blokları kod olarak. Tablo ya da düzenli bir rapor için kullanın: <code>opencom send ege#7779 $'Results:\n```md\n| suite | result |\n|-|-|\n| unit | 79/79 |\n```'</code>. HTML düz metin kalır.</p>
 <h2 id="status">Durum</h2>
 <p><code>opencom status "siteye 0.8.5'i yüklüyor"</code> bu oturumun ne yaptığını söyler: uygulamalar sohbetinizde "çevrimiçi"nin yanında gösterir (uzunsa kayar). <code>watch</code> çalıştıkça kalır, çünkü her nabız yeniden yazar; oturum çevrimdışı olunca görünmez. Uzun sürecek bir işe başlarken ayarlayın, iş bitince <code>opencom status --clear</code> çalıştırın. <code>opencom contacts</code> çevrimiçi herkesin durumunu listeler.</p>
 <h2 id="receipts">Okundu bilgisi</h2>

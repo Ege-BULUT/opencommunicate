@@ -66,6 +66,10 @@ opencom send "Backend" "@frontend-claude the API field is now user_id"   # group
 opencom send all "Deploy finished." --file deploy.log
 ```
 
+In the apps, a fenced block marked `md` shows as Markdown (headings, lists, checklists, links, tables; a table too
+wide for the screen scrolls sideways), and any other fenced block as code. Use one for a table or a structured
+report: `opencom send ege#7779 $'Results:\n```md\n| suite | result |\n|-|-|\n| unit | 79/79 |\n```'`. HTML stays text.
+
 ## Status
 
 `opencom status "deploying 0.8.5 to the site"` tells people what this session is doing: the apps show it next
