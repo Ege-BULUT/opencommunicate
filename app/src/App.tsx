@@ -4,7 +4,7 @@ import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
 import { App as NativeApp } from "@capacitor/app";
-import { askNotifications, notify, openLink, saveFile } from "./platform.ts";
+import { askNotifications, copiedImage, notify, openLink, pasteImage, pastedName, saveFile } from "./platform.ts";
 import { answerPasswordQuestions, backUp, keysFor, rememberPassword } from "./keys.ts";
 import { NoDictation, NoVoice, record, transcribe, warmUp, type Recording, dictate, dictationLang, installVoice, readAloud, setDictationLang, stopReading, whisperReady, type Dictation } from "./voice.ts";
 import { clearStored, describe, fetchFile, isLocal, kindOf, mediaModes, mimeOf, objectUrl, remember, setMediaMode, shrinkPhoto, storedSize, type MediaKind, type MediaMode, type VoiceFile } from "./media.ts";
@@ -39,6 +39,9 @@ if (native()) {
   const listener = NativeApp.addListener("backButton", () => { if (history.state?.ocBack) history.back(); else NativeApp.minimizeApp(); });
   window.addEventListener("pagehide", () => { listener.then((l) => l.remove()); });
 }
+
+// A file dropped anywhere but an open chat is ignored: the browser (and Electron) would otherwise open it in place of the app
+for (const t of ["dragover", "drop"]) window.addEventListener(t, (e) => { if (!e.defaultPrevented && (e as DragEvent).dataTransfer?.types.includes("Files")) { e.preventDefault(); (e as DragEvent).dataTransfer!.dropEffect = "none"; } });
 
 function useNarrow() {
   const q = useMemo(() => matchMedia("(max-width: 760px)"), []);
@@ -1667,6 +1670,40 @@ function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, edit
   const mention = (d: Device) => change(text.slice(0, text.length - at![2].length - 1) + `@${handle(d)} `);
   const [files, setFiles] = useState<File[]>([]);
   const input = useRef<HTMLInputElement>(null);
+  // Images pasted into the box and files dropped on the chat join the files to send. A copied image comes with no
+  // name of its own ("image.png", or a number on Android), so it gets one; a paste that also has text pastes the
+  // text (a range copied from a sheet comes with a picture of it too).
+  const addFiles = (list: File[]) => { if (list.length && !editingNow.current) setFiles((f) => [...f, ...list]); };
+  const paste = (e: React.ClipboardEvent) => {
+    const got = Array.from(e.clipboardData.files);
+    if (!got.length || editing || e.clipboardData.getData("text/plain")) return;
+    e.preventDefault();
+    addFiles(got.map((f, i) => f.type.startsWith("image/") ? new File([f], pastedName(f.type, i), { type: f.type }) : f));
+  };
+  // the phone: 📎 with an image on the clipboard asks whether to paste it or choose a file
+  const [clip, setClip] = useState(false);
+  const attach = async () => { if (await copiedImage()) setClip(true); else input.current?.click(); };
+  const pasteClip = async () => {
+    setClip(false);
+    try { const f = await pasteImage(); if (f) addFiles([f]); } catch (e) { onNotice((e as Error).message); }
+  };
+  const editingNow = useRef(editing); editingNow.current = editing;
+  const root = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    const zone = root.current?.closest(".chat");
+    if (!zone) return;
+    let depth = 0; // dragenter and dragleave come for each element under the pointer
+    const hasFiles = (e: Event) => !!(e as DragEvent).dataTransfer?.types.includes("Files") && !editingNow.current;
+    const enter = (e: Event) => { if (hasFiles(e)) { depth++; setDragging(true); } };
+    const leave = (e: Event) => { if (hasFiles(e) && --depth <= 0) { depth = 0; setDragging(false); } };
+    const over = (e: Event) => { if (hasFiles(e)) { e.preventDefault(); (e as DragEvent).dataTransfer!.dropEffect = "copy"; } };
+    const drop = (e: Event) => { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; setDragging(false); addFiles(Array.from((e as DragEvent).dataTransfer!.files)); };
+    const on: [string, (e: Event) => void][] = [["dragenter", enter], ["dragleave", leave], ["dragover", over], ["drop", drop]];
+    for (const [t, f] of on) zone.addEventListener(t, f);
+    return () => { for (const [t, f] of on) zone.removeEventListener(t, f); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const submit = () => {
     if (editing) { if (text.trim()) onEdit(text.trim()); return; }
     const all = voice?.file ? [...files, voice.file] : files;
@@ -1747,7 +1784,8 @@ function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, edit
   const micClick = () => { if (hold.current.held) { hold.current.held = false; return; } listen(); };
   const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
   return (
-    <div className="composer">
+    <div className="composer" ref={root}>
+      {dragging && <div className="drop-hint">{S.dropFiles}</div>}
       {editing && <div className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{S.editingLabel}</b><span className="muted"> · {snippet(editing, 70)}</span></span><button className="reply-x" aria-label={S.cancelEdit} onClick={onCancelEdit}>×</button></div>}
       {replies.map((r) => <div key={r.id} className="reply-bar"><span className="reply-strip" /><span className="reply-text"><b>{r.fromNick}</b><span className="muted"> · {snippet(r, 70)}</span></span><button className="reply-x" aria-label={S.cancelReply} onClick={() => onCancelReply(r)}>×</button></div>)}
       {suggest.length > 0 && <div className="chips">{suggest.map((d) => <button key={d.id} className="chip pick-person" onClick={() => mention(d)}>@{handle(d)} <span className="muted">{KIND[d.kind] ?? d.kind}</span></button>)}</div>}
@@ -1755,11 +1793,12 @@ function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, edit
       {stage !== null && <div className="reply-bar" role="status"><span className="reply-text muted">{stage === "transcribing" ? S.transcribing : S.downloadingModel(Math.round(stage * 100))}</span></div>}
       {voice?.rec && <div className="reply-bar voice-rec" role="status"><span className="reply-text"><b>● {clock(Date.now() - voice.since!)}</b> <span className="muted">{S.releaseToListen}</span></span></div>}
       {voice?.url && <div className="reply-bar voice-preview"><audio controls src={voice.url} /><span className="muted small">{S.voiceSeconds(voice.file!.dur)}</span><button className="reply-x" aria-label={S.dropVoice} title={S.dropVoice} onClick={dropVoice}>×</button></div>}
+      {clip && <div className="reply-bar"><span className="reply-text">{S.copiedImage}</span><button className="mini" onClick={pasteClip}>{S.pasteImage}</button><button className="mini" onClick={() => { setClip(false); input.current?.click(); }}>{S.chooseFile}</button><button className="reply-x" aria-label={S.cancel} onClick={() => setClip(false)}>×</button></div>}
       {files.length > 0 && <div className="chips">{files.map((f, i) => <span key={i} className="chip">📎 {f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>)}</div>}
       <div className="compose-row">
-        <button className="icon attach-btn" disabled={!!editing} title={S.addFile} aria-label={S.addFile} onClick={() => input.current?.click()}><Clip /></button>
+        <button className="icon attach-btn" disabled={!!editing} title={S.addFile} aria-label={S.addFile} onClick={attach}><Clip /></button>
         <input ref={input} type="file" multiple hidden onChange={(e) => { setFiles([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-        <textarea ref={replyInput} rows={1} value={text} readOnly={!!listening || !!voice?.rec || stage === "transcribing"} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)}
+        <textarea ref={replyInput} rows={1} value={text} readOnly={!!listening || !!voice?.rec || stage === "transcribing"} placeholder={people.length > 1 ? S.typeMessageMention : S.typeMessage} onChange={(e) => change(e.target.value)} onPaste={paste}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !native()) { e.preventDefault(); submit(); } }} />
         <button className={`icon mic-btn${listening || voice?.rec ? " on" : ""}`} disabled={!!editing || stage === "transcribing" || !!voice?.url} title={listening ? S.stopDictation : S.micHelp} aria-label={S.dictate} aria-pressed={!!listening}
           onClick={micClick} onPointerDown={micDown} onPointerUp={micUp} onPointerLeave={micUp} onPointerCancel={micUp} onContextMenu={(e) => e.preventDefault()}><Mic /></button>

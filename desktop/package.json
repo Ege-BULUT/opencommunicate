@@ -2,7 +2,7 @@
   "name": "@opencommunicate/desktop",
   "productName": "OpenCommunicate",
   "private": true,
-  "version": "0.9.2",
+  "version": "0.9.3",
   "description": "OpenCommunicate for macOS and Windows",
   "author": "Ege BULUT",
   "main": "main.cjs",

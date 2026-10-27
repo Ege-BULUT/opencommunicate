@@ -4,7 +4,8 @@ import { Browser } from "@capacitor/browser";
 import { Directory, Filesystem } from "@capacitor/filesystem";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { Share } from "@capacitor/share";
-import { toBase64 } from "../../core/src/index.ts";
+import { registerPlugin } from "@capacitor/core";
+import { fromBase64, toBase64 } from "../../core/src/index.ts";
 import { desktopApp, native } from "./session.ts";
 
 let nextId = 1;
@@ -53,3 +54,17 @@ export const imageUrl = (name: string, data: Uint8Array) => {
   const type = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" }[ext];
   return type ? URL.createObjectURL(new Blob([data as BlobPart], { type })) : null;
 };
+
+/** A name for a pasted image, which comes without one of its own ("image.png"): image-20261027085850.png. */
+export const pastedName = (type: string, i = 0) => `image-${new Date().toLocaleString("sv").replace(/\D/g, "")}${i ? `-${i + 1}` : ""}.${type.split("/")[1]?.split("+")[0] || "png"}`;
+
+// The phone's text box offers no Paste for a copied image (a screenshot, an image copied in another app), and the
+// page may not read the clipboard, so the app's own plugin does (ClipboardImagePlugin.java).
+const ClipboardImage = registerPlugin<{ has(): Promise<{ image: boolean }>; read(): Promise<{ type?: string; data?: string }> }>("ClipboardImage");
+/** Phone: whether the clipboard holds an image. */
+export const copiedImage = async () => native() && (await ClipboardImage.has().catch(() => ({ image: false }))).image;
+/** Phone: the clipboard's image as a file, or null when it holds none. */
+export async function pasteImage(): Promise<File | null> {
+  const { type, data } = await ClipboardImage.read();
+  return type && data ? new File([fromBase64(data) as BlobPart], pastedName(type), { type }) : null;
+}
