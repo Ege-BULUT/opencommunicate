@@ -137,6 +137,17 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
   const none = await A(["save", "7779", plain.id, "--out", out]);
   check("a message without files says so", none.code === 1 && none.err.includes("no files"), JSON.stringify(none)); }
 
+// search: case-insensitive by default, --case as written, --regex as a regular expression
+{ await bus.send(dm, ege, "Release v0.9.9 is out", []);
+  const plain = await A(["search", "release V0.9.9"]);
+  check("search ignores case by default", plain.code === 0 && plain.out.includes("Release v0.9.9 is out"), JSON.stringify(plain));
+  const cased = await A(["search", "release", "--case"]);
+  check("--case matches case as written", cased.code === 0 && !cased.out.includes("Release v0.9.9"), JSON.stringify(cased));
+  const re = await A(["search", "v0\\.9\\.\\d", "--regex"]);
+  check("--regex reads a regular expression", re.code === 0 && re.out.includes("Release v0.9.9 is out"), JSON.stringify(re));
+  const bad = await A(["search", "v0(", "--regex"]);
+  check("a regex that does not parse says so", bad.code === 1 && bad.err.includes("Not a regular expression"), JSON.stringify(bad)); }
+
 // the agents' guide, bundled: printed, and installed as a Claude Code skill
 { const guide = await A(["guide"]);
   check("guide prints docs/AGENTS.md", guide.out.trim() === fs.readFileSync(path.join(import.meta.dirname, "..", "docs", "AGENTS.md"), "utf8").trim());
@@ -149,6 +160,11 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
 // the agents' own quota (cli/src/app.ts): the owner's agent asks the owner once, by DM with the page's link, trades
 // the code GitHub hands the page for the app, waits for the install, and speaks with the app's tokens from then on
 { const on = { OPENCOM_APP: "" };
+  // an old device of the owner's account, not seen for a while: the link goes to the one seen last
+  await bus.commit({ "devices/1111.json": JSON.stringify({ id: "1111", nick: "ege-old", kind: "person", login: "ege", joinedAt: "2026-09-01T00:00:00.000Z" }) }, "an old device");
+  await bus.heartbeat({ id: "1111", nick: "ege-old" });
+  await sleep(10);
+  await bus.heartbeat(ege);
   const watching = w.start("2082", ["watch", "--interval", "2"], on);
   let err = "";
   watching.stderr.on("data", (d) => (err += d));
@@ -161,6 +177,10 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
   let install;
   for (let i = 0; i < 60 && !install; i++) { await sleep(500); install = (w.gh.ntfy.get(topic) ?? []).map((x) => JSON.parse(x.message)).find((n) => n.kind === "install"); }
   check("the code is traded for the app, and the install link goes back to the page", install?.url === `https://github.com/apps/opencommunicate-agents-test/installations/new?state=${topic}`, JSON.stringify(install));
+  w.gh.ntfy.set(topic, w.gh.ntfy.get(topic).filter((x) => JSON.parse(x.message).kind !== "install")); // lost on the way
+  let again;
+  for (let i = 0; i < 60 && !again; i++) { await sleep(500); again = (w.gh.ntfy.get(topic) ?? []).map((x) => JSON.parse(x.message)).find((n) => n.kind === "install"); }
+  check("an install link lost on the way goes to the page again", again?.url === install?.url, JSON.stringify(again));
   const file = path.join(w.apps, "ege.app.json");
   const kept = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
   check("the app's key stays on this computer, for its user only", kept.id === 4242 && kept.pem?.includes("PRIVATE KEY") && (fs.statSync(file).mode & 0o077) === 0);

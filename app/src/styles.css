@@ -390,3 +390,34 @@ i.activity { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
 .saver-row:hover .tip, .tip-wrap:focus-within .tip { display: block; }
 .news ul { margin: 6px 0 10px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
 .news h3 { margin: 10px 0 0; font-size: 14px; }
+
+/* search: Aa (match case) and .* (regex) beside a search box; the search bar of one chat */
+.filter { display: flex; gap: 6px; align-items: center; }
+.filter input { flex: 1; min-width: 0; }
+.search-how { display: inline-flex; gap: 2px; flex: none; }
+.search-how button { min-width: 32px; height: 32px; border-radius: 8px; font: 600 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); border: 1px solid transparent; }
+.search-how button:hover { background: var(--sunken); }
+.search-how button.on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.chat-search { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.chat-search input { flex: 1 1 90px; min-width: 0; padding: 7px 10px; border-radius: 10px; font-size: 14px; }
+.chat-search .count { min-width: 2.8em; text-align: center; white-space: nowrap; }
+.chat-search .icon { width: 32px; height: 32px; font-size: 17px; }
+.chat-search .older-in-chat, .chat-search .error { flex-basis: 100%; text-align: left; }
+.chat-search .older-in-chat { flex: 0 0 auto; }
+.item.found .msg { outline: 2px solid var(--accent); outline-offset: 1px; }
+::highlight(search) { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+::highlight(search-here) { background-color: var(--accent); color: var(--accent-ink); }
+
+/* the chat's media and files, in its details */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 4px; margin: 8px 0; }
+.gallery .tile { position: relative; aspect-ratio: 1; padding: 0; border-radius: 8px; overflow: hidden; background: var(--sunken); display: grid; place-items: center; }
+.gallery .tile img { width: 100%; height: 100%; object-fit: cover; }
+.gallery .tile-name { font-size: 11px; padding: 4px; word-break: break-all; color: var(--muted); }
+.gallery .tile-play { position: absolute; inset: auto 6px 6px auto; color: #fff; font-size: 13px; background: rgb(0 0 0 / .5); border-radius: 999px; padding: 2px 7px; }
+.file-list { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
+.file-row { display: flex; align-items: center; gap: 6px; }
+.file-body { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 6px 8px; border-radius: 10px; }
+.file-body:hover { background: var(--sunken); }
+.file-body .row-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lightbox video { max-width: 100%; max-height: 100%; border-radius: 8px; }
+.lightbox-note { color: #fff; }

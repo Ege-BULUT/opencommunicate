@@ -51,9 +51,11 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom history <to> [-n 20] [--edits]
                                    recent messages; yours end in ✓ sent, ✓✓ delivered or ✓✓ read;
                                    an edited one says (edited), --edits lists what it said before
-  opencom search <text…> [--chat <to>] [-n 20]
+  opencom search <text…> [--chat <to>] [-n 20] [--case] [--regex]
                                    messages (and attachment names) containing the text, newest first,
-                                   in all your chats or one; reads the whole history, so it takes a while
+                                   in all your chats or one; reads the whole history, so it takes a while.
+                                   Case-insensitive unless --case; --regex reads the text as a regular
+                                   expression (JavaScript's)
   opencom edit <chat> <id> <text…> change the text of one of your messages; everyone gets a notice
                                    ("… edited a message: <new text>") at the end of the chat
   opencom delete <chat> <id>       delete one of your messages for everyone (text and files go;
@@ -184,7 +186,7 @@ const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catc
 const writeConfig = (c: Config) => { fs.mkdirSync(CONFIG_DIR, { recursive: true }); fs.writeFileSync(CONFIG, JSON.stringify(c, null, 2), { mode: 0o600 }); };
 
 // flags that take no value, so "send ege --wait hi" still sends "hi"
-const SWITCHES = new Set(["help", "wait", "json", "once", "to-me", "all", "edits", "off", "clear", "random", "reset", "install"]);
+const SWITCHES = new Set(["help", "wait", "json", "once", "to-me", "all", "edits", "off", "clear", "random", "reset", "install", "case", "regex"]);
 /** When a Claude Code session should load the guide (`opencom skill`). */
 const SKILL_WHEN = "How to use OpenCommunicate (the opencom CLI and MCP server) to work with people and other agents through a chat: listening for messages, replying, asking with choices and waiting for the answer, permission prompts on a phone, status, sending and opening files and screenshots, Markdown tables, reactions, quotes, groups, and sparing the account's shared GitHub quota. Use it whenever a task involves opencom, an OpenCommunicate chat, or messaging a person or agent through one.";
 function flags(args: string[]) {
@@ -514,11 +516,13 @@ async function main(argv: string[]) {
     }
     case "search": {
       const text = rest.join(" ");
-      if (!text.trim()) throw new Error("Usage: opencom search <text…> [--chat <to>] [-n 20]");
+      if (!text.trim()) throw new Error("Usage: opencom search <text…> [--chat <to>] [-n 20] [--case] [--regex]");
+      const how = { caseSensitive: !!f.case, regex: !!f.regex };
+      try { searchMessages([], text, undefined, how); } catch (e) { throw new Error(`Not a regular expression: ${(e as Error).message}`); }
       const { devices, groups } = await load();
       const channels = f.chat ? [resolveTarget(f.chat[0], me, devices, groups)] : bus.channelsFor(me.id, devices, groups);
       const { messages } = await bus.older(channels, new Set(), Infinity);
-      const found = searchMessages(messages, text).slice(0, Number(f.n?.[0] ?? 20));
+      const found = searchMessages(messages, text, undefined, how).slice(0, Number(f.n?.[0] ?? 20));
       if (!found.length) console.log(`Nothing found for "${text}" in ${messages.length} messages.`);
       for (const m of found.reverse()) console.log(`${line(m, me, devices, groups)}  (id ${m.id})`);
       return;
@@ -634,7 +638,7 @@ async function main(argv: string[]) {
             const read = cfg.readReceipts !== false;
             const sent = bus.markReceipts(me, Object.fromEntries(Object.entries(newest).map(([ch, id]) => [ch, read ? { read: id } : { delivered: id }])))
               .catch((e) => console.error(`watch: receipts: ${(e as Error).message}`));
-            if (f.once) { await sent; return; }
+            if (f.once) { await sent; await appStep; return; } // a setup step under way finishes (a code traded and not kept is lost)
           }
         } catch (e) {
           console.error(`watch: ${(e as Error).message}`);

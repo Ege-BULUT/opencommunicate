@@ -1306,14 +1306,42 @@ export function snippet(m: Pick<Message, "text" | "files" | "locked"> | undefine
   return m.files?.length ? `📎 ${m.files[0].name}` : "";
 }
 
+/** How a search reads its text: as written (`caseSensitive`), and as a regular expression (`regex`). */
+export type SearchOptions = { caseSensitive?: boolean; regex?: boolean };
+
 /**
- * Messages whose text or attachment names contain `query` (case-insensitive in `locale`, so Turkish İ/ı match),
- * newest first. Notices and deleted messages are left out; an edited message matches by what it says now.
+ * Every place `query` matches in a text, [start, end): case-insensitive in `locale` unless `caseSensitive` (so
+ * Turkish İ/ı match; the places are then in the lowercased text, which a few letters make longer), as plain text
+ * unless `regex`. Empty matches are left out. Throws a SyntaxError for a regex that does not parse.
  */
-export function searchMessages(list: Message[], query: string, locale?: string): Message[] {
-  const q = query.trim().toLocaleLowerCase(locale);
+export function searchMatches(query: string, locale?: string, o: SearchOptions = {}): (text: string) => [number, number][] {
+  if (o.regex) {
+    const re = new RegExp(query, o.caseSensitive ? "gu" : "giu");
+    return (text) => [...text.matchAll(re)].filter((m) => m[0]).map((m) => [m.index, m.index + m[0].length]);
+  }
+  const q = o.caseSensitive ? query : query.toLocaleLowerCase(locale);
+  return (text) => {
+    const t = o.caseSensitive ? text : text.toLocaleLowerCase(locale), out: [number, number][] = [];
+    for (let i = q ? t.indexOf(q) : -1; i >= 0; i = t.indexOf(q, i + q.length)) out.push([i, i + q.length]);
+    return out;
+  };
+}
+
+/** Where `query` first matches in a text (see searchMatches), or null. */
+export function searchMatcher(query: string, locale?: string, o: SearchOptions = {}): (text: string) => [number, number] | null {
+  const all = searchMatches(query, locale, o);
+  return (text) => all(text)[0] ?? null;
+}
+
+/**
+ * Messages whose text or attachment names match `query` (see searchMatcher), newest first. Notices and deleted
+ * messages are left out; an edited message matches by what it says now. Throws for a regex that does not parse.
+ */
+export function searchMessages(list: Message[], query: string, locale?: string, o: SearchOptions = {}): Message[] {
+  const q = query.trim();
   if (!q) return [];
-  const has = (s?: string) => !!s && s.toLocaleLowerCase(locale).includes(q);
+  const match = searchMatcher(q, locale, o);
+  const has = (s?: string) => !!s && !!match(s);
   return list.filter((m) => !m.system && !m.deleted && (has(m.text) || m.files?.some((f) => has(f.name)))).sort((a, b) => b.id.localeCompare(a.id));
 }
 

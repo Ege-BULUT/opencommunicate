@@ -484,6 +484,79 @@ if (only === "all" || only === "files") {
   await browser.close();
 }
 
+// search (0.9.9): case and regex switches in the sidebar, a search bar in one chat, and the chat's media and files
+if (only === "all" || only === "search") {
+  const { bus, browser, page } = await setup(() => 0);
+  const dot = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  await bus.send(dm, agent, "Deploy 0.9.8 to vercel", []);
+  await bus.send(dm, agent, "the screenshot", [{ name: "screen.png", type: "image/png", w: 1, h: 1, thumb: `data:image/png;base64,${dot}`, data: Uint8Array.from(atob(dot), (c) => c.charCodeAt(0)) }]);
+  await bus.send(dm, agent, "deploy 0.9.9", [{ name: "notes.txt", type: "text/plain", data: new TextEncoder().encode("notes") }]);
+  await page.getByText("deploy 0.9.9").first().waitFor({ timeout: 15000 });
+  const box = page.locator(".filter input"), head = page.locator("aside .section").last();
+  const how = (label) => page.locator(`.filter .search-how button[aria-label="${label}"]`);
+  await box.fill("deploy");
+  check("the sidebar finds both, case-insensitive by default", (await head.innerText()).endsWith("· 2"), await head.innerText());
+  await box.fill("Deploy");
+  await how("Match case").click();
+  check("Aa matches case as written", (await head.innerText()).endsWith("· 1") && (await how("Match case").getAttribute("aria-pressed")) === "true", await head.innerText());
+  await how("Match case").click();
+  await how("Regular expression").click();
+  await box.fill("0\\.9\\.\\d");
+  check(".* reads a regex, and marks what it matched", (await head.innerText()).endsWith("· 2") && (await page.locator("aside .result mark").first().innerText()) === "0.9.9", await head.innerText());
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "search-all.png") }).catch(() => {});
+  await box.fill("v(");
+  check("a regex that does not parse says so", (await head.innerText()) === "Not a valid regex", await head.innerText());
+  await box.fill("");
+  await how("Regular expression").click();
+
+  await openDm(page);
+  await page.locator('.chat-head button[aria-label="Search in this chat"]').click();
+  const bar = page.locator(".chat-search"), count = bar.locator(".count");
+  await bar.locator("input").fill("deploy");
+  const found = () => page.locator(".item.found").getAttribute("id");
+  const ids = (await bus.history(dm)).filter((m) => /deploy/i.test(m.text)).map((m) => `m-${m.id}`);
+  await sleep(200);
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "search-chat.png") }).catch(() => {});
+  check("in a chat, the newest match first, outlined", (await count.innerText()) === "1/2" && (await found()) === ids[1], `${await count.innerText()} ${await found()}`);
+  const marked = () => page.evaluate(() => [...(CSS.highlights.get("search") ?? [])].map(String).concat("|", [...(CSS.highlights.get("search-here") ?? [])].map(String)).join(","));
+  check("every match is marked in the bubbles, the current one more strongly", (await marked()) === "Deploy,|,deploy", await marked());
+  await bar.locator("input").press("Enter");
+  await sleep(200);
+  check("Enter (or ↑) goes to an older one", (await count.innerText()) === "2/2" && (await found()) === ids[0] && (await marked()) === "deploy,|,Deploy", `${await count.innerText()} ${await found()} ${await marked()}`);
+  await bar.locator('button[aria-label="Newer match"]').click();
+  await sleep(200);
+  check("↓ comes back", (await count.innerText()) === "1/2" && (await found()) === ids[1]);
+  await bar.locator('button[aria-label="Match case"]').click();
+  await bar.locator("input").fill("Deploy");
+  await sleep(200);
+  check("its Aa too", (await count.innerText()) === "1/1" && (await found()) === ids[0], await count.innerText());
+  await bar.locator("input").press("Escape");
+  await sleep(300);
+  check("Escape closes it, and its marks go", !(await bar.count()) && !(await page.locator(".item.found").count()) && (await marked()) === "|");
+
+  const was = await page.evaluate(() => history.state?.ocBack); // the open chat's own (back goes to the list on a phone)
+  await page.locator('.chat-head button[aria-label="Chat details"]').click();
+  const tabs = page.locator(".channel-card .seg[role=tablist] button");
+  await page.locator(".gallery .tile").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "gallery.png") }).catch(() => {});
+  await page.locator(".gallery .tile").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "gallery.png") }).catch(() => {});
+  check("the details show the chat's media and files", (await tabs.allInnerTexts()).join() === "Media · 1,Files · 1", (await tabs.allInnerTexts()).join());
+  await page.locator(".gallery .tile").click();
+  const view = page.locator(".lightbox");
+  await view.locator("img").waitFor({ timeout: 10000 });
+  check("a photo opens full screen, with Show in chat", await view.getByRole("button", { name: "Show in chat" }).isVisible());
+  await view.getByRole("button", { name: "Show in chat" }).click();
+  await sleep(400);
+  const shot = (await bus.history(dm)).find((m) => m.text === "the screenshot");
+  check("Show in chat closes both and goes to its message", !(await view.count()) && !(await page.locator(".channel-card").count()) && (await page.locator(`#m-${shot.id}`).isVisible()));
+  check("…leaving nothing of theirs for back to close", (await page.evaluate(() => history.state?.ocBack)) === was);
+  await page.locator('.chat-head button[aria-label="Chat details"]').click();
+  await tabs.nth(1).click();
+  check("the files tab lists the other files", (await page.locator(".file-list .file-row").innerText()).includes("notes.txt"));
+  await browser.close();
+}
+
 // a ```md block shows as Markdown (a table scrolls sideways), any other fenced block as code, and nothing becomes HTML
 if (only === "all" || only === "markdown") {
   const { bus, browser, page } = await setup(() => 0);
