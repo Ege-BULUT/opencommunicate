@@ -557,6 +557,28 @@ if (only === "all" || only === "search") {
   await browser.close();
 }
 
+// light or dark: the system's until the header's sun/moon picks one, kept across a reload
+if (only === "all" || only === "theme") {
+  const { browser, page } = await setup(() => 0);
+  const look = () => page.evaluate(() => ({ theme: document.documentElement.dataset.theme, bg: getComputedStyle(document.body).backgroundColor, kept: localStorage.getItem("oc-theme"), bar: document.querySelector('meta[name="theme-color"]').content }));
+  const button = page.locator(".theme-button");
+  await button.waitFor({ timeout: 15000 });
+  check("the theme follows the system: light", JSON.stringify(await look()) === JSON.stringify({ theme: "light", bg: "rgb(245, 243, 238)", kept: null, bar: "#f5f3ee" }), JSON.stringify(await look()));
+  await page.emulateMedia({ colorScheme: "dark" });
+  await sleep(200);
+  check("…and dark, when the system turns dark", (await look()).bg === "rgb(15, 23, 32)" && (await button.getAttribute("aria-label")) === "Light theme", JSON.stringify(await look()));
+  await button.click();
+  check("the sun picks light over the system's dark, kept", JSON.stringify(await look()) === JSON.stringify({ theme: "light", bg: "rgb(245, 243, 238)", kept: "light", bar: "#f5f3ee" }), JSON.stringify(await look()));
+  await page.reload();
+  await button.waitFor({ timeout: 15000 });
+  check("…and still light after a reload", (await look()).theme === "light" && (await button.getAttribute("aria-label")) === "Dark theme");
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "theme-light.png") }).catch(() => {});
+  await button.click();
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "theme-dark.png") }).catch(() => {});
+  check("the moon goes back to the system's dark, keeping nothing", JSON.stringify(await look()) === JSON.stringify({ theme: "dark", bg: "rgb(15, 23, 32)", kept: null, bar: "#0f1720" }), JSON.stringify(await look()));
+  await browser.close();
+}
+
 // a ```md block shows as Markdown (a table scrolls sideways), any other fenced block as code, and nothing becomes HTML
 if (only === "all" || only === "markdown") {
   const { bus, browser, page } = await setup(() => 0);
