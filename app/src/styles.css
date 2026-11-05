@@ -6,13 +6,13 @@
   --sat: var(--safe-area-inset-top, env(safe-area-inset-top, 0px)); --sab: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1720; --panel: #16212c; --sunken: #1d2a37; --line: #273645;
-    --ink: #e8edf2; --muted: #8b98a7; --accent: #3ddc97; --accent-ink: #0f1720;
-    --mine: #1e4a3a; --danger: #ff7b72;
-    color-scheme: dark;
-  }
+/* dark: data-theme is the system's or the person's choice (index.html and App.tsx set it); :where() keeps
+   each dark rule as specific as the light one it replaces */
+:root[data-theme="dark"] {
+  --bg: #0f1720; --panel: #16212c; --sunken: #1d2a37; --line: #273645;
+  --ink: #e8edf2; --muted: #8b98a7; --accent: #3ddc97; --accent-ink: #0f1720;
+  --mine: #1e4a3a; --danger: #ff7b72;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -213,12 +213,10 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 .avatar.group { border-radius: 30%; color: hsl(var(--h) 45% 32%); background: hsl(var(--h) 45% 88%); }
 .presence { position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; background: var(--line); border: 2px solid var(--panel); }
 .presence.on { background: var(--accent); }
-@media (prefers-color-scheme: dark) {
-  .avatar { background: hsl(var(--h) 38% 40%); }
-  .avatar.agent { background: hsl(var(--h) 25% 28%); }
-  .avatar.group { color: hsl(var(--h) 60% 80%); background: hsl(var(--h) 30% 24%); }
-  .who { color: hsl(var(--h) 60% 70%); }
-}
+:where([data-theme="dark"]) .avatar { background: hsl(var(--h) 38% 40%); }
+:where([data-theme="dark"]) .avatar.agent { background: hsl(var(--h) 25% 28%); }
+:where([data-theme="dark"]) .avatar.group { color: hsl(var(--h) 60% 80%); background: hsl(var(--h) 30% 24%); }
+:where([data-theme="dark"]) .who { color: hsl(var(--h) 60% 70%); }
 .chat-head .title { display: flex; flex-direction: row; align-items: center; gap: 10px; margin-right: auto; }
 .chat-head .title-text { display: flex; flex-direction: column; min-width: 0; }
 .chat-head .title-text b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -283,7 +281,7 @@ select { font: inherit; color: var(--ink); background: var(--sunken); border: 1p
 /* read receipts: one tick sent, two delivered, two blue read */
 .meta .ticks { vertical-align: -1px; margin-left: 4px; color: var(--muted); }
 .meta .ticks.read, .msg-info .ticks.read { color: #1a8fd6; }
-@media (prefers-color-scheme: dark) { .meta .ticks.read, .msg-info .ticks.read { color: #53bdeb; } }
+:where([data-theme="dark"]) :is(.meta .ticks.read, .msg-info .ticks.read) { color: #53bdeb; }
 label.toggle { justify-content: flex-start; color: var(--ink); font-size: 14px; }
 label.toggle input { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--accent); }
 

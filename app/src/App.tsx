@@ -289,6 +289,39 @@ function LangPicker() {
   );
 }
 
+/* Light or dark: the system's until the header's sun/moon picks one, kept under "oc-theme" (index.html reads it
+   before the first paint). Picking the theme the system has goes back to following the system. */
+const THEME = "oc-theme";
+const systemDark = matchMedia("(prefers-color-scheme: dark)");
+let pickedTheme = (() => { try { return localStorage.getItem(THEME); } catch { return null; } })();
+const themeNow = () => pickedTheme === "light" || pickedTheme === "dark" ? pickedTheme : systemDark.matches ? "dark" : "light";
+function applyTheme() {
+  document.documentElement.dataset.theme = themeNow();
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((m) => { m.content = bg; });
+}
+applyTheme();
+systemDark.addEventListener("change", applyTheme);
+
+function ThemeButton() {
+  const [, redraw] = useState(0);
+  useEffect(() => {
+    const again = () => redraw((n) => n + 1);
+    systemDark.addEventListener("change", again);
+    return () => systemDark.removeEventListener("change", again);
+  }, []);
+  const dark = themeNow() === "dark";
+  const flip = () => {
+    const next = dark ? "light" : "dark";
+    pickedTheme = next === (systemDark.matches ? "dark" : "light") ? null : next;
+    try { if (pickedTheme) localStorage.setItem(THEME, pickedTheme); else localStorage.removeItem(THEME); } catch { /* private mode: this page only */ }
+    applyTheme();
+    redraw((n) => n + 1);
+  };
+  const label = dark ? S.lightTheme : S.darkTheme;
+  return <button className="icon theme-button" title={label} aria-label={label} onClick={flip}>{dark ? <Sun /> : <Moon />}</button>;
+}
+
 /** Puts text on the clipboard; false when the browser refuses. The write starts inside the click while the
    text may still be on its way: Safari only allows clipboard writes during a click, not after an await. */
 function copyText(text: string | Promise<string>): Promise<boolean> {
@@ -1109,6 +1142,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         <header className="side-head">
           <span className="brand">OpenCommunicate</span>
           <span className="head-buttons">
+            <ThemeButton />
             <button className="icon" title={S.inviteSomeone} aria-label={S.inviteSomeone} onClick={() => setDialog("invite")}><PersonPlus /></button>
             <button className="icon" title={S.settings} aria-label={S.settings} onClick={() => setDialog("settings")}><Gear /></button>
           </span>
@@ -1416,6 +1450,8 @@ function Marquee({ text }: { text: string }) {
 
 const Gear = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>;
 const PersonPlus = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6" /></svg>;
+const Sun = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" /></svg>;
+const Moon = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>;
 const Magnifier = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>;
 const Info = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>;
 const Clip = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.5 12.5 21a6 6 0 0 1-8.5-8.5L13 3.5a4 4 0 0 1 5.7 5.7L9.7 18.2a2 2 0 0 1-2.8-2.8L15 7.3" /></svg>;

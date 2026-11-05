@@ -6,6 +6,8 @@
   <meta name="theme-color" content="#0f1720" media="(prefers-color-scheme: dark)" />
   <meta name="theme-color" content="#f5f3ee" media="(prefers-color-scheme: light)" />
   <title>OpenCommunicate</title>
+  <!-- light or dark before the first paint: the choice kept under "oc-theme", else the system's (App.tsx keeps it up) -->
+  <script>try { document.documentElement.dataset.theme = localStorage.getItem("oc-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); } catch (e) {}</script>
   <link rel="icon" href="./icon.svg" />
   <!-- the web app (iPhone: Share → Add to Home Screen). No start_url in the manifest: the home-screen icon
        opens the page it was added from, which carries the chat repo after an invitation. -->
