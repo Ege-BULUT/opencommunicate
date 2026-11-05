@@ -321,11 +321,14 @@ type Fetch = typeof fetch;
  * returns the token to retry with, or null when only signing in again can help.
  */
 export type TokenSource = { current(): string | Promise<string>; renew?(rejected: string): Promise<string | null> };
-export type BusOptions = { repo: string; token: string | TokenSource; branch?: string; fetch?: Fetch; api?: string };
+/** Somewhere to keep what never changes (a commit's files) and the last answer about each branch head, between runs
+ *  of a program that starts often (the CLI): its next run asks GitHub only about what moved. */
+export type Store = { get(key: string): string | null; set(key: string, value: string): void };
+export type BusOptions = { repo: string; token: string | TokenSource; branch?: string; fetch?: Fetch; api?: string; store?: Store };
 /** Where an account stands in one of GitHub's hourly quotas ("core" for REST, "graphql"): `reset` in epoch seconds. */
 export type Quota = { resource: string; used: number; limit: number; reset: number };
 type Files = Record<string, Uint8Array | string | null>;
-type TreeEntry = { path: string; mode: "100644"; type: "blob"; sha: string | null };
+type TreeEntry = { path: string; mode: "100644"; type: "blob"; sha?: string | null; content?: string };
 
 export class GitHubError extends Error {
   status: number;
@@ -339,6 +342,11 @@ export class GraphQLError extends Error {
 }
 /** Bigger commits (attachments) go the REST way, a blob at a time. */
 const GRAPHQL_COMMIT_MAX = 2_000_000;
+/** How often a client says it is online: under the 10 minutes "online" lasts (also in apps before 0.9.8). */
+export const HEARTBEAT_MS = 9 * 60_000;
+/** A commit's message lists the files it changed after this line, so a client following the branch reads them
+ *  from GraphQL instead of GitHub's compare view. */
+const FILES_LINE = "files:";
 
 export class Bus {
   readonly repo: string;
@@ -347,6 +355,11 @@ export class Bus {
   private f: Fetch;
   private api: string;
   private etags = new Map<string, string>();
+  /** What head() last heard about each branch: asked again with its ETag, an unmoved branch costs nothing (304). */
+  private known = new Map<string, { etag: string; sha: string }>();
+  /** A commit's tree, from a tree() read of it: a REST commit on top of it needs no call to find it. */
+  private treeOf = new Map<string, string>();
+  private store?: Store;
   private blobCache = new Map<string, Promise<unknown>>();
   private trees = new Map<string, Promise<{ path: string; sha: string; size?: number; type: string }[]>>();
   private wanted = new Map<string, ((text: string | Error) => void)[]>();
@@ -385,6 +398,7 @@ export class Bus {
     this.auth = typeof t === "string" ? { current: () => t } : t;
     this.f = o.fetch ?? ((...a) => fetch(...a));
     this.api = o.api ?? "https://api.github.com";
+    this.store = o.store;
   }
 
   // ---------- raw GitHub calls ----------
@@ -433,9 +447,26 @@ export class Bus {
   async head(branch = this.branch): Promise<string | null> {
     // GitHub sends refs with max-age=60, so a plain read can come from the browser's cache: a commit made on a
     // head a minute old is refused as not a fast-forward, every retry alike ("the branch kept moving", seen when
-    // setting the password right after joining a new chat)
-    try { return (await this.gh(this.r(`/git/ref/heads/${branch}`), { cache: "no-store" })).data.object.sha; }
+    // setting the password right after joining a new chat). Asked with the last answer's ETag, GitHub itself
+    // says whether it moved, and a 304 is free.
+    const key = `head-${branch}`;
+    let k = this.known.get(branch);
+    if (!k) { try { k = JSON.parse(this.store?.get(key) ?? "null") ?? undefined; } catch { /* none */ } }
+    let res;
+    try { res = await this.gh(this.r(`/git/ref/heads/${branch}`), { cache: "no-store", headers: k ? { "If-None-Match": k.etag } : {} }); }
     catch (e) { if (e instanceof GitHubError && (e.status === 404 || e.status === 409)) return null; throw e; }
+    if (res.status === 304 && k) { this.known.set(branch, k); return k.sha; }
+    const sha: string = res.data.object.sha, etag = res.headers.get("etag");
+    if (etag) { this.known.set(branch, { etag, sha }); this.store?.set(key, JSON.stringify({ etag, sha })); }
+    return sha;
+  }
+
+  /** From now on headIfChanged(branch) answers for a move past `sha`, the head head() just gave: with no call to
+   *  GitHub when head() kept its ETag. */
+  async headFrom(sha: string, branch = this.branch): Promise<void> {
+    const k = this.known.get(branch);
+    if (k?.sha === sha) this.etags.set(branch, k.etag);
+    else await this.headIfChanged(branch);
   }
 
   /** Cheap change check: 304 (free) while nothing moved. Returns the new head or null if unchanged. */
@@ -456,7 +487,13 @@ export class Bus {
   tree(sha: string): Promise<{ path: string; sha: string; size?: number; type: string }[]> {
     let t = this.trees.get(sha);
     if (!t) {
-      t = this.gh(this.r(`/git/trees/${sha}?recursive=1`)).then(({ data }) => data.tree);
+      const key = `tree-${sha}`;
+      const seen = (x: { sha: string; tree: { path: string; sha: string; size?: number; type: string }[] }) => { this.treeOf.set(sha, x.sha); return x.tree; };
+      let kept; try { kept = JSON.parse(this.store?.get(key) ?? "null"); } catch { /* half written by another run: read it again */ }
+      t = kept?.tree ? Promise.resolve(seen(kept)) : this.gh(this.r(`/git/trees/${sha}?recursive=1`)).then(({ data }) => {
+        this.store?.set(key, JSON.stringify({ sha: data.sha, tree: data.tree }));
+        return seen(data);
+      });
       t.catch(() => this.trees.delete(sha));
       this.trees.set(sha, t);
       if (this.trees.size > 8) this.trees.delete(this.trees.keys().next().value!);
@@ -503,6 +540,55 @@ export class Bus {
     }));
   }
 
+  /** A text GraphQL gave for blob `sha`: json(sha) answers from it. */
+  private keep(sha: string, b?: { text?: string | null; isTruncated?: boolean; isBinary?: boolean } | null) {
+    if (typeof b?.text === "string" && !b.isTruncated && !b.isBinary && !this.blobCache.has(sha)) {
+      const text = b.text, j = Promise.resolve().then(() => JSON.parse(text));
+      j.catch(() => this.blobCache.delete(sha)); // not JSON: json(sha) asks GitHub, and fails as it would have
+      this.blobCache.set(sha, j);
+    }
+  }
+
+  /** The files at `paths` of commit `at`, as blob shas (a path not there is left out), their texts kept for json():
+   *  one GraphQL query for up to 100 of them. */
+  private async filesAt(at: string, paths: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const [owner, name] = this.repo.split("/");
+    for (let i = 0; i < paths.length; i += 100) {
+      const part = paths.slice(i, i + 100);
+      const data = await this.graphql(`query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${part.map((p, n) => `f${n}: object(expression: ${JSON.stringify(`${at}:${p}`)}) { oid ... on Blob { text isBinary isTruncated } }`).join(" ")} } }`, { owner, name });
+      part.forEach((p, n) => { const b = data.repository?.[`f${n}`]; if (b?.oid) { out.set(p, b.oid); this.keep(b.oid, b); } });
+    }
+    return out;
+  }
+
+  /** The files directly in `dir` at commit `at`, with their texts: one GraphQL query, else the tree over REST. */
+  async folder(dir: string, at: string): Promise<{ path: string; sha: string }[]> {
+    const [owner, name] = this.repo.split("/");
+    try {
+      const data = await this.graphql(`query($owner: String!, $name: String!, $e: String!) { repository(owner: $owner, name: $name) { object(expression: $e) { ... on Tree { entries { name oid type object { ... on Blob { text isBinary isTruncated } } } } } } }`, { owner, name, e: `${at}:${dir}` });
+      const entries: { name: string; oid: string; type: string; object?: { text?: string } }[] = data.repository?.object?.entries ?? [];
+      return entries.filter((e) => e.type === "blob").map((e) => { this.keep(e.oid, e.object); return { path: `${dir}/${e.name}`, sha: e.oid }; });
+    } catch {
+      return (await this.tree(at)).filter((e) => e.path.startsWith(`${dir}/`) && !e.path.slice(dir.length + 1).includes("/"));
+    }
+  }
+
+  /** The files changed from commit `since` to `to`, from the lists in their messages (FILES_LINE): one GraphQL
+   *  query. Null when a commit in between has no list (made by an older client, or by hand) or is too far back. */
+  private async changedPaths(since: string, to: string): Promise<string[] | null> {
+    const [owner, name] = this.repo.split("/");
+    const data = await this.graphql(`query($owner: String!, $name: String!, $to: GitObjectID!) { repository(owner: $owner, name: $name) { object(oid: $to) { ... on Commit { history(first: 50) { nodes { oid message } } } } } }`, { owner, name, to });
+    const paths = new Set<string>();
+    for (const c of (data.repository?.object?.history?.nodes ?? []) as { oid: string; message: string }[]) {
+      if (c.oid === since) return [...paths];
+      const at = c.message.indexOf(`\n${FILES_LINE}\n`);
+      if (at < 0) return null;
+      for (const p of c.message.slice(at + FILES_LINE.length + 2).split("\n")) if (p) paths.add(p);
+    }
+    return null;
+  }
+
   /**
    * One commit with several files (null deletes). Retries when another device moved the branch meanwhile.
    * `files` can be a function of the head the commit goes on, for changes that read before they write
@@ -510,12 +596,14 @@ export class Bus {
    */
   async commit(files: Files | ((parent: string | null) => Promise<Files>), message: string, opts: { branch?: string; orphan?: boolean } = {}): Promise<string> {
     const branch = opts.branch ?? this.branch;
+    const body = (f: Files) => `${FILES_LINE}\n${Object.keys(f).join("\n")}`;
+    // text goes in the tree itself; only binary files (attachments) need a call each
     const blobs = async (f: Files) => {
       const entries: TreeEntry[] = [];
       for (const [path, content] of Object.entries(f)) {
         if (content === null) { entries.push({ path, mode: "100644", type: "blob", sha: null }); continue; }
-        const bytes = typeof content === "string" ? enc.encode(content) : content;
-        const { data } = await this.gh(this.r("/git/blobs"), { method: "POST", body: JSON.stringify({ content: toBase64(bytes), encoding: "base64" }) });
+        if (typeof content === "string") { entries.push({ path, mode: "100644", type: "blob", content }); continue; }
+        const { data } = await this.gh(this.r("/git/blobs"), { method: "POST", body: JSON.stringify({ content: toBase64(content), encoding: "base64" }) });
         entries.push({ path, mode: "100644", type: "blob", sha: data.sha });
       }
       return entries;
@@ -535,7 +623,7 @@ export class Bus {
           const data = await this.graphql(`mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }`, { input: {
             branch: { repositoryNameWithOwner: this.repo, branchName: branch },
             expectedHeadOid: parent,
-            message: { headline: message },
+            message: { headline: message, body: body(f) },
             fileChanges: {
               additions: changes.filter(([, c]) => c !== null).map(([path, c]) => ({ path, contents: toBase64(typeof c === "string" ? enc.encode(c) : c!) })),
               deletions: changes.filter(([, c]) => c === null).map(([path]) => ({ path })),
@@ -551,12 +639,13 @@ export class Bus {
     const fixed = typeof files === "function" ? null : await blobs(files);
     for (let attempt = 0; attempt < 6; attempt++) {
       const parent = await this.head(branch);
-      const entries = fixed ?? (await blobs(await (files as (p: string | null) => Promise<Files>)(parent)));
-      const baseTree = parent ? (await this.gh(this.r(`/git/commits/${parent}`))).data.tree.sha : undefined;
+      const f = typeof files === "function" ? await files(parent) : files;
+      const entries = fixed ?? (await blobs(f));
+      const baseTree = parent ? (this.treeOf.get(parent) ?? (await this.gh(this.r(`/git/commits/${parent}`))).data.tree.sha) : undefined;
       const { data: tree } = await this.gh(this.r("/git/trees"), { method: "POST", body: JSON.stringify({ base_tree: baseTree, tree: entries }) });
       const { data: commit } = await this.gh(this.r("/git/commits"), {
         method: "POST",
-        body: JSON.stringify({ message, tree: tree.sha, parents: parent && !opts.orphan ? [parent] : [] }),
+        body: JSON.stringify({ message: `${message}\n\n${body(f)}`, tree: tree.sha, parents: parent && !opts.orphan ? [parent] : [] }),
       });
       try {
         if (parent) await this.gh(this.r(`/git/refs/heads/${branch}`), { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: !!opts.orphan }) });
@@ -600,6 +689,9 @@ export class Bus {
   async readJson<T>(path: string, at?: string | null): Promise<T | null> {
     const ref = at ?? (await this.head());
     if (!ref) return null;
+    let sha: string | undefined;
+    try { sha = (await this.filesAt(ref, [path])).get(path); if (!sha) return null; } catch { /* over REST below */ }
+    if (sha) return this.json<T>(sha);
     try {
       const { data } = await this.gh(this.r(`/contents/${path}?ref=${ref}`));
       return JSON.parse(dec.decode(fromBase64(data.content)));
@@ -848,10 +940,19 @@ export class Bus {
   }
 
   /**
-   * New messages since `since` (a commit sha) in the given channels. Uses GitHub's compare view, which lists
-   * changed files; when that is truncated (300 files) it falls back to a full tree scan against `seen`.
+   * New messages since `since` (a commit sha) in the given channels: from the file lists in the new commits'
+   * messages, over GraphQL. Commits without one (older clients) go to GitHub's compare view, which lists changed
+   * files; when that is truncated (300 files) it falls back to a full tree scan against `seen`.
    */
   async changes(since: string, to: string, channels: Set<string>, seen?: Set<string>): Promise<{ messages: Message[]; metaChanged: boolean; devicesChanged: boolean }> {
+    const listed = await this.changedPaths(since, to).catch(() => null);
+    if (listed) {
+      const wanted = listed.filter((p) => isMessagePath(p) && channels.has(p.split("/")[1]) && !seen?.has(p));
+      const shas = await this.filesAt(to, wanted);
+      const messages = await Promise.all([...shas].map(([, sha]) => this.readMessage(sha)));
+      shas.forEach((_, p) => seen?.add(p));
+      return { messages: messages.sort((a, b) => a.id.localeCompare(b.id)), metaChanged: listed.some((p) => p.endsWith("/meta.json")), devicesChanged: listed.some((p) => p.startsWith("devices/")) };
+    }
     let paths: { path: string; sha: string }[];
     let metaChanged = false, devicesChanged = false;
     const { data } = await this.gh(this.r(`/compare/${since}...${to}`));
@@ -902,8 +1003,7 @@ export class Bus {
       const set = this.keys && !keys ? undefined : status?.replace(/\s+/g, " ").trim().slice(0, STATUS_MAX); // locked: seen, status kept
       let keep: { status?: string; statusEnc?: Sealed } = set ? (keys ? { statusEnc: await keys.sealFor("all", set, path) } : { status: set }) : {};
       if (set === undefined && parent) {
-        const entry = (await this.tree(parent)).find((e) => e.path === path);
-        const was = entry ? await this.json<{ status?: string; statusEnc?: Sealed }>(entry.sha) : {};
+        const was = (await this.readJson<{ status?: string; statusEnc?: Sealed }>(path, parent)) ?? {};
         keep = was.statusEnc ? { statusEnc: was.statusEnc } : was.status ? { status: was.status } : {};
       }
       return { [path]: JSON.stringify({ id: me.id, lastSeen: new Date().toISOString(), ...keep }) };
@@ -914,7 +1014,7 @@ export class Bus {
   async receipts(at?: string | null): Promise<Receipts> {
     const head = at ?? (await this.head("receipts"));
     if (!head) return {};
-    const entries = (await this.tree(head)).filter((e) => /^receipts\/\d{4}\.json$/.test(e.path));
+    const entries = (await this.folder("receipts", head)).filter((e) => /^receipts\/\d{4}\.json$/.test(e.path));
     const all = await Promise.all(entries.map((e) => this.json<{ id: string; channels: Record<string, Receipt> }>(e.sha)));
     return Object.fromEntries(all.map((r) => [r.id, r.channels ?? {}]));
   }
@@ -930,7 +1030,7 @@ export class Bus {
     const later = (a?: string, b?: string) => (!a ? b : !b ? a : a > b ? a : b);
     try {
       await this.commit(async (parent) => {
-        const cur: Record<string, Receipt> = parent ? (await this.receipts(parent))[me.id] ?? {} : {};
+        const cur: Record<string, Receipt> = (parent && (await this.readJson<{ channels?: Record<string, Receipt> }>(path, parent))?.channels) || {};
         const next: Record<string, Receipt> = { ...cur };
         for (const [ch, r] of Object.entries(update)) {
           const merged: Receipt = { ...cur[ch] };
@@ -952,8 +1052,7 @@ export class Bus {
   async pins(me: string, at?: string | null): Promise<Pin[]> {
     const head = at ?? (await this.head("pins"));
     if (!head) return [];
-    const entry = (await this.tree(head)).find((e) => e.path === `pins/${me}.json`);
-    return entry ? (await this.json<{ pins?: Pin[] }>(entry.sha)).pins ?? [] : [];
+    return (await this.readJson<{ pins?: Pin[] }>(`pins/${me}.json`, head))?.pins ?? [];
   }
 
   /**
@@ -983,7 +1082,7 @@ export class Bus {
   async reactions(at?: string | null): Promise<Reactions> {
     const head = at ?? (await this.head("reactions"));
     if (!head) return {};
-    const entries = (await this.tree(head)).filter((e) => /^reactions\/\d{4}\.json$/.test(e.path));
+    const entries = (await this.folder("reactions", head)).filter((e) => /^reactions\/\d{4}\.json$/.test(e.path));
     const all = await Promise.all(entries.map((e) => this.json<{ id: string; reactions?: Record<string, Reaction> }>(e.sha)));
     return Object.fromEntries(all.map((r) => [r.id, r.reactions ?? {}]));
   }
@@ -999,7 +1098,7 @@ export class Bus {
     let changed = false;
     try {
       await this.commit(async (parent) => {
-        const cur = parent ? (await this.reactions(parent))[me.id] ?? {} : {};
+        const cur = (parent && (await this.readJson<{ reactions?: Record<string, Reaction> }>(`reactions/${me.id}.json`, parent))?.reactions) || {};
         if ((cur[key] ?? null) === emoji) throw new Unchanged();
         const next = { ...cur };
         if (emoji) next[key] = emoji; else delete next[key];
@@ -1078,9 +1177,8 @@ export class Bus {
   async drafts(me: string, at?: string | null): Promise<Drafts> {
     const head = at ?? (await this.head("drafts"));
     if (!head) return {};
-    const entry = (await this.tree(head)).find((e) => e.path === `drafts/${me}.json`);
-    if (!entry) return {};
-    const doc = await this.json<{ drafts?: Drafts; enc?: { iv: string; ct: string } }>(entry.sha);
+    const doc = await this.readJson<{ drafts?: Drafts; enc?: { iv: string; ct: string } }>(`drafts/${me}.json`, head);
+    if (!doc) return {};
     if (!doc.enc) return doc.drafts ?? {};
     const keys = this.keys && (await this.keys.catch(() => null));
     return keys ? JSON.parse(await keys.openSelf(doc.enc, `drafts/${me}`).catch(() => "{}")) : {};
@@ -1119,7 +1217,7 @@ export class Bus {
   async presence(at?: string | null): Promise<Record<string, Presence>> {
     const head = at ?? (await this.head("presence"));
     if (!head) return {};
-    const entries = (await this.tree(head)).filter((e) => /^presence\/\d{4}\.json$/.test(e.path));
+    const entries = (await this.folder("presence", head)).filter((e) => /^presence\/\d{4}\.json$/.test(e.path));
     const all = await Promise.all(entries.map((e) => this.json<{ id: string; statusEnc?: Sealed } & Presence>(e.sha)));
     const keys = this.keys && (await this.keys.catch(() => null));
     return Object.fromEntries(await Promise.all(all.map(async ({ id, lastSeen, status, statusEnc }) => {
@@ -1241,7 +1339,7 @@ export class Watcher {
   groups: Group[] = [];
   private bus: Bus;
   private me: Device;
-  private ticks = 0;
+  private reconciled = Date.now();
   constructor(bus: Bus, me: Device) { this.bus = bus; this.me = me; }
 
   get channels() { return new Set(this.bus.channelsFor(this.me.id, this.devices, this.groups)); }
@@ -1262,7 +1360,7 @@ export class Watcher {
       const mine = this.channels;
       for (const e of tree) if (isMessagePath(e.path) && mine.has(e.path.split("/")[1])) this.seen.add(e.path);
     }
-    await this.bus.headIfChanged(); // prime the ETag
+    if (now) await this.bus.headFrom(now); // the ETag head() just got: the first tick is free while nothing moves
     this.resume = this.head !== now ? now : null;
   }
 
@@ -1319,7 +1417,6 @@ export class Watcher {
   /** New messages since the last tick; `full` also scans the tree for anything GitHub's compare view left out
    *  (a pull to refresh). */
   async tick(full = false): Promise<Message[]> {
-    this.ticks++;
     // the encryption keys too (free while the branch has not moved): new members' keys get the chats' keys
     this.bus.keys?.then((k) => k?.sync()).catch(() => {});
     const out: Message[] = [];
@@ -1353,9 +1450,10 @@ export class Watcher {
     // Safety net: right after a push GitHub's compare view can come back without the new files, and a
     // message skipped that way would never be read again. The commit's own tree always has them, so it is
     // scanned when the branch moved and compare brought nothing (just when a notification for that message
-    // arrives), on a pull to refresh, and once a minute.
+    // arrives), on a pull to refresh, and every five minutes.
     // ponytail: one recursive tree read per such move; read only the changed channels' folders if repos grow large
-    if (this.head && (full || empty || this.ticks % 12 === 0)) {
+    if (this.head && (full || empty || Date.now() - this.reconciled > 5 * 60_000)) {
+      this.reconciled = Date.now();
       try { out.push(...(await this.reconcile())); } catch { /* a safety net: the next one tries again, and what this tick read still goes out */ }
     }
     return out.sort((a, b) => a.id.localeCompare(b.id));

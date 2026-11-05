@@ -67,8 +67,21 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.9.7" open>
-  <summary><span class="v">0.9.7</span><span class="h">The Mac app updates itself <span class="tag">Latest</span></span><time datetime="2026-10-27">27 October 2026</time></summary>
+<details class="rel" id="en-0.9.8" open>
+  <summary><span class="v">0.9.8</span><span class="h">Far less of GitHub's hourly quota <span class="tag">Latest</span></span><time datetime="2026-11-05">5 November 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Far fewer calls.</b> New messages, ticks, reactions and statuses are read through GitHub's other quota (GraphQL), and a part of the chat that has not changed is checked for free. A message now costs about one call to send and one to receive on each device.</li>
+  <li><b>Invitations cost nothing while none is open.</b> The app looked for them every 15 seconds; now it looks only when the chat changes.</li>
+  <li><b>An app in the background rests.</b> It still checks for new messages and notifies you; ticks, reactions, statuses and drafts catch up when you come back, and it no longer shows you as online.</li>
+  <li><b>Drafts are saved less often</b>: 20 seconds after you stop typing, or when you leave the app.</li>
+  <li><b>Agents get a quota of their own.</b> Your agent sends you a link, once per computer: tap <b>Create GitHub App</b> and <b>Install</b> on GitHub, and the agents on that computer use the app's 5000 calls an hour instead of yours.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.8">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.9.7">
+  <summary><span class="v">0.9.7</span><span class="h">The Mac app updates itself</span><time datetime="2026-10-27">27 October 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Updates on a Mac.</b> When a new version is out, the banner's <b>Update</b> downloads it, closes the app, puts the new version in its place and opens it again. Until now it only linked the new dmg. Windows keeps updating itself as before.</li>
@@ -529,8 +542,21 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.9.7" open>
-  <summary><span class="v">0.9.7</span><span class="h">Mac uygulaması kendini güncelliyor <span class="tag">Son sürüm</span></span><time datetime="2026-10-27">27 Ekim 2026</time></summary>
+<details class="rel" id="tr-0.9.8" open>
+  <summary><span class="v">0.9.8</span><span class="h">GitHub'ın saatlik kotasından çok daha az <span class="tag">Son sürüm</span></span><time datetime="2026-11-05">5 Kasım 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Çok daha az istek.</b> Yeni mesajlar, tikler, tepkiler ve durumlar GitHub'ın öteki kotasından (GraphQL) okunuyor; sohbetin değişmeyen bir kısmına bakmak bedava. Bir mesaj artık göndermek için yaklaşık bir, her cihazda almak için yaklaşık bir istek tutuyor.</li>
+  <li><b>Açık davet yokken davetler bir şey harcamıyor.</b> Uygulama 15 saniyede bir davetlere bakıyordu; artık yalnızca sohbet değişince bakıyor.</li>
+  <li><b>Arka plandaki uygulama dinleniyor.</b> Yeni mesajlara bakmaya ve bildirim göndermeye devam ediyor; tikler, tepkiler, durumlar ve taslaklar geri dönünce güncelleniyor ve seni artık çevrimiçi göstermiyor.</li>
+  <li><b>Taslaklar daha seyrek kaydediliyor</b>: yazmayı bıraktıktan 20 saniye sonra ya da uygulamadan çıkınca.</li>
+  <li><b>Ajanların kendi kotası.</b> Ajanın sana her bilgisayar için bir kez bir bağlantı gönderir: GitHub'da <b>Create GitHub App</b>'e ve <b>Install</b>'a dokun, o bilgisayardaki ajanlar seninkinin yerine uygulamanın saatlik 5000 isteğini kullansın.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.8">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.9.7">
+  <summary><span class="v">0.9.7</span><span class="h">Mac uygulaması kendini güncelliyor</span><time datetime="2026-10-27">27 Ekim 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Mac'te güncelleme.</b> Yeni sürüm çıkınca banttaki <b>Güncelle</b> düğmesi yeni sürümü indirir, uygulamayı kapatır, yenisini yerine koyar ve yeniden açar. Şimdiye kadar yalnızca yeni dmg'nin bağlantısını veriyordu. Windows eskisi gibi kendini güncellemeye devam ediyor.</li>

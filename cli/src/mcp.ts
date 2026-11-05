@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
-import { REACTIONS, REACTION_NAMES, STATUS_MAX, Watcher, addressedTo, answerFor, handle, newestByChannel, type Bus, type Device, type Group, type Message, type Reaction } from "../../core/src/index.ts";
+import { HEARTBEAT_MS, REACTIONS, REACTION_NAMES, STATUS_MAX, Watcher, addressedTo, answerFor, handle, newestByChannel, type Bus, type Device, type Group, type Message, type Reaction } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 
 type Ctx = {
@@ -16,6 +16,7 @@ type Ctx = {
   line: (m: Message, me: Device, devices: Device[], groups: Group[], quoted?: Map<string, Message>) => string;
   status: () => string; // the configured status, as it is now
   setStatus: (text: string) => void;
+  setUp: () => Promise<boolean>; // a step of the agents' own GitHub quota (app.ts); true once in use
 };
 
 /** A message's attachments, opened (they are sealed like the text), written into `dir` under their own names (a
@@ -142,10 +143,11 @@ export async function serveMcp(c: Ctx): Promise<void> {
     await x.start(from);
     return x;
   })());
-  // a heartbeat now and every 5 minutes: online while the server runs, with the configured status
+  // a heartbeat now and every few minutes: online while the server runs, with the configured status
   const beat = () => c.bus.heartbeat(c.me, c.status()).catch((e) => console.error(`mcp: heartbeat: ${(e as Error).message}`));
   beat();
-  const timer = setInterval(beat, 5 * 60_000);
+  const timer = setInterval(beat, HEARTBEAT_MS);
+  const setUp = setInterval(() => c.setUp().then((done) => { if (done) clearInterval(setUp); }).catch((e) => console.error(`mcp: app: ${(e as Error).message}`)), 10_000);
   const rl = readline.createInterface({ input: process.stdin });
   for await (const text of rl) {
     if (!text.trim()) continue;
@@ -167,4 +169,5 @@ export async function serveMcp(c: Ctx): Promise<void> {
     } catch (e) { out({ id, error: { code: -32603, message: (e as Error).message } }); }
   }
   clearInterval(timer);
+  clearInterval(setUp);
 }

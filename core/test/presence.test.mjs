@@ -12,6 +12,8 @@ function fakeBus() {
     headIfChanged: async () => head,
     tree: async () => Object.keys(files).map((path) => ({ path, sha: `${path}@${files[path]}`, type: "blob" })),
     json: async (sha) => JSON.parse(sha.slice(sha.indexOf("@") + 1)),
+    readJson: async (path) => (path in files ? JSON.parse(files[path]) : null),
+    folder: async (dir) => Object.keys(files).filter((p) => p.startsWith(`${dir}/`)).map((path) => ({ path, sha: `${path}@${files[path]}` })),
     commit: async (change, _m, opts) => {
       assert.deepEqual(opts, { branch: "presence", orphan: true });
       Object.assign(files, await change(head));

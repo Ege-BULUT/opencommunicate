@@ -60,20 +60,20 @@ export async function createInvite(bus: Bus, me: Device, opts: { name?: string; 
 export async function invites(bus: Bus, at?: string): Promise<Invite[]> {
   const head = at ?? (await bus.head());
   if (!head) return [];
-  const entries = (await bus.tree(head)).filter((e) => /^invites\/[a-z0-9]+\.json$/.test(e.path));
+  const entries = (await bus.folder("invites", head)).filter((e) => /^invites\/[a-z0-9]+\.json$/.test(e.path));
   return Promise.all(entries.map((e) => bus.json<Invite>(e.sha)));
 }
 export const isOpen = (i: Invite, now = Date.now()) => !i.used && Date.parse(i.expiresAt) > now;
 
 // ---------- the ntfy topic ----------
-export async function post(topic: string, note: Note, f: typeof fetch = fetch): Promise<void> {
+export async function post(topic: string, note: Note | Record<string, unknown>, f: typeof fetch = fetch): Promise<void> {
   await f(`${NTFY}/${topic}`, { method: "POST", body: JSON.stringify(note) });
 }
 /** Notes posted to a topic since a time (ntfy keeps them about 12 hours). */
-export async function read(topic: string, since: string, f: typeof fetch = fetch): Promise<Note[]> {
+export async function read<T = Note>(topic: string, since: string, f: typeof fetch = fetch): Promise<T[]> {
   const res = await f(`${NTFY}/${topic}/json?poll=1&since=${Math.floor(Date.parse(since) / 1000)}`);
   if (!res.ok) return [];
-  const out: Note[] = [];
+  const out: T[] = [];
   for (const line of (await res.text()).split("\n")) {
     try { const m = JSON.parse(line); if (m.event === "message") out.push(JSON.parse(m.message)); } catch { /* not ours */ }
   }
@@ -85,13 +85,21 @@ export async function canAdmit(bus: Bus): Promise<boolean> {
   try { return !!(await bus.gh(`/repos/${bus.repo}`)).data.permissions?.admin; } catch { return false; }
 }
 
+/** The open invites as of a head, read again only when the branch moves. */
+const openAt = new WeakMap<Bus, { head: string; open: Invite[] }>();
+
 /**
  * Admits whoever claimed an open invite with the right secret. Returns the logins admitted this time.
- * A login that already has access (the owner, a collaborator) counts as admitted.
+ * A login that already has access (the owner, a collaborator) counts as admitted. `at`: the head the caller
+ * already follows (a Watcher's), so checking every 15 seconds costs GitHub nothing while no invite is open.
  */
-export async function processInvites(bus: Bus, me: Device, f: typeof fetch = fetch): Promise<string[]> {
+export async function processInvites(bus: Bus, me: Device, f: typeof fetch = fetch, at?: string | null): Promise<string[]> {
   const done: string[] = [];
-  for (const inv of (await invites(bus)).filter((i) => isOpen(i))) {
+  const head = at ?? (await bus.head());
+  if (!head) return done;
+  let known = openAt.get(bus);
+  if (known?.head !== head) { known = { head, open: (await invites(bus, head)).filter((i) => isOpen(i)) }; openAt.set(bus, known); }
+  for (const inv of known.open.filter((i) => isOpen(i))) {
     for (const note of await read(inv.topic, inv.createdAt, f)) {
       if (note.kind !== "claim" || note.id !== inv.id || !/^[A-Za-z0-9-]{1,39}$/.test(note.login)) continue;
       if ((await sha256(note.secret)) !== inv.hash) { await post(inv.topic, { kind: "refused", login: note.login, why: "link", reason: "The invitation link is not valid." }, f); continue; }
@@ -109,6 +117,7 @@ export async function processInvites(bus: Bus, me: Device, f: typeof fetch = fet
       }
       const used: Invite = { ...inv, used: { login: note.login, at: new Date().toISOString(), by: me.id } };
       await bus.commit({ [`invites/${inv.id}.json`]: JSON.stringify(used, null, 2) + "\n" }, `invite: ${note.login} admitted by ${handle(me)}`);
+      known.open = known.open.filter((i) => i.id !== inv.id); // used up, though `at` may not show it yet
       await post(inv.topic, { kind: "added", login: note.login }, f);
       done.push(note.login);
       break; // one use

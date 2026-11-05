@@ -14,6 +14,7 @@ function fakeRepo() {
     const seen = { head: undefined };
     Object.assign(b, {
       reactions: async () => ({ ...repo.files }),
+      readJson: async (path) => { const id = path.slice(10, -5); return id in repo.files ? { id, reactions: repo.files[id] } : null; },
       headIfChanged: async (branch) => { assert.equal(branch, "reactions"); if (repo.head === seen.head) return null; seen.head = repo.head; return repo.head; },
       commit: async (files, _msg, opts) => {
         assert.equal(opts.branch, "reactions", "reactions live on their own branch, not main");
