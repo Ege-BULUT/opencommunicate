@@ -87,7 +87,10 @@ export async function setUpStep(bus: Bus, me: Device, devices: Device[], say: (s
     pending = { topic: crypto.randomBytes(16).toString("hex"), at: new Date().toISOString() };
     try { save(pendingFile, pending, "wx"); } catch { return false; } // another agent here asked first
     const link = `${APP_PAGE}?t=${pending.topic}&o=${encodeURIComponent(owner)}&r=${encodeURIComponent(name)}`;
-    const person = devices.find((d) => d.kind !== "agent" && d.login?.toLowerCase() === owner.toLowerCase());
+    // the owner's device seen last: an account can have old ones it no longer reads
+    const people = devices.filter((d) => d.kind !== "agent" && d.login?.toLowerCase() === owner.toLowerCase());
+    const seen = people.length > 1 ? await bus.presence().catch(() => ({} as Record<string, { lastSeen?: string }>)) : {};
+    const person = people.sort((a, b) => (seen[b.id]?.lastSeen ?? "").localeCompare(seen[a.id]?.lastSeen ?? ""))[0];
     if (person) {
       await bus.send(dmChannel(me.id, person.id), me, [
         `This computer's agents can use a GitHub quota of their own and leave yours alone: open the link, tap **Create GitHub App**, then **Install** (the ${name} repository is all it needs).`,

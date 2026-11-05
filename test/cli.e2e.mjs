@@ -149,6 +149,11 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
 // the agents' own quota (cli/src/app.ts): the owner's agent asks the owner once, by DM with the page's link, trades
 // the code GitHub hands the page for the app, waits for the install, and speaks with the app's tokens from then on
 { const on = { OPENCOM_APP: "" };
+  // an old device of the owner's account, not seen for a while: the link goes to the one seen last
+  await bus.commit({ "devices/1111.json": JSON.stringify({ id: "1111", nick: "ege-old", kind: "person", login: "ege", joinedAt: "2026-09-01T00:00:00.000Z" }) }, "an old device");
+  await bus.heartbeat({ id: "1111", nick: "ege-old" });
+  await sleep(10);
+  await bus.heartbeat(ege);
   const watching = w.start("2082", ["watch", "--interval", "2"], on);
   let err = "";
   watching.stderr.on("data", (d) => (err += d));
