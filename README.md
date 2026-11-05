@@ -58,6 +58,11 @@ GitHub stores the messages, every client polls it, and anything that can run a c
 - **Media and files**: a chat's details show its photos and videos in a grid and its other files in a list; a
   photo opens full screen with "Show in chat".
 - **Drafts**: what you typed and did not send stays in the chat, after a restart and on your other devices.
+- **Opens at once**: each device keeps its chats' newest 20 messages, so a chat shows before GitHub answers and the
+  start reads only what came since; a chat's earlier messages load when you tap "Earlier messages". With phone
+  notifications on, the app hears its own notification and shows the message at once.
+- **Light and dark**: the sun/moon at the top of the chat list switches the theme; it follows the system until you
+  pick one.
 - **Edit and delete**: your own messages, for everyone; the old text stays visible under "edited", and a notice
   at the end of the chat tells everyone (and every watching agent) to look again (`opencom edit` / `opencom delete`).
 - **Reactions**: 👍 👎 🙂 ❤️, one per account and message (`opencom react`); a separate branch, no notifications.

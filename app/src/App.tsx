@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { Bus, ClaimError, HEARTBEAT_MS, type Quota, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMatcher, searchMatches, searchMessages, type SearchOptions, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, HEARTBEAT_MS, type Quota, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMatcher, searchMatches, searchMessages, type SearchOptions, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Kept, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -157,7 +157,7 @@ export default function App() {
   // (a renewed token keeps the view: only signing in again changes session.token)
   return <Chat key={`${session.repo}/${credKey(session)}/${session.token}`} session={session} onSession={update} chats={chats!.chats} activity={activity}
     onOpen={open} onAdd={session.source === "app" && canSignIn() ? () => setAdding(true) : undefined}
-    onSignOut={() => { const next = withoutChat(chats!, session.repo); if (next.chats.length) { commit(next); pruneCreds(next); } else { clearChats(); setChats(null); } }} />;
+    onSignOut={() => { forgetShown(session.repo); const next = withoutChat(chats!, session.repo); if (next.chats.length) { commit(next); pruneCreds(next); } else { clearChats(); setChats(null); } }} />;
 }
 
 /**
@@ -654,6 +654,21 @@ function Onboarding({ arrival, known, onCancel, onDone }: { arrival: Arrival; kn
 // ---------------- chat ----------------
 type Pending = Message & { pending?: boolean; failed?: boolean };
 
+/* The chat as this device last showed it: the head it had read up to, its people and groups, and each chat's
+   newest messages (as opened). Opening shows it at once, and the start then reads only what came since
+   (Watcher.start with `kept`) instead of the whole tree and every chat's history. */
+const KEEP = 20;
+type Shown = { head: string; devices: Device[]; groups: Group[]; messages: Record<string, Message[]> };
+const shownKey = (repo: string, id: string) => `oc.shown.${repo}.${id}`;
+function lastShown(repo: string, id: string): Shown | null {
+  try { return JSON.parse(localStorage.getItem(shownKey(repo, id)) ?? "null"); } catch { return null; }
+}
+/** Signing out of a chat leaves none of its messages on the device. */
+function forgetShown(repo: string) {
+  try { for (const k of Object.keys(localStorage)) if (k.startsWith(`oc.shown.${repo}.`)) localStorage.removeItem(k); } catch { /* nothing stored */ }
+}
+const keptOf = (s: Shown): Kept => ({ devices: s.devices, groups: s.groups, paths: Object.values(s.messages).flat().map(msgPath) });
+
 function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }: { session: Session; onSession: (s: Session) => void; onSignOut: () => void; chats: Session[]; activity: Record<string, boolean>; onOpen: (repo: string) => void; onAdd?: () => void }) {
   // the bus and the watcher follow the chat and the token; a change to this device (picture, notifications) keeps them
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -691,10 +706,12 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     try { localStorage.setItem(`oc.head.${session.repo}`, watcher.head); } catch { /* private mode */ }
     noteHead(session.repo, watcher.head);
   };
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [onScreen] = useState(() => lastShown(session.repo, session.device.id));
+  const [devices, setDevices] = useState<Device[]>(onScreen?.devices ?? []);
+  const [groups, setGroups] = useState<Group[]>(onScreen?.groups ?? []);
   const [presence, setPresence] = useState<Record<string, Presence>>({});
-  const [messages, setMessages] = useState<Record<string, Pending[]>>({});
+  const [messages, setMessages] = useState<Record<string, Pending[]>>(onScreen?.messages ?? {});
+  const [shownHead, setShownHead] = useState<string | null>(null); // the head `messages` is complete up to
   const [active, setActive] = useState("all");
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
   const [dialog, setDialog] = useState<"group" | "settings" | "channel" | "invite" | "chats" | null>(null);
@@ -825,9 +842,10 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     return () => { el.removeEventListener("touchstart", start); el.removeEventListener("touchmove", move); el.removeEventListener("touchend", end); el.removeEventListener("touchcancel", end); };
   }, [navEl]);
 
-  // start: directory + recent history of every channel, then poll
+  // start: directory + recent history of every channel (or what was on screen last time), then poll
+  const quick = useRef(0); // polls a second apart still to come (after a notification)
   useEffect(() => {
-    let stop = false;
+    let stop = false, catchUp = false;
     // coming back to the app (or a pull to refresh) checks at once instead of waiting out the interval
     let wake = () => {};
     wakeRef.current = () => wake();
@@ -840,17 +858,22 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         if (stop) return;
         try {
           await bus.gh(`/repos/${session.repo}`); // a repository this account can't see would otherwise look empty
-          await watcher.start();
+          const last = lastShown(session.repo, session.device.id);
+          await watcher.start(last?.head, last ? keptOf(last) : undefined);
           if (stop) return; // left this chat meanwhile: write nothing back
         setDevices(watcher.devices); setGroups(watcher.groups);
         // the repository's devices/<id>.json is the truth (another client may have changed it)
         const stored = watcher.devices.find((d) => d.id === session.device.id);
           if (stored) { setMe(stored); onSessionRef.current({ ...session, device: stored }); }
           else if (watcher.devices.length) { setStatus(S.removedDevice); return; }
-          const hist = await bus.histories([...watcher.channels], 60, watcher.head ?? undefined);
-          for (const list of Object.values(hist)) list.forEach((m) => watcher.seen.add(msgPath(m)));
-          setMessages(hist);
-          delivered(Object.values(hist).flat());
+          if (last) catchUp = true; // on screen already: the first tick, at once, brings what came since
+          else {
+            const hist = await bus.histories([...watcher.channels], 60, watcher.head ?? undefined);
+            for (const list of Object.values(hist)) list.forEach((m) => watcher.seen.add(msgPath(m)));
+            setMessages(hist);
+            delivered(Object.values(hist).flat());
+          }
+          setShownHead(watcher.head);
           watcher.tickReceipts().then(() => setReceipts(watcher.receipts)).catch(() => {});
           watcher.tickPins().then(() => setPins(watcher.pins)).catch(() => {});
           watcher.tickReactions().then(() => setReactions(watcher.reactions)).catch(() => {});
@@ -870,8 +893,11 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
       }
       let beat = Date.now();
       let failures = 0;
+      let devicesRead = watcher.devices;
       while (!stop) {
-        await sleep(POLL_MS);
+        const catching = catchUp;
+        catchUp = false;
+        if (!catching) await sleep(quick.current > 0 ? (quick.current--, 1000) : POLL_MS);
         if (stop) break;
         const full = refreshRef.current;
         refreshRef.current = false;
@@ -879,12 +905,19 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
           const fresh = await watcher.tick(full);
           seenHead();
           setDevices([...watcher.devices]); setGroups([...watcher.groups]);
+          if (watcher.devices !== devicesRead) { // read again (one changed): this device's own file may be newer
+            devicesRead = watcher.devices;
+            const stored = devicesRead.find((d) => d.id === session.device.id);
+            if (stored) { setMe(stored); onSessionRef.current({ ...session, device: stored }); }
+            else if (devicesRead.length) { setStatus(S.removedDevice); return; }
+          }
           add(fresh);
+          setShownHead(watcher.head);
           delivered(fresh);
           // an edit or delete notice: read the message it names again (its file changed in place)
           for (const n of fresh.filter(isEditNotice)) bus.message(n.channel, n.system!.target!).then((m) => { if (m) replace(m); }).catch(() => {});
           reopen().catch(() => {});
-          for (const m of fresh) {
+          for (const m of catching ? [] : fresh) { // what came while the app was closed was notified then
             if (m.from === session.device.id || isEditNotice(m) || !wantsNotice(meRef.current, m)) continue;
             if (document.hidden || activeRef.current !== m.channel) notify(`${m.fromNick}#${m.from}`, m.locked ? "🔒" : snippet({ text: m.text }, 200) || S.fileNotice);
           }
@@ -913,6 +946,26 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     return () => { stop = true; wake(); document.removeEventListener("visibilitychange", onVisible); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watcher]);
+
+  // keeps what is on screen for the next opening; a write that fails (storage full) leaves the last one, which
+  // is still whole
+  useEffect(() => {
+    if (!shownHead) return;
+    const t = setTimeout(() => {
+      const newest = Object.fromEntries(Object.entries(messages).map(([ch, list]) => [ch, list.filter((m) => !m.pending && !m.failed).slice(-KEEP)]));
+      try { localStorage.setItem(shownKey(session.repo, session.device.id), JSON.stringify({ head: shownHead, devices, groups, messages: newest } satisfies Shown)); } catch { /* full, or private mode */ }
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [shownHead, messages, devices, groups, session.repo, session.device.id]);
+
+  // this device's notification topic: a notification is a new message, read at once rather than at the next
+  // poll, then a few polls a second apart in case GitHub still shows the branch as it was a moment ago
+  useEffect(() => {
+    if (!/^https:\/\/ntfy\.sh\/[\w-]{12,64}$/.test(me.notify ?? "")) return;
+    const events = new EventSource(`${me.notify}/sse`);
+    events.onmessage = () => { quick.current = 3; wakeRef.current(); };
+    return () => events.close();
+  }, [me.notify]);
 
   // a client whose account runs the repo lets invited people in (see core/src/invite.ts)
   useEffect(() => {
@@ -1003,9 +1056,9 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const [olderLeft, setOlderLeft] = useState<number | null>(null); // null until asked; 0 when everything is loaded
   const [loadingOlder, setLoadingOlder] = useState(false);
   /** The next page of older messages in `channels`, added to the chats; how many are left. */
-  const olderIn = async (channels: string[]) => {
+  const olderIn = async (channels: string[], limit = 300) => {
     const have = new Set(Object.values(messages).flat().filter((m) => !m.pending && !m.failed).map(msgPath));
-    const { messages: older, left } = await bus.older(channels, have, 300, watcher.head);
+    const { messages: older, left } = await bus.older(channels, have, limit, watcher.head);
     older.forEach((m) => watcher.seen.add(msgPath(m)));
     add(older);
     return left;
@@ -1017,6 +1070,13 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     finally { setLoadingOlder(false); }
   };
   const olderHere = () => olderIn([active]);
+  // the open chat's earlier messages, a page at a time, when asked for (a chat opens with its newest ones)
+  const [earlierLeft, setEarlierLeft] = useState<Record<string, number>>({});
+  const earlier = async () => {
+    const ch = active;
+    try { const left = await olderIn([ch], 50); setEarlierLeft((l) => ({ ...l, [ch]: left })); }
+    catch (e) { setToast(S.cantLoadEarlier((e as Error).message)); setTimeout(() => setToast(""), 6000); }
+  };
   const chatName = (ch: string) => ch === "all" ? "#all" : isDm(ch) ? handle(devices.find((d) => d.id === dmPeer(ch, me.id)) ?? { nick: "?", id: dmPeer(ch, me.id) }) : `#${groups.find((g) => g.channel === ch)?.name ?? ch}`;
   const query = filter.trim();
   const [searchHow, setSearchHow] = useState<SearchOptions>({});
@@ -1213,6 +1273,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         {locked && <div className="alert" role="alert"><span>🔒 {S.keysLocked}</span><button className="ghost" onClick={unlock}>{S.unlock}</button></div>}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
+          earlier={(messages[active]?.length ?? 0) >= KEEP && earlierLeft[active] !== 0 ? earlier : undefined}
           ticks={(m) => ticksFor(m, recipientsOf(m.channel, me.id, devices, groups), receipts, showRead)}
           quoted={byId} isPinned={(m) => pinned.has(pinKey(m))} reactions={(m) => reactionsOn(m, reactions)} onReact={(m, e) => react(m, myReaction(m) === e ? null : e)} answers={(m) => answersTo(m, (messages[m.channel] ?? []).filter((x) => !x.failed))} onAnswer={answer} onReply={addReply} onJump={jumpTo} onMenu={(m, x, y) => setMenu({ m, x, y })}
           selecting={selected !== null} selected={selected ?? undefined} onToggle={toggleSel} onResend={resend} onDiscard={discard} />
@@ -1711,16 +1772,27 @@ function TickMark({ state }: { state: Ticks }) {
   );
 }
 
-function MessageList({ list, me, bus, devices, authors, loading, ticks, quoted, isPinned, reactions, onReact, answers, onAnswer, onReply, onJump, onMenu, selecting, selected, onToggle, onResend, onDiscard }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; reactions: (m: Message) => { emoji: Reaction; ids: string[] }[]; onReact: (m: Message, e: Reaction) => void; answers: (m: Message) => Record<string, number | null>; onAnswer: (m: Message, i: number | null) => void; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void; onResend: (m: Message) => void; onDiscard: (m: Message) => void }) {
+function MessageList({ list, me, bus, devices, authors, loading, earlier, ticks, quoted, isPinned, reactions, onReact, answers, onAnswer, onReply, onJump, onMenu, selecting, selected, onToggle, onResend, onDiscard }: { list: Pending[]; me: Device; bus: Bus; devices: Device[]; authors: boolean; loading: boolean; earlier?: () => Promise<void>; ticks: (m: Message) => Ticks; quoted: (id: string) => Message | undefined; isPinned: (m: Message) => boolean; reactions: (m: Message) => { emoji: Reaction; ids: string[] }[]; onReact: (m: Message, e: Reaction) => void; answers: (m: Message) => Record<string, number | null>; onAnswer: (m: Message, i: number | null) => void; onReply: (m: Message) => void; onJump: (id: string) => void; onMenu: (m: Message, x: number, y: number) => void; selecting: boolean; selected?: Set<string>; onToggle: (id: string) => void; onResend: (m: Message) => void; onDiscard: (m: Message) => void }) {
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [list.length]);
+  const box = useRef<HTMLDivElement>(null);
+  const [fetching, setFetching] = useState(false);
+  // a new message goes to the end; earlier ones put on top leave the view where it was
+  const tall = useRef<{ first?: string; last?: string; height: number }>({ height: 0 });
+  useLayoutEffect(() => {
+    const el = box.current, was = tall.current;
+    if (el && list.length && was.last === list.at(-1)!.id && was.first !== list[0].id) el.scrollTop += el.scrollHeight - was.height;
+    else if (was.last !== list.at(-1)?.id) end.current?.scrollIntoView({ block: "end" });
+    tall.current = { first: list[0]?.id, last: list.at(-1)?.id, height: el?.scrollHeight ?? 0 };
+  });
+  const more = async () => { setFetching(true); try { await earlier?.(); } finally { setFetching(false); } };
   // messages showing their earlier versions (tap "edited")
   const [openEdits, setOpenEdits] = useState<Set<string>>(new Set());
   const toggleEdits = (id: string) => setOpenEdits((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   if (!list.length) return <div className="messages empty muted">{loading ? S.loadingMessages : S.noMessages}</div>;
   let lastDay = "";
   return (
-    <div className="messages">
+    <div className="messages" ref={box}>
+      {earlier && <div className="earlier"><button className="mini" disabled={fetching} onClick={more}>{fetching ? S.loading : S.earlierMessages}</button></div>}
       {list.map((m, i) => {
         const d = day(m.ts);
         const sep = d !== lastDay ? (lastDay = d) : null;
