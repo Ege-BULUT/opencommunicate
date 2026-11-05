@@ -26,7 +26,7 @@ const DIR = () => process.env.OPENCOM_APPS || path.join(os.homedir(), ".opencomm
 
 type App = { id: number; slug: string; pem: string; owner: string; installation?: number };
 type Pending = { topic: string; at: string };
-type Note = { kind?: string; code?: unknown };
+type Note = { kind?: string; code?: unknown; url?: string };
 
 const file = (owner: string, kind: "app" | "pending") => path.join(DIR(), `${owner.toLowerCase()}.${kind}.json`);
 const load = <T>(p: string): T | null => { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch { return null; } };
@@ -37,6 +37,8 @@ const save = (p: string, v: object, flag = "w") => {
 
 /** The app for a repository owner's agents on this computer, if it was made (and not turned off: OPENCOM_APP=off). */
 export const appOf = (owner: string) => (process.env.OPENCOM_APP === "off" ? null : load<App>(file(owner, "app")));
+
+const installUrl = (slug: string, topic: string) => `https://github.com/apps/${slug}/installations/new?state=${topic}`;
 
 /** What the app signs its calls with: a JWT good for ten minutes. */
 function jwt(app: App): string {
@@ -109,14 +111,21 @@ export async function setUpStep(bus: Bus, me: Device, devices: Device[], say: (s
       const d = await res.json();
       if (d.owner?.login?.toLowerCase() !== owner.toLowerCase()) continue; // an app someone else made: not ours
       save(file(owner, "app"), { id: d.id, slug: d.slug, pem: d.pem, owner });
-      await post(pending.topic, { kind: "install", url: `https://github.com/apps/${d.slug}/installations/new?state=${pending.topic}` });
       say(`app: ${d.slug} made; waiting for it to be installed`);
+      await post(pending.topic, { kind: "install", url: installUrl(d.slug, pending.topic) });
       return false;
     }
     return false;
   }
   const res = await asApp(app, `/repos/${owner}/${name}/installation`);
-  if (!res.ok) return false; // not installed yet
+  if (!res.ok) {
+    // not installed yet: the page waits for the install link; one lost on the way (the process stopped first) goes again
+    if (pending && !(await read<Note>(pending.topic, pending.at)).some((n) => n.kind === "install")) {
+      await post(pending.topic, { kind: "install", url: installUrl(app.slug, pending.topic) });
+      say(`app: ${app.slug}: the install link went to the page again`);
+    }
+    return false;
+  }
   save(file(owner, "app"), { ...app, installation: (await res.json()).id });
   fs.rmSync(pendingFile, { force: true });
   say(`app: ${app.slug} installed; this computer's agents use its own GitHub quota now`);

@@ -166,6 +166,10 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
   let install;
   for (let i = 0; i < 60 && !install; i++) { await sleep(500); install = (w.gh.ntfy.get(topic) ?? []).map((x) => JSON.parse(x.message)).find((n) => n.kind === "install"); }
   check("the code is traded for the app, and the install link goes back to the page", install?.url === `https://github.com/apps/opencommunicate-agents-test/installations/new?state=${topic}`, JSON.stringify(install));
+  w.gh.ntfy.set(topic, w.gh.ntfy.get(topic).filter((x) => JSON.parse(x.message).kind !== "install")); // lost on the way
+  let again;
+  for (let i = 0; i < 60 && !again; i++) { await sleep(500); again = (w.gh.ntfy.get(topic) ?? []).map((x) => JSON.parse(x.message)).find((n) => n.kind === "install"); }
+  check("an install link lost on the way goes to the page again", again?.url === install?.url, JSON.stringify(again));
   const file = path.join(w.apps, "ege.app.json");
   const kept = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
   check("the app's key stays on this computer, for its user only", kept.id === 4242 && kept.pem?.includes("PRIVATE KEY") && (fs.statSync(file).mode & 0o077) === 0);

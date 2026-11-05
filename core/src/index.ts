@@ -1306,14 +1306,35 @@ export function snippet(m: Pick<Message, "text" | "files" | "locked"> | undefine
   return m.files?.length ? `📎 ${m.files[0].name}` : "";
 }
 
+/** How a search reads its text: as written (`caseSensitive`), and as a regular expression (`regex`). */
+export type SearchOptions = { caseSensitive?: boolean; regex?: boolean };
+
 /**
- * Messages whose text or attachment names contain `query` (case-insensitive in `locale`, so Turkish İ/ı match),
- * newest first. Notices and deleted messages are left out; an edited message matches by what it says now.
+ * Where `query` first matches in a text, [start, end), or null: case-insensitive in `locale` unless
+ * `caseSensitive` (so Turkish İ/ı match), as plain text unless `regex`. A regex that matches only empty text
+ * matches nothing. Throws a SyntaxError for a regex that does not parse.
  */
-export function searchMessages(list: Message[], query: string, locale?: string): Message[] {
-  const q = query.trim().toLocaleLowerCase(locale);
+export function searchMatcher(query: string, locale?: string, o: SearchOptions = {}): (text: string) => [number, number] | null {
+  if (o.regex) {
+    const re = new RegExp(query, o.caseSensitive ? "u" : "iu");
+    return (text) => { const m = re.exec(text); return m && m[0] ? [m.index, m.index + m[0].length] : null; };
+  }
+  const q = o.caseSensitive ? query : query.toLocaleLowerCase(locale);
+  return (text) => {
+    const i = (o.caseSensitive ? text : text.toLocaleLowerCase(locale)).indexOf(q);
+    return i < 0 ? null : [i, i + q.length];
+  };
+}
+
+/**
+ * Messages whose text or attachment names match `query` (see searchMatcher), newest first. Notices and deleted
+ * messages are left out; an edited message matches by what it says now. Throws for a regex that does not parse.
+ */
+export function searchMessages(list: Message[], query: string, locale?: string, o: SearchOptions = {}): Message[] {
+  const q = query.trim();
   if (!q) return [];
-  const has = (s?: string) => !!s && s.toLocaleLowerCase(locale).includes(q);
+  const match = searchMatcher(q, locale, o);
+  const has = (s?: string) => !!s && !!match(s);
   return list.filter((m) => !m.system && !m.deleted && (has(m.text) || m.files?.some((f) => has(f.name)))).sort((a, b) => b.id.localeCompare(a.id));
 }
 

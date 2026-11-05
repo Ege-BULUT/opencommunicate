@@ -2,7 +2,7 @@
 // older() pages through what is not loaded yet, newest first.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Bus, msgPath, newerVersion, searchMessages, snippet } from "../src/index.ts";
+import { Bus, msgPath, newerVersion, searchMatcher, searchMessages, snippet } from "../src/index.ts";
 
 test("newerVersion compares part by part as numbers", () => {
   assert.equal(newerVersion("0.7.10", "0.7.9"), true);
@@ -30,6 +30,20 @@ test("Turkish case in tr-TR", () => {
   const list = [msg(1, "İstanbul'da toplantı"), msg(2, "ISPARTA")];
   assert.equal(searchMessages(list, "istanbul", "tr-TR").length, 1);
   assert.equal(searchMessages(list, "ısparta", "tr-TR").length, 1);
+});
+
+test("case-sensitive and regex searches, and where a match is", () => {
+  const list = [msg(1, "Deploy 0.9.8 to vercel"), msg(2, "deploy 0.9.9"), msg(3, "release v1.0")];
+  const texts = (q, o) => searchMessages(list, q, "en", o).map((m) => m.text);
+  assert.deepEqual(texts("Deploy", { caseSensitive: true }), ["Deploy 0.9.8 to vercel"]);
+  assert.deepEqual(texts("0\\.9\\.\\d", { regex: true }), ["deploy 0.9.9", "Deploy 0.9.8 to vercel"]);
+  assert.deepEqual(texts("^deploy", { regex: true, caseSensitive: true }), ["deploy 0.9.9"]);
+  assert.deepEqual(texts("0.9.8", {}), ["Deploy 0.9.8 to vercel"], "a dot is a dot without regex");
+  assert.deepEqual(texts("x*", { regex: true }), [], "a regex that only matches empty text matches nothing");
+  assert.throws(() => searchMessages(list, "(", "en", { regex: true }), SyntaxError);
+  assert.deepEqual(searchMatcher("VERCEL", "en")("Deploy to vercel"), [10, 16]);
+  assert.deepEqual(searchMatcher("v\\d", "en", { regex: true })("release v1.0"), [8, 10]);
+  assert.equal(searchMatcher("İstanbul", "tr-TR", { caseSensitive: true })("istanbul"), null);
 });
 
 test("older() pages through what is not loaded, newest first", async () => {

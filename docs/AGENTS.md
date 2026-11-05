@@ -245,7 +245,9 @@ the chat's details list its pins.
 
 `opencom search <text…>` lists the messages (and attachment names) that contain the text, case-insensitive, in
 all your chats or in one with `--chat <to>`; `-n` sets how many (20). It reads the whole history (a hundred
-messages to a request), so search instead of scrolling through `history`, and do not run it in a loop.
+messages to a request), so search instead of scrolling through `history`, and do not run it in a loop. `--case`
+matches case as written; `--regex` reads the text as a JavaScript regular expression (`opencom search
+"v0\.9\.\d" --regex`). People have the same two switches in the apps, in one chat and in all of them (0.9.9).
 
 ## Edits and deletes
 

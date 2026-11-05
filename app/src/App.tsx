@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { Bus, ClaimError, HEARTBEAT_MS, type Quota, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMessages, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, HEARTBEAT_MS, type Quota, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMatcher, searchMessages, type SearchOptions, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -19,6 +19,8 @@ const PULL = 56; // how far (after damping) the chat list is pulled down before 
 
 /* Back: an open dialog, picture or (on a phone) chat adds a browser history entry, so the phone's back
    gesture, the browser's Back and a mouse's back button close it instead of doing nothing or leaving. */
+// entries of things closed on screen at the same moment (a sheet and the picture opened from it), dropped together
+let backs = 0;
 function useBack(open: boolean, close: () => void) {
   const closeRef = useRef(close);
   closeRef.current = close;
@@ -31,7 +33,9 @@ function useBack(open: boolean, close: () => void) {
     window.addEventListener("popstate", onPop);
     return () => {
       window.removeEventListener("popstate", onPop);
-      if (!popped && history.state?.ocBack === id) history.back(); // closed on screen: drop our entry
+      // closed on screen: drop our entry, with any others closed in the same moment (one at a time, the second
+      // would find the first's entry still on top)
+      if (!popped && history.state?.ocBack && !backs++) setTimeout(() => { const n = backs; backs = 0; history.go(-n); });
     };
   }, [open]);
 }
@@ -965,20 +969,27 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   // search: the loaded messages at once; older ones a page at a time, on request (each is a GitHub call)
   const [olderLeft, setOlderLeft] = useState<number | null>(null); // null until asked; 0 when everything is loaded
   const [loadingOlder, setLoadingOlder] = useState(false);
+  /** The next page of older messages in `channels`, added to the chats; how many are left. */
+  const olderIn = async (channels: string[]) => {
+    const have = new Set(Object.values(messages).flat().filter((m) => !m.pending && !m.failed).map(msgPath));
+    const { messages: older, left } = await bus.older(channels, have, 300, watcher.head);
+    older.forEach((m) => watcher.seen.add(msgPath(m)));
+    add(older);
+    return left;
+  };
   const loadOlder = async () => {
     setLoadingOlder(true);
-    try {
-      const have = new Set(Object.values(messages).flat().filter((m) => !m.pending && !m.failed).map(msgPath));
-      const { messages: older, left } = await bus.older([...watcher.channels], have, 300, watcher.head);
-      older.forEach((m) => watcher.seen.add(msgPath(m)));
-      add(older);
-      setOlderLeft(left);
-    } catch (e) { setToast(S.cantSearch((e as Error).message)); setTimeout(() => setToast(""), 6000); }
+    try { setOlderLeft(await olderIn([...watcher.channels])); }
+    catch (e) { setToast(S.cantSearch((e as Error).message)); setTimeout(() => setToast(""), 6000); }
     finally { setLoadingOlder(false); }
   };
+  const olderHere = () => olderIn([active]);
   const chatName = (ch: string) => ch === "all" ? "#all" : isDm(ch) ? handle(devices.find((d) => d.id === dmPeer(ch, me.id)) ?? { nick: "?", id: dmPeer(ch, me.id) }) : `#${groups.find((g) => g.channel === ch)?.name ?? ch}`;
   const query = filter.trim();
-  const found = query.length >= 2 ? searchMessages(Object.values(messages).flat(), query, LOCALE) : [];
+  const [searchHow, setSearchHow] = useState<SearchOptions>({});
+  let found: Message[] = [], badQuery = false;
+  try { found = query.length >= 2 ? searchMessages(Object.values(messages).flat(), query, LOCALE, searchHow) : []; } catch { badQuery = true; }
+  const [chatSearch, setChatSearch] = useState(false);
   const pinKey = (m: Pick<Pin, "channel" | "id">) => `${m.channel}/${m.id}`;
   const pinned = useMemo(() => new Set(pins.map(pinKey)), [pins]);
   // shown at once, then replaced by what the pins branch holds; a failed write puts the old list back
@@ -1014,7 +1025,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   const seen = (id: string) => (online(id) ? S.online : presence[id] ? S.lastSeen(when(presence[id].lastSeen)) : "");
   const title = active === "all" ? "#all" : isDm(active) ? `@${handle(devices.find((d) => d.id === dmPeer(active, me.id)) ?? { nick: "?", id: dmPeer(active, me.id) })}` : `#${groups.find((g) => g.channel === active)?.name ?? active}`;
 
-  const open = (ch: string) => { setActive(ch); setMobileView("chat"); };
+  const open = (ch: string) => { if (ch !== active) setChatSearch(false); setActive(ch); setMobileView("chat"); };
   const narrow = useNarrow();
   useBack(narrow && mobileView === "chat", () => setMobileView("list"));
   const peer = isDm(active) ? devices.find((d) => d.id === dmPeer(active, me.id)) : undefined;
@@ -1114,7 +1125,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
             <svg className="chev" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </span>
         </button>
-        <div className="filter"><input type="search" value={filter} placeholder={S.searchAll} aria-label={S.search} onChange={(e) => setFilter(e.target.value)} /></div>
+        <div className="filter"><input type="search" value={filter} placeholder={S.searchAll} aria-label={S.search} onChange={(e) => setFilter(e.target.value)} /><SearchToggles value={searchHow} onChange={setSearchHow} /></div>
         <nav ref={setNavEl}>
           {(pull > 0 || refreshing) && (
             <div className="pull" style={{ height: refreshing ? 36 : pull }} aria-live="polite">
@@ -1135,12 +1146,12 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
               preview={preview(ch) || [KIND[d.kind] ?? d.kind, seen(d.id)].filter(Boolean).join(" · ")} time={last(ch)?.ts} quiet={quiet(ch)} count={unread(ch)} activeCh={active === ch} onClick={() => open(ch)} />;
           })}
           {query.length >= 2 && <>
-            <div className="section">{S.messagesFound(found.length)}</div>
+            <div className="section">{badQuery ? S.badRegex : S.messagesFound(found.length)}</div>
             {found.slice(0, 100).map((m) => (
               <button key={`${m.channel}/${m.id}`} className="row result" onClick={() => { open(m.channel); setTimeout(() => jumpTo(m.id), 150); }}>
                 <span className="row-text">
                   <span className="row-top"><span className="row-label">{chatName(m.channel)}</span><span className="row-time">{when(m.ts)}</span></span>
-                  <span className="row-sub"><b>{m.from === me.id ? S.you : m.forwarded ? S.forwarded : m.fromNick}:</b> {highlight(m, query)}</span>
+                  <span className="row-sub"><b>{m.from === me.id ? S.you : m.forwarded ? S.forwarded : m.fromNick}:</b> {highlight(m, query, searchHow)}</span>
                 </span>
               </button>
             ))}
@@ -1161,8 +1172,10 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
             </span>
           </button>
           {status && <span className="status">{status}</span>}
+          <button className="icon info" title={S.searchInChat} aria-label={S.searchInChat} aria-pressed={chatSearch} onClick={() => setChatSearch((x) => !x)}><Magnifier /></button>
           <button className="icon info" title={S.details} aria-label={S.chatDetails} onClick={() => setDialog("channel")}><Info /></button>
         </header>
+        {chatSearch && <ChatSearch list={messages[active] ?? []} onOlder={olderHere} onClose={() => setChatSearch(false)} />}
         {account && <AccountAlert text={account} onFix={() => setDialog("settings")} />}
         {locked && <div className="alert" role="alert"><span>🔒 {S.keysLocked}</span><button className="ghost" onClick={unlock}>{S.unlock}</button></div>}
         <MessageList list={messages[active] ?? []} me={me} bus={bus} devices={devices} authors={!isDm(active)} loading={status === S.loading}
@@ -1193,7 +1206,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         await watcher.refresh();
       }} />}
       {dialog === "channel" && <ChannelDialog key={active} channel={active} title={title} group={activeGroup} me={me} devices={devices} quiet={quiet(active)}
-        pins={pins.filter((p) => p.channel === active)} loaded={byId} bus={bus} onUnpin={(m) => pin([m], false)}
+        pins={pins.filter((p) => p.channel === active)} loaded={byId} list={messages[active] ?? []} bus={bus} onUnpin={(m) => pin([m], false)} onOlder={olderHere}
         onOpen={(id) => { setDialog(null); setTimeout(() => jumpTo(id), 60); }}
         onQuiet={(q) => saveQuiet(active, q)} onChange={(change) => changeGroup(activeGroup!, change)} onClose={() => setDialog(null)} />}
       {dialog === "chats" && (
@@ -1403,6 +1416,7 @@ function Marquee({ text }: { text: string }) {
 
 const Gear = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>;
 const PersonPlus = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4" /><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6" /></svg>;
+const Magnifier = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>;
 const Info = () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>;
 const Clip = () => <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12.5 12.5 21a6 6 0 0 1-8.5-8.5L13 3.5a4 4 0 0 1 5.7 5.7L9.7 18.2a2 2 0 0 1-2.8-2.8L15 7.3" /></svg>;
 const PinIcon = ({ size = 12 }: { size?: number }) => <svg className="pin-icon" viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true"><path d="M15.5 2.5 21.5 8.5l-1.4 1.4-1.1-.4-3.6 3.6.3 3.9-1.4 1.4-4.2-4.2-5.4 5.4H3v-1.3l5.4-5.4-4.2-4.2 1.4-1.4 3.9.3 3.6-3.6-.4-1.1z" /></svg>;
@@ -1429,13 +1443,60 @@ function ChannelRow({ avatar, label, preview, time: ts, count, activeCh, quiet, 
 }
 
 /** A line around the first match of `q` in a message, the match marked. */
-function highlight(m: Message, q: string): ReactNode {
+function highlight(m: Message, q: string, how: SearchOptions = {}): ReactNode {
   const text = (m.text || m.files?.map((f) => `📎 ${f.name}`).join(" ") || "").replace(/\s+/g, " ");
-  const low = text.toLocaleLowerCase(LOCALE);
-  const i = low.indexOf(q.toLocaleLowerCase(LOCALE));
-  if (i < 0 || low.length !== text.length) return snippet({ text, files: undefined }, 90); // a case change that changed the length: no mark
-  const from = Math.max(0, i - 30);
-  return <>{from > 0 && "…"}{text.slice(from, i)}<mark>{text.slice(i, i + q.length)}</mark>{text.slice(i + q.length, i + q.length + 80)}</>;
+  let at: [number, number] | null = null;
+  try { at = searchMatcher(q, LOCALE, how)(text); } catch { /* a regex being typed */ }
+  // a case change that changed the length (no mark: it would land beside the match)
+  if (!at || (!how.caseSensitive && !how.regex && text.toLocaleLowerCase(LOCALE).length !== text.length)) return snippet({ text, files: undefined }, 90);
+  const [i, j] = at, from = Math.max(0, i - 30);
+  return <>{from > 0 && "…"}{text.slice(from, i)}<mark>{text.slice(i, j)}</mark>{text.slice(j, j + 80)}</>;
+}
+
+/** The two ways a search can read its text, as on/off buttons: Aa (as written) and .* (a regular expression). */
+function SearchToggles({ value, onChange }: { value: SearchOptions; onChange: (o: SearchOptions) => void }) {
+  return <span className="search-how">
+    <button type="button" className={value.caseSensitive ? "on" : ""} aria-pressed={!!value.caseSensitive} title={S.matchCase} aria-label={S.matchCase} onClick={() => onChange({ ...value, caseSensitive: !value.caseSensitive })}>Aa</button>
+    <button type="button" className={value.regex ? "on" : ""} aria-pressed={!!value.regex} title={S.regex} aria-label={S.regex} onClick={() => onChange({ ...value, regex: !value.regex })}>.*</button>
+  </span>;
+}
+
+/** Search in the open chat, as in WhatsApp: matches newest first, ↑ to an older one (Enter too) and ↓ back, the one
+ *  shown outlined in the chat. Older messages are read on request (each page is GitHub calls). */
+function ChatSearch({ list, onOlder, onClose }: { list: Message[]; onOlder: () => Promise<number>; onClose: () => void }) {
+  useBack(true, onClose);
+  const [q, setQ] = useState("");
+  const [how, setHow] = useState<SearchOptions>({});
+  const [at, setAt] = useState(0);
+  const [left, setLeft] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  let found: Message[] = [], bad = false;
+  try { found = searchMessages(list, q, LOCALE, how); } catch { bad = true; }
+  const cur = found[Math.min(at, found.length - 1)];
+  useEffect(() => { setAt(0); }, [q, how.caseSensitive, how.regex]);
+  useEffect(() => {
+    const el = cur && document.getElementById(`m-${cur.id}`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.add("found");
+    return () => el.classList.remove("found");
+  }, [cur?.id]);
+  const step = (d: number) => setAt((i) => Math.max(0, Math.min(found.length - 1, i + d)));
+  const older = async () => { setBusy(true); setError(""); try { setLeft(await onOlder()); } catch (e) { setError(S.cantSearch((e as Error).message)); } finally { setBusy(false); } };
+  return (
+    <div className="chat-search" role="search">
+      <input type="search" autoFocus value={q} placeholder={S.searchInChat} aria-label={S.searchInChat} onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); step(e.shiftKey ? -1 : 1); } else if (e.key === "Escape") onClose(); }} />
+      <SearchToggles value={how} onChange={setHow} />
+      <span className="count muted small" aria-live="polite">{bad ? S.badRegex : !q.trim() ? "" : found.length ? `${Math.min(at, found.length - 1) + 1}/${found.length}` : S.noMatches}</span>
+      <button className="icon" disabled={at >= found.length - 1} onClick={() => step(1)} title={S.olderMatch} aria-label={S.olderMatch}>↑</button>
+      <button className="icon" disabled={at <= 0} onClick={() => step(-1)} title={S.newerMatch} aria-label={S.newerMatch}>↓</button>
+      <button className="icon" onClick={onClose} title={S.closeSearch} aria-label={S.closeSearch}>×</button>
+      {q.trim() && !bad && <button className="mini older-in-chat" disabled={busy || left === 0} onClick={older}>{busy ? S.loading : left === 0 ? S.allSearched : S.searchOlder}</button>}
+      {error && <span className="error small">{error}</span>}
+    </div>
+  );
 }
 
 const num = (x: number) => x.toLocaleString(LOCALE, { maximumFractionDigits: 1 });
@@ -1723,7 +1784,7 @@ function Attachment({ file, bus }: { file: FileRef; bus: Bus }) {
 /** An image full screen. The wheel, a pinch or a double tap zooms in on the point under it; once zoomed in, a drag
  *  moves it about. A tap beside it, Escape or back closes it. It goes on the page itself: inside the message, the
  *  bubble's own drag (to reply) would carry it along and take its presses. */
-function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; onSave: () => void; onClose: () => void }) {
+function Lightbox({ url, name, video, error, onSave, onShow, onClose }: { url: string | null; name: string; video?: boolean; error?: string; onSave: () => void; onShow?: () => void; onClose: () => void }) {
   useBack(true, onClose);
   const stage = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
@@ -1733,6 +1794,7 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   // scaled by k about the point (px, py) on the screen, which then moves by (dx, dy); the image always covers the
   // box it fits in when not zoomed
   const zoom = (k: number, px: number, py: number, dx = 0, dy = 0) => setView((v) => {
+    if (!img.current) return v; // a video, or still loading
     const r = stage.current!.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const s = Math.min(8, Math.max(1, v.s * k)), f = s / v.s;
     const within = (n: number, size: number) => { const m = (s - 1) * size / 2; return Math.min(m, Math.max(-m, n)); };
@@ -1751,7 +1813,7 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
     if (e.button) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     points.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (points.current.size === 1) { press.current.travel = 0; press.current.onImage = e.target === img.current; }
+    if (points.current.size === 1) { press.current.travel = 0; press.current.onImage = e.target === img.current || e.target instanceof HTMLVideoElement; }
   };
   const move = (e: React.PointerEvent) => {
     const p = points.current.get(e.pointerId);
@@ -1768,6 +1830,7 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   const up = (e: React.PointerEvent) => {
     if (!points.current.delete(e.pointerId) || points.current.size || press.current.travel > 8) return;
     if (!press.current.onImage) return onClose();
+    if (!img.current) return;
     // a second tap on the image soon after the first zooms in there, or back out
     if (e.timeStamp - press.current.tap > 350) { press.current.tap = e.timeStamp; return; }
     press.current.tap = 0;
@@ -1777,9 +1840,14 @@ function Lightbox({ url, name, onSave, onClose }: { url: string; name: string; o
   return createPortal(
     <div className="lightbox" onClick={stop} onContextMenu={stop} onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onTouchStart={stop} onTouchMove={stop} onTouchEnd={stop}>
       <div ref={stage} className={`lightbox-stage${view.s > 1 ? " zoomed" : ""}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={(e) => points.current.delete(e.pointerId)}>
-        <img ref={img} src={url} alt={name} draggable={false} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }} />
+        {!url ? <p className="lightbox-note">{error || <><span className="spinner" aria-hidden="true" /> {S.downloading}</>}</p>
+          : video ? <video src={url} controls autoPlay playsInline />
+          : <img ref={img} src={url} alt={name} draggable={false} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }} />}
       </div>
-      <div className="actions"><button className="ghost" onClick={onSave}>{S.saveToDevice}</button><button className="ghost" onClick={onClose}>{S.close}</button></div>
+      <div className="actions">
+        {onShow && <button className="ghost" onClick={onShow}>{S.showInChat}</button>}
+        <button className="ghost" disabled={!url} onClick={onSave}>{S.saveToDevice}</button><button className="ghost" onClick={onClose}>{S.close}</button>
+      </div>
     </div>,
     document.body,
   );
@@ -1944,9 +2012,10 @@ function Composer({ draft, onDraft, onSend, people, replies, onCancelReply, edit
 
 const QUIET_FOR: [string, number | null][] = ([null, 3600e3, 8 * 3600e3, 7 * 86400e3] as const).map((ms, i) => [S.quietFor[i], ms]);
 
-function ChannelDialog({ channel, title, group, me, devices, quiet, pins, loaded, bus, onUnpin, onOpen, onQuiet, onChange, onClose }: {
+function ChannelDialog({ channel, title, group, me, devices, quiet, pins, loaded, list, bus, onUnpin, onOpen, onOlder, onQuiet, onChange, onClose }: {
   channel: string; title: string; group?: Group; me: Device; devices: Device[]; quiet: Quiet | null;
-  pins: Pin[]; loaded: (id: string) => Message | undefined; bus: Bus; onUnpin: (m: Pick<Message, "channel" | "id">) => void; onOpen: (id: string) => void;
+  pins: Pin[]; loaded: (id: string) => Message | undefined; list: Pending[]; bus: Bus; onUnpin: (m: Pick<Message, "channel" | "id">) => void; onOpen: (id: string) => void;
+  onOlder: () => Promise<number>;
   onQuiet: (q: Quiet | null) => Promise<void>; onChange: (c: GroupChange) => Promise<void>; onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -1970,6 +2039,8 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, pins, loaded
         {group && <p className="muted small">{S.groupInfo(group.members.length, admin)}</p>}
 
         <Pinned pins={pins} loaded={loaded} bus={bus} me={me} onUnpin={onUnpin} onOpen={onOpen} />
+
+        <MediaGallery list={list} bus={bus} onShow={onOpen} onOlder={onOlder} />
 
         <h3>{S.notifications}</h3>
         <div className="seg" role="radiogroup" aria-label={S.notifications}>
@@ -2040,6 +2111,76 @@ function ChannelDialog({ channel, title, group, me, devices, quiet, pins, loaded
  * A chat's pinned messages in its details, newest pin first, as WhatsApp lists starred ones. A message still in
  * the loaded history opens there; an older one is fetched and opens in place, in full.
  */
+/** A photo or video of the chat full screen, from its details: downloaded as the chat would (kept on the device
+ *  when Settings say so), with a button to the message it came in. */
+function MediaViewer({ file, bus, onShow, onClose }: { file: FileRef; bus: Bus; onShow: () => void; onClose: () => void }) {
+  const kind = kindOf(file);
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const keep = !!kind && mediaModes()[kind] === "save";
+  useEffect(() => {
+    let live = true;
+    fetchFile(bus, file, keep).then((d) => { if (live) setUrl(objectUrl(file.path, d, mimeOf(file))); }, (e) => { if (live) setError((e as Error).message); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.path]);
+  const save = async () => { try { await saveFile(file.name, await fetchFile(bus, file, keep)); } catch (e) { setError((e as Error).message); } };
+  return <Lightbox url={url} name={file.name} video={kind === "video"} error={error} onSave={save} onShow={onShow} onClose={onClose} />;
+}
+
+/** A square in the gallery: the picture itself when it is on this device already, else its small preview. */
+function MediaTile({ file, bus, onOpen }: { file: FileRef; bus: Bus; onOpen: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (kindOf(file) === "image") isLocal(file.path).then((here) => (here ? fetchFile(bus, file, false) : null)).then((d) => { if (live && d) setUrl(objectUrl(file.path, d, mimeOf(file))); }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file.path]);
+  return (
+    <button className="tile" onClick={onOpen} aria-label={`${file.name}, ${size(file.size)}`}>
+      {(url || file.thumb) ? <img src={url ?? file.thumb} alt="" /> : <span className="tile-name">{file.name}</span>}
+      {kindOf(file) === "video" && <span className="tile-play" aria-hidden="true">▶</span>}
+    </button>
+  );
+}
+
+/** The chat's photos and videos, and its other files, newest first (WhatsApp's media, links and docs): from the
+ *  messages loaded, older ones on request. A photo or video opens full screen; a file goes to its message. */
+function MediaGallery({ list, bus, onShow, onOlder }: { list: Pending[]; bus: Bus; onShow: (id: string) => void; onOlder: () => Promise<number> }) {
+  const [tab, setTab] = useState<"media" | "files">("media");
+  const [open, setOpen] = useState<{ m: Message; f: FileRef } | null>(null);
+  const [left, setLeft] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const all = list.filter((m) => !m.deleted && !m.pending && !m.failed && m.files?.length).flatMap((m) => m.files!.filter((f) => f.path).map((f) => ({ m, f }))).reverse();
+  const isMedia = (f: FileRef) => { const k = kindOf(f); return k === "image" || k === "video"; };
+  const media = all.filter((x) => isMedia(x.f)), files = all.filter((x) => !isMedia(x.f));
+  const older = async () => { setBusy(true); setError(""); try { setLeft(await onOlder()); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
+  const save = async (f: FileRef) => { setError(""); try { await saveFile(f.name, await fetchFile(bus, f, false)); } catch (e) { setError((e as Error).message); } };
+  return <>
+    <h3>{S.mediaAndFiles}</h3>
+    <div className="seg" role="tablist" aria-label={S.mediaAndFiles}>
+      <button role="tab" aria-selected={tab === "media"} className={tab === "media" ? "on" : ""} onClick={() => setTab("media")}>{S.mediaTab(media.length)}</button>
+      <button role="tab" aria-selected={tab === "files"} className={tab === "files" ? "on" : ""} onClick={() => setTab("files")}>{S.filesTab(files.length)}</button>
+    </div>
+    {tab === "media"
+      ? media.length ? <div className="gallery">{media.map(({ m, f }) => <MediaTile key={`${m.id}/${f.path}`} file={f} bus={bus} onOpen={() => setOpen({ m, f })} />)}</div> : <p className="muted small">{S.noMedia}</p>
+      : files.length ? <div className="file-list">{files.map(({ m, f }) => (
+          <div key={`${m.id}/${f.path}`} className="file-row">
+            <button className="file-body" onClick={() => onShow(m.id)} title={S.showInChat}>
+              <span className="row-label">{kindOf(f) === "audio" ? "🎤" : "📎"} {f.voice ? S.voiceMessage : f.name}</span>
+              <span className="muted small">{size(f.size)} · {when(m.ts)}</span>
+            </button>
+            <button className="mini" onClick={() => save(f)} title={S.saveToDevice} aria-label={`${S.saveToDevice}: ${f.name}`}>⬇</button>
+          </div>
+        ))}</div> : <p className="muted small">{S.noFiles}</p>}
+    {error && <p className="error small">{error}</p>}
+    <div className="older"><button className="mini" disabled={busy || left === 0} onClick={older}>{busy ? S.loading : left === 0 ? S.allLoaded : S.olderMedia}</button></div>
+    {open && <MediaViewer file={open.f} bus={bus} onClose={() => setOpen(null)} onShow={() => onShow(open.m.id)} />}
+  </>;
+}
+
 function Pinned({ pins, loaded, bus, me, onUnpin, onOpen }: { pins: Pin[]; loaded: (id: string) => Message | undefined; bus: Bus; me: Device; onUnpin: (m: Pick<Message, "channel" | "id">) => void; onOpen: (id: string) => void }) {
   const [fetched, setFetched] = useState<Record<string, Message | null>>({});
   const [open, setOpen] = useState<string | null>(null);
