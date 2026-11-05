@@ -154,3 +154,39 @@ test("a program that starts often keeps heads and trees between runs", async () 
   await next.tree(await next.head());
   assert.equal(gh.quota.core.used, used, "a 304 and a kept tree");
 });
+
+// 0.9.10: the app keeps what it showed (each chat's newest messages) and starts from it the next time.
+import { msgPath } from "../src/index.ts";
+const keptAt = async (gh, agent, n) => {
+  const reader = new Bus({ repo: "ege/team-chat", token: "t", fetch: gh.fetch });
+  const w = new Watcher(reader, agent);
+  await w.start();
+  const newest = await reader.histories([...w.channels], n, w.head);
+  return { head: w.head, kept: { devices: w.devices, groups: w.groups, paths: Object.values(newest).flat().map(msgPath) } };
+};
+
+test("a watcher started from what a device kept reads no tree, and only what came since", async () => {
+  const { gh, bus, ege, agent, dm } = await setUp();
+  for (let i = 0; i < 3; i++) await bus.send(dm, ege, `old ${i}`, []);
+  const { head, kept } = await keptAt(gh, agent, 2); // the oldest message was not kept
+  await bus.send(dm, ege, "while closed", []);
+  const w = new Watcher(new Bus({ repo: "ege/team-chat", token: "t", fetch: gh.fetch }), agent);
+  calls(gh);
+  await w.start(head, kept);
+  assert.deepEqual((await w.tick()).map((m) => m.text), ["while closed"]);
+  const c = calls(gh);
+  assert.ok(!c.some((x) => x.includes("/git/trees/")), c.join(", "));
+  assert.deepEqual(await w.reconcile(), [], "history older than what was kept is not news");
+});
+
+test("a kept head the branch no longer has: what came since is found in the tree", async () => {
+  const { gh, bus, ege, agent, dm } = await setUp();
+  await bus.send(dm, ege, "old", []);
+  const { kept } = await keptAt(gh, agent, 1);
+  await new Promise((r) => setTimeout(r, 5)); // a scan of the tree tells news by its id: not the kept one's millisecond
+  await bus.send(dm, ege, "while closed", []);
+  const w = new Watcher(new Bus({ repo: "ege/team-chat", token: "t", fetch: gh.fetch }), agent);
+  await w.start("0".repeat(40), kept);
+  assert.deepEqual((await w.tick()).map((m) => m.text), ["while closed"]);
+  assert.deepEqual(await w.tick(), []);
+});

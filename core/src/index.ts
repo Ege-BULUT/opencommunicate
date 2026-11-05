@@ -958,7 +958,7 @@ export class Bus {
     const { data } = await this.gh(this.r(`/compare/${since}...${to}`));
     const files: { filename: string; sha: string; status: string }[] = data.files ?? [];
     if (files.length >= 300) {
-      paths = (await this.tree(to)).filter((e) => isMessagePath(e.path) && !seen?.has(e.path));
+      paths = (await this.tree(to)).filter((e) => isMessagePath(e.path) && !(seen instanceof Seen ? seen.known(e.path) : seen?.has(e.path)));
       metaChanged = devicesChanged = true;
     } else {
       paths = files.filter((f) => f.status !== "removed").map((f) => ({ path: f.filename, sha: f.sha }));
@@ -1360,9 +1360,26 @@ export const isMessagePath = (p: string) => /^channels\/[a-z0-9-]+\/\d{8}T\d{9}Z
  * Follows a device's channels: call `tick()` on an interval. Keeps the last head and the paths it has seen,
  * refreshes devices and groups when they change, and returns the new messages for this device.
  */
+/** Message paths a watcher has delivered, and per chat a floor: the oldest of its messages a device kept from an
+ *  earlier run. */
+class Seen extends Set<string> {
+  floor = new Map<string, string>();
+  /** Delivered, or older than what was kept of its chat (history the device did not keep, not news): what a scan
+   *  of the whole tree leaves alone. Only a scan: a message listed as new is news even when its id sorts lower,
+   *  as one sent in the same millisecond can. */
+  known(path: string): boolean {
+    if (this.has(path)) return true;
+    const f = this.floor.get(path.split("/")[1]);
+    return f !== undefined && path < f;
+  }
+}
+
+/** What a device kept of a chat from an earlier run, to start from without reading the repository's tree. */
+export type Kept = { devices: Device[]; groups: Group[]; paths: string[] };
+
 export class Watcher {
   head: string | null = null;
-  seen = new Set<string>();
+  seen = new Seen();
   devices: Device[] = [];
   groups: Group[] = [];
   private bus: Bus;
@@ -1374,13 +1391,23 @@ export class Watcher {
 
   /** The head the first tick moves to when start() was given an older one. */
   private resume: string | null = null;
+  private kept = false;
 
-  /** `from`: a head an earlier watcher stopped at, so what arrived since is delivered on the first tick. */
-  async start(from?: string | null): Promise<void> {
+  /** `from`: a head an earlier watcher stopped at, so what arrived since is delivered on the first tick. With
+   *  `kept`, what this device kept at `from` (its people, groups and newest messages), no tree is read: each
+   *  chat's history older than what was kept counts as seen. */
+  async start(from?: string | null, kept?: Kept): Promise<void> {
     const now = await this.bus.head();
     this.head = from || now;
-    // everything already in this device's channels counts as seen; only new messages are delivered
-    if (this.head) {
+    if (from && kept) {
+      [this.devices, this.groups, this.kept] = [kept.devices, kept.groups, true];
+      for (const p of kept.paths) {
+        this.seen.add(p);
+        const ch = p.split("/")[1], f = this.seen.floor.get(ch);
+        if (f === undefined || p < f) this.seen.floor.set(ch, p);
+      }
+    } else if (this.head) {
+      // everything already in this device's channels counts as seen; only new messages are delivered
       let tree;
       try { tree = await this.bus.tree(this.head); }
       catch { this.head = now; tree = now ? await this.bus.tree(now) : []; } // that head is gone: start from now
@@ -1454,7 +1481,13 @@ export class Watcher {
     if (next && next !== this.head) {
       if (!this.head) { this.head = next; await this.refresh(); }
       else {
-        const res = await this.bus.changes(this.head, next, this.channels, this.seen);
+        const res = await this.bus.changes(this.head, next, this.channels, this.seen).catch((e) => {
+          // a kept head the branch no longer has (its history rewritten): the tree at `next` (the safety net
+          // below) finds what is new instead
+          if (!(this.kept && e instanceof GitHubError && e.status === 404)) throw e;
+          full = true;
+          return { messages: [], metaChanged: true, devicesChanged: true };
+        });
         const prev = this.head, got = [...res.messages];
         this.head = next;
         try {
@@ -1491,7 +1524,7 @@ export class Watcher {
   async reconcile(): Promise<Message[]> {
     if (!this.head) return [];
     const mine = this.channels;
-    const missing = (await this.bus.tree(this.head)).filter((e) => isMessagePath(e.path) && mine.has(e.path.split("/")[1]) && !this.seen.has(e.path));
+    const missing = (await this.bus.tree(this.head)).filter((e) => isMessagePath(e.path) && mine.has(e.path.split("/")[1]) && !this.seen.known(e.path));
     const found = await Promise.all(missing.map((e) => this.bus.readMessage(e.sha)));
     missing.forEach((e) => this.seen.add(e.path));
     return found;

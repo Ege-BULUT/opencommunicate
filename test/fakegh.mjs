@@ -114,6 +114,7 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
       return res(201, { object: { sha: body.sha } });
     }
     if ((m = rest.match(/^\/compare\/([0-9a-f]+)\.\.\.([0-9a-f]+)$/))) {
+      if (!commits.has(m[1]) || !commits.has(m[2])) return res(404, { message: "Not Found" });
       const a = trees.get(commits.get(m[1])?.tree) ?? new Map(), b = trees.get(commits.get(m[2])?.tree) ?? new Map();
       const files = [];
       for (const [path, s] of b) if (a.get(path) !== s) files.push({ filename: path, sha: s, status: a.has(path) ? "modified" : "added" });

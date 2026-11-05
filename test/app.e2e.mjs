@@ -557,6 +557,63 @@ if (only === "all" || only === "search") {
   await browser.close();
 }
 
+// 0.9.10: what was on screen opens at once the next time, the start reads only what came since, earlier messages
+// load when asked for, and a notification brings its message at once
+if (only === "all" || only === "cache") {
+  let slow = 0, ring = null;
+  const rung = () => new Promise((r) => { ring = r; });
+  const topic = "https://ntfy.sh/oc-e2e-topic-0001";
+  let { gh, bus, browser, page } = await setup(() => slow, [], async (route, u) => {
+    if (u.hostname !== "ntfy.sh" || !u.pathname.endsWith("/sse")) return false;
+    await rung();
+    await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream", "access-control-allow-origin": "*" }, body: `retry: 600000\ndata: ${JSON.stringify({ event: "message", topic: "oc-e2e-topic-0001" })}\n\n` });
+    return true;
+  });
+  const me = (await bus.devices()).find((d) => d.id === ege.id);
+  await bus.updateDevice({ ...me, notify: topic });
+  for (let i = 0; i < 25; i++) await bus.send(dm, agent, `message ${i}`, []);
+  await openDm(page);
+  await page.locator(".messages").getByText("message 24", { exact: true }).waitFor({ timeout: 15000 });
+  const kept = async () => page.evaluate((k) => JSON.parse(localStorage.getItem(k) ?? "null"), `oc.shown.${REPO}.${ege.id}`);
+  for (let i = 0; i < 50 && (await kept())?.messages?.[dm]?.length !== 20; i++) await sleep(100);
+  check("the newest 20 of a chat are kept on the device", (await kept())?.messages?.[dm]?.map((m) => m.text).sort().join() === Array.from({ length: 20 }, (_, i) => `message ${i + 5}`).sort().join(), JSON.stringify((await kept())?.messages?.[dm]?.map((m) => m.text)));
+  const ctx = page.context();
+  await page.close();
+  await bus.send(dm, agent, "while closed", []);
+  const from = gh.log.length;
+  slow = 3000; // GitHub answers late: what shows before it does came from the device
+  page = await ctx.newPage();
+  await page.goto(base);
+  const t0 = Date.now();
+  await openDm(page);
+  await page.locator(".messages").getByText("message 24", { exact: true }).waitFor({ timeout: 2500 });
+  check("reopened, the chat shows at once, before GitHub answers", Date.now() - t0 < 2500 && !(await page.locator(".messages").getByText("while closed").count()), `${Date.now() - t0} ms`);
+  slow = 0;
+  await page.locator(".messages").getByText("while closed").waitFor({ timeout: 20000 });
+  const started = gh.log.slice(from);
+  const treeOf = async (sha) => (await (await gh.fetch(`https://api.github.com/repos/${REPO}/git/commits/${sha}`)).json()).tree.sha;
+  const mainTrees = [await treeOf((await kept()).head), await treeOf(gh.ref())];
+  check("…then what came since arrives, with no read of the chat's tree", !started.some((x) => mainTrees.some((t) => x.includes(`/git/trees/${t}`))), started.filter((x) => x.includes("/git/trees/")).join(", "));
+  check("the chat has its newest 20 and the button for earlier ones", (await page.locator(".messages .item").count()) === 21 && (await page.getByRole("button", { name: "Earlier messages" }).isVisible()));
+  const top = await page.locator(".messages .item").first().getAttribute("id");
+  await page.getByRole("button", { name: "Earlier messages" }).click();
+  await page.locator(".messages").getByText("message 0", { exact: true }).waitFor({ timeout: 15000 });
+  const items = page.locator(".messages .item");
+  const view = await page.locator(".messages").evaluate((el, id) => { const m = document.getElementById(id).getBoundingClientRect(), box = el.getBoundingClientRect(); return m.top >= box.top - 2 && m.top < box.bottom; }, top);
+  check("earlier messages load on request, the view staying where it was", (await items.count()) >= 26 && view && !(await page.getByRole("button", { name: "Earlier messages" }).count()));
+  // a notification: a poll has just been, so the next is 4 s away; the message comes well before that
+  const polled = async () => { const n = gh.log.length; for (let i = 0; i < 100 && !gh.log.slice(n).some((x) => x.endsWith("/git/ref/heads/main")); i++) await sleep(50); };
+  for (let i = 0; i < 100 && !ring; i++) await sleep(50);
+  check("the app listens to its notification topic", !!ring);
+  await polled();
+  await bus.send(dm, agent, "ring ring", []);
+  const t1 = Date.now();
+  ring?.();
+  await page.locator(".messages").getByText("ring ring").waitFor({ timeout: 6000 }).catch(() => {});
+  check("a notification brings its message at once", Date.now() - t1 < 2000, `${Date.now() - t1} ms`);
+  await browser.close();
+}
+
 // light or dark: the system's until the header's sun/moon picks one, kept across a reload
 if (only === "all" || only === "theme") {
   const { browser, page } = await setup(() => 0);
@@ -696,7 +753,7 @@ if (only === "all" || only === "update") {
   await news.waitFor({ timeout: 15000 });
   await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "news.png") }).catch(() => {});
   const heads = await news.locator("h3").allInnerTexts();
-  check("after an update, a note lists what each version since brought, newest first", (await news.locator("h2").innerText()) === `Updated to ${version}` && heads[0] === version && heads.at(-1) === "0.9.5" && (await news.locator("li").count()) >= heads.length, JSON.stringify(heads));
+  check("after an update, a note lists what each version since brought, newest first", (await news.locator("h2").innerText()) === `Updated to ${version}` && heads[0] === version && heads.length === 5 && (await news.locator("li").count()) >= heads.length, JSON.stringify(heads));
   await news.getByRole("button", { name: "Close" }).last().click();
   await page.reload();
   await page.locator("textarea, .row").first().waitFor();
