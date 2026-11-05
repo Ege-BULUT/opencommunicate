@@ -137,6 +137,17 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
   const none = await A(["save", "7779", plain.id, "--out", out]);
   check("a message without files says so", none.code === 1 && none.err.includes("no files"), JSON.stringify(none)); }
 
+// search: case-insensitive by default, --case as written, --regex as a regular expression
+{ await bus.send(dm, ege, "Release v0.9.9 is out", []);
+  const plain = await A(["search", "release V0.9.9"]);
+  check("search ignores case by default", plain.code === 0 && plain.out.includes("Release v0.9.9 is out"), JSON.stringify(plain));
+  const cased = await A(["search", "release", "--case"]);
+  check("--case matches case as written", cased.code === 0 && !cased.out.includes("Release v0.9.9"), JSON.stringify(cased));
+  const re = await A(["search", "v0\\.9\\.\\d", "--regex"]);
+  check("--regex reads a regular expression", re.code === 0 && re.out.includes("Release v0.9.9 is out"), JSON.stringify(re));
+  const bad = await A(["search", "v0(", "--regex"]);
+  check("a regex that does not parse says so", bad.code === 1 && bad.err.includes("Not a regular expression"), JSON.stringify(bad)); }
+
 // the agents' guide, bundled: printed, and installed as a Claude Code skill
 { const guide = await A(["guide"]);
   check("guide prints docs/AGENTS.md", guide.out.trim() === fs.readFileSync(path.join(import.meta.dirname, "..", "docs", "AGENTS.md"), "utf8").trim());

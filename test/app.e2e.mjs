@@ -503,6 +503,7 @@ if (only === "all" || only === "search") {
   await how("Regular expression").click();
   await box.fill("0\\.9\\.\\d");
   check(".* reads a regex, and marks what it matched", (await head.innerText()).endsWith("· 2") && (await page.locator("aside .result mark").first().innerText()) === "0.9.9", await head.innerText());
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "search-all.png") }).catch(() => {});
   await box.fill("v(");
   check("a regex that does not parse says so", (await head.innerText()) === "Not a valid regex", await head.innerText());
   await box.fill("");
@@ -534,6 +535,8 @@ if (only === "all" || only === "search") {
   const was = await page.evaluate(() => history.state?.ocBack); // the open chat's own (back goes to the list on a phone)
   await page.locator('.chat-head button[aria-label="Chat details"]').click();
   const tabs = page.locator(".channel-card .seg[role=tablist] button");
+  await page.locator(".gallery .tile").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "gallery.png") }).catch(() => {});
   await page.locator(".gallery .tile").scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "gallery.png") }).catch(() => {});
   check("the details show the chat's media and files", (await tabs.allInnerTexts()).join() === "Media · 1,Files · 1", (await tabs.allInnerTexts()).join());

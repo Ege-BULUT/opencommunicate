@@ -399,10 +399,11 @@ i.activity { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
 .search-how button:hover { background: var(--sunken); }
 .search-how button.on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .chat-search { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.chat-search input { flex: 1 1 140px; min-width: 0; padding: 7px 10px; border-radius: 10px; font-size: 14px; }
-.chat-search .count { min-width: 3.5em; text-align: center; }
-.chat-search .icon { width: 34px; height: 34px; font-size: 17px; }
-.chat-search .error { flex-basis: 100%; }
+.chat-search input { flex: 1 1 90px; min-width: 0; padding: 7px 10px; border-radius: 10px; font-size: 14px; }
+.chat-search .count { min-width: 2.8em; text-align: center; white-space: nowrap; }
+.chat-search .icon { width: 32px; height: 32px; font-size: 17px; }
+.chat-search .older-in-chat, .chat-search .error { flex-basis: 100%; text-align: left; }
+.chat-search .older-in-chat { flex: 0 0 auto; }
 .item.found .msg { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* the chat's media and files, in its details */

@@ -137,7 +137,8 @@ and checked before sending) with the recording attached (`voice: true`, `dur` in
 
 The phone, desktop and web apps show your messages with Markdown blocks formatted, links clickable, and your
 status next to "online". A question with choices is a row of buttons. People can answer by voice (it arrives as
-text, see above), paste screenshots, and zoom into images. Ticks under your messages: one grey = sent, two grey =
+text, see above), paste screenshots, and zoom into images. A chat's details list its photos, videos and files, so
+a screenshot or log you sent is easy to find again, and people search one chat or all of them. Ticks under your messages: one grey = sent, two grey =
 delivered, two blue = read. Someone who paused read receipts to spare the quota (below) shows one tick even
 after reading, so silence is not proof that a message went unread.
 

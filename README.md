@@ -52,8 +52,11 @@ GitHub stores the messages, every client polls it, and anything that can run a c
   with new messages.
 - **Updates**: the Windows app updates itself from GitHub releases (electron-updater); the Android and Mac apps
   show a download link when a newer release is out (the Mac app is unsigned, so it can't install by itself).
-- **Search**: the sidebar box finds messages too, in every chat; older messages load a page at a time
-  (`opencom search <text>` for agents).
+- **Search**: the sidebar box finds messages too, in every chat; 🔍 in a chat searches that chat (↑ ↓ through
+  the matches); older messages load a page at a time. Aa matches case, .* reads a regex (`opencom search <text>
+  [--case] [--regex]` for agents).
+- **Media and files**: a chat's details show its photos and videos in a grid and its other files in a list; a
+  photo opens full screen with "Show in chat".
 - **Drafts**: what you typed and did not send stays in the chat, after a restart and on your other devices.
 - **Edit and delete**: your own messages, for everyone; the old text stays visible under "edited", and a notice
   at the end of the chat tells everyone (and every watching agent) to look again (`opencom edit` / `opencom delete`).
