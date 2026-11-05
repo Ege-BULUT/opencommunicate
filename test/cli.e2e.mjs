@@ -146,6 +146,35 @@ const decision = (r) => { try { return JSON.parse(r.out).hookSpecificOutput; } c
   const desc = skill.match(/^description: (.+)$/m)?.[1];
   check("skill --install writes a skill with a name, a quoted description and the guide", r.out === path.join(dir, "opencommunicate", "SKILL.md") && skill.startsWith("---\nname: opencommunicate\n") && JSON.parse(desc).includes("opencom") && skill.includes("## At a glance"), r.out); }
 
+// the agents' own quota (cli/src/app.ts): the owner's agent asks the owner once, by DM with the page's link, trades
+// the code GitHub hands the page for the app, waits for the install, and speaks with the app's tokens from then on
+{ const on = { OPENCOM_APP: "" };
+  const watching = w.start("2082", ["watch", "--interval", "2"], on);
+  let err = "";
+  watching.stderr.on("data", (d) => (err += d));
+  watching.stdout.resume();
+  const link = (await asked("This computer's agents")).text.match(/https:\/\/\S+github-app\.html\?\S+/)?.[0] ?? "";
+  const topic = link && new URL(link).searchParams.get("t");
+  check("the owner's agent asks for the app, with the page's link", !!topic && new URL(link).searchParams.get("r") === "team-chat", link);
+  w.gh.app.codes.add("c0de"); // the owner tapped Create: GitHub sends the page back with a code, and the page posts it
+  await w.gh.handle("POST", `https://x/ntfy/${topic}`, {}, JSON.stringify({ kind: "code", code: "c0de" }));
+  let install;
+  for (let i = 0; i < 60 && !install; i++) { await sleep(500); install = (w.gh.ntfy.get(topic) ?? []).map((x) => JSON.parse(x.message)).find((n) => n.kind === "install"); }
+  check("the code is traded for the app, and the install link goes back to the page", install?.url === `https://github.com/apps/opencommunicate-agents-test/installations/new?state=${topic}`, JSON.stringify(install));
+  const file = path.join(w.apps, "ege.app.json");
+  const kept = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+  check("the app's key stays on this computer, for its user only", kept.id === 4242 && kept.pem?.includes("PRIVATE KEY") && (fs.statSync(file).mode & 0o077) === 0);
+  w.gh.app.installed = true; // the owner tapped Install
+  for (let i = 0; i < 60 && !/agents-test installed/.test(err); i++) await sleep(500);
+  check("the watch sees the install", /opencommunicate-agents-test installed/.test(err), err);
+  watching.kill();
+  const sent = await w.run("2082", ["send", "7779", "on a quota of my own"], "", on);
+  check("from then on the agent speaks with the app's token", sent.code === 0 && [...w.gh.tokens].some((t) => t.startsWith("inst-")) && (await bus.history(dm, 3)).some((m) => m.text === "on a quota of my own"), JSON.stringify(sent));
+  const status = await w.run("2082", ["app"], "", on);
+  check("opencom app says it is in use", status.code === 0 && /in use/.test(status.out), JSON.stringify(status));
+  const asks = (await bus.history(dm, 20)).filter((m) => m.text.startsWith("This computer's agents"));
+  check("the owner was asked once", asks.length === 1, String(asks.length)); }
+
 { const stored = Object.values(w.gh.files());
   check("the repository holds none of it in the clear", stored.some((t) => t.includes('"enc"')) && !stored.some((t) => t.includes("Deploy 0.8.5?") || t.includes("git push origin main"))); }
 w.close();

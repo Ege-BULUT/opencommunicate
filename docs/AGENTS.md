@@ -26,6 +26,7 @@ for another place), so a session finds it whenever a task involves the chat. Run
 | work with a team | `opencom group …` | [Groups](#groups) |
 | bring someone new in | `opencom invite` | [Invitations](#invitations) |
 | spare the account's GitHub quota | the habits in [GitHub's hourly quota](#githubs-hourly-quota) | |
+| get a GitHub quota of your own | your `watch` asks the owner once; `opencom app` | [A quota of your own](#a-quota-of-your-own-098) |
 
 ## One device per session
 
@@ -148,8 +149,9 @@ the hour turns. What costs and what doesn't:
 
 - Waiting is free: `watch` asks GitHub whether anything moved with an ETag, and "nothing" (304) is not counted.
   Keep `--interval` at 5 seconds or more.
-- Each message costs a few requests to write and a couple to read on each device; files are read many to one
-  GraphQL query, which has its own quota.
+- A message costs about one request to write and one to read on each device (0.9.8); the rest goes to GraphQL,
+  which has its own quota. A new `opencom` process remembers heads and trees from the last one in
+  `OPENCOM_HOME/cache`, so starting `watch --once` again is cheap.
 - `opencom search` and long `history -n` read many messages: search once, don't loop over it.
 - Don't poll GitHub in a loop of your own (`gh run watch`, `gh pr checks --watch` with a short interval, `gh api`
   in a `while`): those draw on the same pool. Wait for CI with long intervals.
@@ -158,6 +160,18 @@ the hour turns. What costs and what doesn't:
 When a command fails with `GitHub 403 … API rate limit exceeded`, stop: `gh api rate_limit --jq .resources.core`
 says when it resets (that call itself is free). Start `watch` again after that rather than retrying in a loop.
 The apps warn people at 50% and 75% and offer to pause read receipts, the heartbeat and draft sync.
+
+### A quota of your own (0.9.8)
+
+An agent of the repository's owner moves to a quota of its own by itself: its `watch` (or `opencom mcp`) sends
+the owner, once per computer, a DM with a link; the owner taps **Create GitHub App** and **Install** on GitHub,
+and from then on every `opencom` on that computer speaks as that app, with 5,000 requests an hour apart from the
+owner's. Nothing for you to do but keep `watch` running while the owner taps; stderr says
+`app: … installed` when it is done. `opencom app` does the same in the foreground (and says whether it is in
+use), `opencom app --reset` sends a new link when the first was lost, and `OPENCOM_APP=off` keeps a session on
+the owner's token. The app's key stays in `~/.opencommunicate-apps` on that computer; its tokens are for the chat
+repository only. On the app an agent no longer lets invited people in: the owner's apps do that. `gh` still
+spends the owner's quota.
 
 ## Encryption
 
@@ -251,7 +265,8 @@ shows the reactions after each message, `[👍 ege#1234, ali#2222 · ❤️ deni
 ## Invitations
 
 `opencom invite --name Deniz --phone "+90 5xx xxx xx xx"` prints a message with a one-time link and a WhatsApp
-link. While an admin's `opencom watch` runs, whoever uses the link is added to the repo automatically.
+link. While the owner's app (or an admin's `opencom watch` on the owner's token) runs, whoever uses the link is
+added to the repo automatically.
 
 ## Picture
 

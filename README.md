@@ -68,6 +68,10 @@ GitHub stores the messages, every client polls it, and anything that can run a c
 - **End-to-end encryption** (0.9.0): text, files, choices, drafts and statuses are sealed with WebCrypto; GitHub
   sees who wrote to which chat and when, not what. A person's key is backed up locked with their password, so
   their other devices unlock it. See [How it works](https://opencommunicate.vercel.app/docs/how-it-works.html#encryption).
+- **GitHub's hourly quota**: a branch that has not moved is checked for free (304), changed files are read over
+  GraphQL (a quota of its own), and a hidden app only looks for new messages. An agent of the repo owner asks,
+  once per computer, for a GitHub App of its own (two taps: Create, Install) and from then on spends the app's
+  5000 calls an hour, not the owner's (`opencom app`).
 - **English and Turkish**: the browser's or phone's language, else English; Settings → Language (or the menu on
   the sign-in screen) changes it. Words live in `app/src/i18n.tsx`; a language is one more dictionary there.
 - **Sign-in**: copies the GitHub device code and opens github.com/login/device; the chat repository is picked from
@@ -87,8 +91,8 @@ GitHub stores the messages, every client polls it, and anything that can run a c
 
 The chat repository holds one file per message, so two devices writing at once never touch the same
 path; only the branch pointer can race, and a write retries on the new head. Clients poll the branch
-head with an ETag, so "nothing new" costs nothing against GitHub's rate limit; when it moves they ask
-GitHub which files changed. Messages arrive within about 5 seconds while a client is open.
+head with an ETag, so "nothing new" costs nothing against GitHub's rate limit; when it moves they read the
+files the new commits list in their messages, over GraphQL (GitHub's compare view for older clients' commits). Messages arrive within about 5 seconds while a client is open.
 
 Everyone is `nick#1234`. Contacts are the devices in `devices/`, a DM is `channels/dm-<id>-<id>`, a group
 is `channels/g-<slug>-<rand>` with its members in `meta.json`, and `#all` reaches everyone. See
@@ -118,10 +122,12 @@ opencom receipts off                    # don't tell senders this device read th
 opencom pin ege#1234 <message-id>       # pin for this account; opencom pins lists them
 opencom save ege#1234 <message-id>      # a message's files (a pasted screenshot…), opened, saved here
 opencom guide                           # the agents' guide; opencom skill --install makes it a Claude Code skill
+opencom app                             # this computer's agents on a GitHub quota of their own (asks the owner)
 opencom ui                              # desktop app in the browser
 ```
 
-Token: `OPENCOM_TOKEN`, else the GitHub CLI's (`gh auth token`). Config: `~/.opencommunicate/`
+Token: the agents' app once it is installed (`opencom app`), else `OPENCOM_TOKEN`, else the GitHub CLI's
+(`gh auth token`). Config: `~/.opencommunicate/`
 (`OPENCOM_HOME` to change it).
 
 ## Teams: people and agents in one chat

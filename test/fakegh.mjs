@@ -1,4 +1,5 @@
-// In-memory GitHub (git data API subset, and the GraphQL the core uses: blobs by oid, createCommitOnBranch) for the
+// In-memory GitHub (git data API subset, and the GraphQL the core uses: blobs by oid, files and folders by
+// expression, a commit's history, createCommitOnBranch) for the
 // end-to-end tests. handle() is shared by the browser (Playwright route) and node Buses (fetch option), so both see one
 // repository. Answers carry GitHub's quota headers; `quota` sets where they stand.
 import crypto from "node:crypto";
@@ -7,6 +8,16 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
   const blobs = new Map(), trees = new Map(), commits = new Map(), refs = new Map();
   const sha = () => crypto.randomBytes(20).toString("hex");
   const log = [], tokens = new Set(), refreshes = [];
+  // GitHub Apps (the agents' own quota): codes the manifest page would get, the app made from one, its install
+  const app = { codes: new Set(), made: null, installed: false, key: crypto.generateKeyPairSync("rsa", { modulusLength: 2048 }) };
+  const asApp = (h) => {
+    const [head, payload, sig] = (h ?? "").replace("Bearer ", "").split(".");
+    if (!sig || !app.made) return false;
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString());
+    return crypto.verify("RSA-SHA256", Buffer.from(`${head}.${payload}`), app.key.publicKey, Buffer.from(sig, "base64url")) && claims.iss === String(app.made.id) && claims.exp > Date.now() / 1000;
+  };
+  // ntfy (invites, the app's setup): topic → messages, as ntfy's JSON poll gives them
+  const ntfy = new Map();
   let refreshToken = "r1";
   const reset = Math.floor(Date.now() / 1000) + 3600;
   const quota = { core: { used: 0, limit: 5000, reset }, graphql: { used: 0, limit: 5000, reset } };
@@ -20,6 +31,7 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
   const ancestors = (c) => { const out = new Set(); const walk = (x) => { if (!x || out.has(x)) return; out.add(x); for (const p of commits.get(x)?.parents ?? []) walk(p); }; walk(c); return out; };
 
   async function handle(method, url, headers = {}, bodyText = "") {
+    let m0;
     const u = new URL(url);
     const p = u.pathname;
     let body = {}; try { body = bodyText ? JSON.parse(bodyText) : {}; } catch { /* a form */ }
@@ -31,6 +43,23 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
     resource = p === "/graphql" ? "graphql" : "core";
     if (p === "/graphql") return graphql(body.query ?? "", body.variables ?? {});
     if (p === "/user") return res(200, { login });
+    if ((m0 = p.match(/^\/ntfy\/([\w-]+)(\/json)?$/))) {
+      const list = ntfy.get(m0[1]) ?? ntfy.set(m0[1], []).get(m0[1]);
+      if (method === "POST") { list.push({ time: Math.floor(Date.now() / 1000), event: "message", message: bodyText }); return { status: 200, headers: {}, body: "{}" }; }
+      const since = Number(u.searchParams.get("since")) || 0;
+      return { status: 200, headers: {}, body: list.filter((x) => x.time >= since).map((x) => JSON.stringify(x)).join("\n") };
+    }
+    if ((m0 = p.match(/^\/app-manifests\/([\w-]+)\/conversions$/)) && method === "POST") {
+      if (!app.codes.delete(m0[1])) return res(404, { message: "Not Found" });
+      app.made = { id: 4242, slug: "opencommunicate-agents-test", owner: { login }, pem: app.key.privateKey.export({ type: "pkcs8", format: "pem" }) };
+      return res(201, app.made);
+    }
+    if ((m0 = p.match(/^\/app\/installations\/(\d+)\/access_tokens$/)) && method === "POST") {
+      if (!asApp(hdr("Authorization")) || !app.installed || m0[1] !== "99") return res(401, { message: "A JSON web token could not be decoded" });
+      app.tokens = (app.tokens ?? 0) + 1;
+      return res(201, { token: `inst-${app.tokens}`, expires_at: new Date(Date.now() + 3600_000).toISOString(), repositories: body.repositories });
+    }
+    if (/^\/repos\/[^/]+\/[^/]+\/installation$/.test(p) && asApp(hdr("Authorization"))) return app.installed ? res(200, { id: 99 }) : res(404, { message: "Not Found" });
     if (p === "/login/oauth/access_token") {
       const f = new URLSearchParams(bodyText);
       refreshes.push(Object.fromEntries(f));
@@ -41,7 +70,7 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
     let m = p.match(/^\/repos\/([^/]+\/[^/]+)(\/.*)?$/);
     if (!m) return res(404, { message: "Not Found" });
     const rest = m[2] ?? "";
-    const m0 = m[1];
+    m0 = m[1];
     if (!rest) return res(200, { full_name: m[1], private: true, permissions: { admin: false, push: true, pull: true } });
     const R = (b) => `${m0}#${b}`;
     if ((m = rest.match(/^\/git\/ref\/heads\/(.+)$/))) {
@@ -62,7 +91,11 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
     if ((m = rest.match(/^\/git\/commits\/([0-9a-f]+)$/))) { const c = commits.get(m[1]); return c ? res(200, { sha: m[1], tree: { sha: c.tree }, parents: c.parents.map((x) => ({ sha: x })) }) : res(404, { message: "Not Found" }); }
     if (rest === "/git/trees" && method === "POST") {
       const t = new Map(body.base_tree ? trees.get(body.base_tree) : []);
-      for (const e of body.tree) { if (e.sha === null) t.delete(e.path); else t.set(e.path, e.sha); }
+      for (const e of body.tree) {
+        if (e.sha === null) t.delete(e.path);
+        else if (typeof e.content === "string") { const content = Buffer.from(e.content).toString("base64"), b = crypto.createHash("sha1").update(content).digest("hex"); blobs.set(b, content); t.set(e.path, b); }
+        else t.set(e.path, e.sha);
+      }
       const s = sha(); trees.set(s, t);
       return res(201, { sha: s });
     }
@@ -108,11 +141,28 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
       for (const d of i.fileChanges?.deletions ?? []) { if (!t.delete(d.path)) return failed("NOT_FOUND", `A path was requested for deletion which does not exist as of commit oid \`${cur}\``); }
       for (const a of i.fileChanges?.additions ?? []) { const b = crypto.createHash("sha1").update(a.contents).digest("hex"); blobs.set(b, a.contents); t.set(a.path, b); }
       const ts = sha(), cs = sha();
-      trees.set(ts, t); commits.set(cs, { tree: ts, parents: [cur], message: i.message.headline }); refs.set(key, cs);
+      trees.set(ts, t); commits.set(cs, { tree: ts, parents: [cur], message: i.message.body ? `${i.message.headline}\n\n${i.message.body}` : i.message.headline }); refs.set(key, cs);
       return res(200, { data: { createCommitOnBranch: { commit: { oid: cs } } } });
     }
     const repository = {};
-    for (const [, alias, oid] of query.matchAll(/(\w+): object\(oid: "([0-9a-f]+)"\)/g)) repository[alias] = blobs.has(oid) ? { text: Buffer.from(blobs.get(oid), "base64").toString("utf8"), isBinary: false, isTruncated: false } : null;
+    const blob = (oid) => ({ oid, text: Buffer.from(blobs.get(oid), "base64").toString("utf8"), isBinary: false, isTruncated: false });
+    for (const [, alias, oid] of query.matchAll(/(\w+): object\(oid: "([0-9a-f]+)"\)/g)) repository[alias] = blobs.has(oid) ? blob(oid) : null;
+    // "<commit>:<path>": a file, or a folder's files
+    const at = (expr) => {
+      const [c, path] = [expr.slice(0, expr.indexOf(":")), expr.slice(expr.indexOf(":") + 1)];
+      const t = trees.get(commits.get(c)?.tree);
+      if (!t) return null;
+      if (t.has(path)) return blob(t.get(path));
+      const entries = [...t].filter(([p]) => p.startsWith(`${path}/`) && !p.slice(path.length + 1).includes("/")).map(([p, oid]) => ({ name: p.slice(path.length + 1), oid, type: "blob", object: blob(oid) }));
+      return entries.length ? { oid: sha(), entries } : null;
+    };
+    for (const [, alias, expr] of query.matchAll(/(\w+): object\(expression: ("(?:[^"\\]|\\.)*")\)/g)) repository[alias] = at(JSON.parse(expr));
+    if (query.includes("object(expression: $e)")) repository.object = at(v.e);
+    if (query.includes("history(")) {
+      const nodes = [];
+      for (let c = v.to; c && nodes.length < 50; c = commits.get(c)?.parents[0]) nodes.push({ oid: c, message: commits.get(c)?.message ?? "" });
+      repository.object = commits.has(v.to) ? { history: { nodes } } : null;
+    }
     return res(200, { data: { repository } });
   }
 
@@ -127,7 +177,7 @@ export function fakeGitHub({ login = "ege", delay = () => 0 } = {}) {
     const t = trees.get(commits.get(ref(branch, repo ?? [...refs.keys()].find((k) => k.endsWith(`#${branch}`))?.split("#")[0]))?.tree) ?? new Map();
     return Object.fromEntries([...t].map(([path, s]) => [path, Buffer.from(blobs.get(s), "base64").toString("utf8")]));
   };
-  return { handle, fetch, files, ref, log, tokens, refreshes, quota };
+  return { handle, fetch, files, ref, log, tokens, refreshes, quota, app, ntfy };
 }
 
 /** The fake as an HTTP server on 127.0.0.1 (a free port), for the CLI and the Android emulator. */

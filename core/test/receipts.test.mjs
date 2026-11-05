@@ -36,7 +36,7 @@ test("receipts move forward only, and an unchanged mark makes no commit", async 
   const bus = new Bus({ repo: "x/y", token: "t" });
   let stored = null, commits = 0;
   Object.assign(bus, {
-    receipts: async () => (stored ? { 1111: stored } : {}),
+    readJson: async () => (stored ? { id: "1111", channels: stored } : null),
     commit: async (files) => { const out = await files(stored ? "c1" : null); stored = JSON.parse(Object.values(out)[0]).channels; commits++; return "c"; },
   });
   const me = { id: "1111", nick: "me" };

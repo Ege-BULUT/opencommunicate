@@ -5,11 +5,12 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { Bus, PALETTES, quotedIds, STATUS_MAX, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, hideSecrets, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message } from "../../core/src/index.ts";
+import { Bus, HEARTBEAT_MS, PALETTES, quotedIds, STATUS_MAX, answerFor, PHOTO_MAX, REACTIONS, REACTION_NAMES, Watcher, searchMessages, reactionsOn, type Reaction, type Reactions, addressedTo, newestByChannel, recipientsOf, snippet, ticksFor, dmChannel, groupAdmins, handle, hideSecrets, isDm, dmPeer, pictureOf, type Device, type Group, type GroupChange, type Kind, type Message, type Store } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { setUpKeys } from "../../core/src/e2e.ts";
 import { saveFiles } from "./mcp.ts";
 import GUIDE from "../../docs/AGENTS.md";
+import { appOf, resetSetUp, setUpStep, tokenSource } from "./app.ts";
 import { INVITE_BASE, canAdmit, createInvite, inviteMessage, invites, isOpen, processInvites, whatsappLink } from "../../core/src/invite.ts";
 
 const CONFIG_DIR = process.env.OPENCOM_HOME || path.join(os.homedir(), ".opencommunicate");
@@ -101,6 +102,11 @@ const USAGE = `opencom — chat over a private GitHub repository
   opencom receipts on|off          read receipts: "watch" tells senders it read their messages
                                    (blue ticks); off still reports them delivered (default: on)
   opencom ui [--port 4817]         open the desktop app in the browser
+  opencom app [--reset] [--timeout <s>]
+                                   give this computer's agents a GitHub quota of their own (a GitHub
+                                   App): asks the repo owner by DM to tap Create and Install, then waits.
+                                   An owner's agent's watch and mcp do it by themselves; OPENCOM_APP=off
+                                   turns it off. --reset forgets an unfinished setup (a new link)
   opencom mcp                      serve this device's chat as an MCP server over stdio (tools: send,
                                    inbox, history, answer, react, status, save, contacts, groups). Claude Code:
                                    claude mcp add opencom -e OPENCOM_HOME=<dir> -- opencom mcp
@@ -155,6 +161,24 @@ const readConfig = (): Config => {
   try { return JSON.parse(fs.readFileSync(CONFIG, "utf8")); }
   catch { throw new Error("Not set up yet. Run: opencom init <owner/repo> --nick <name>"); }
 };
+/** What a Bus keeps between runs (heads' ETags, trees by commit), as files: a new opencom process asks GitHub only
+ *  about what moved since the last one. Only the newest trees stay. */
+function fileStore(dir: string): Store {
+  return {
+    get: (k) => { try { return fs.readFileSync(path.join(dir, k), "utf8"); } catch { return null; } },
+    set: (k, v) => {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        const tmp = path.join(dir, `.${k}.${process.pid}`);
+        fs.writeFileSync(tmp, v);
+        fs.renameSync(tmp, path.join(dir, k)); // whole or not at all, for a run reading it meanwhile
+        if (!k.startsWith("tree-")) return;
+        const trees = fs.readdirSync(dir).filter((f) => f.startsWith("tree-")).map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs })).sort((a, b) => b.t - a.t);
+        for (const { f } of trees.slice(20)) fs.rmSync(path.join(dir, f), { force: true });
+      } catch { /* a cache: the next run asks GitHub */ }
+    },
+  };
+}
 const readText = (p: string) => { try { return fs.readFileSync(p, "utf8").trim(); } catch { return ""; } };
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
 const writeConfig = (c: Config) => { fs.mkdirSync(CONFIG_DIR, { recursive: true }); fs.writeFileSync(CONFIG, JSON.stringify(c, null, 2), { mode: 0o600 }); };
@@ -245,7 +269,7 @@ async function main(argv: string[]) {
   }
 
   const cfg = readConfig();
-  const bus = new Bus({ repo: cfg.repo, token: token() });
+  const bus = new Bus({ repo: cfg.repo, token: tokenSource(cfg.repo, token), store: fileStore(path.join(CONFIG_DIR, "cache")) });
   // end-to-end encryption: this device's key in key.json next to the config (OPENCOM_PASSWORD unlocks the
   // account's key from its backup, for a person's account used here too)
   const KEY = path.join(CONFIG_DIR, "key.json");
@@ -570,17 +594,28 @@ async function main(argv: string[]) {
       const recent = new Map<string, Message>(); // a small window so a reply can show what it quotes
       const every = Math.max(2, Number(f.interval?.[0] ?? 5)) * 1000;
       let beat = 0;
-      // an admin's watch also lets invited people in (every 15 s)
-      const admits = await canAdmit(bus);
+      // an admin's watch also lets invited people in (every 15 s); on the agents' app it cannot (contents only),
+      // and the owner's apps do it
+      let admits = await canAdmit(bus);
       let invitesAt = 0;
+      // the agents' own quota (app.ts): a step every 10 s until it is in use
+      let onApp = !!appOf(cfg.repo.split("/")[0])?.installation, appAt = 0, appStep: Promise<unknown> | null = null;
+      if (onApp) admits = false;
       if (!f.json) console.error(`watching ${cfg.repo} as ${handle(me)}…`);
       for (;;) {
         try {
           // the status from the config as it is now ("opencom status" may have changed it meanwhile)
-          if (Date.now() - beat > 5 * 60_000) { beat = Date.now(); bus.heartbeat(me, (() => { try { return readConfig().status ?? ""; } catch { return ""; } })()).catch(() => {}); }
+          if (Date.now() - beat > HEARTBEAT_MS) { beat = Date.now(); bus.heartbeat(me, (() => { try { return readConfig().status ?? ""; } catch { return ""; } })()).catch(() => {}); }
+          if (!onApp && !appStep && Date.now() - appAt > 10_000) {
+            appAt = Date.now();
+            appStep = setUpStep(bus, me, w.devices, (s) => console.error(`watch: ${s}`))
+              .then((done) => { if (done) { onApp = true; admits = false; } })
+              .catch((e) => console.error(`watch: app: ${(e as Error).message}`))
+              .finally(() => { appStep = null; });
+          }
           if (admits && Date.now() - invitesAt > 15_000) {
             invitesAt = Date.now();
-            for (const login of await processInvites(bus, me)) console.error(`watch: admitted ${login} (invitation)`);
+            for (const login of await processInvites(bus, me, fetch, w.head)) console.error(`watch: admitted ${login} (invitation)`);
           }
           const fresh = await w.tick();
           for (const m of fresh) recent.set(m.id, m);
@@ -607,6 +642,20 @@ async function main(argv: string[]) {
         await new Promise((r) => setTimeout(r, every));
       }
     }
+    case "app": {
+      const owner = cfg.repo.split("/")[0];
+      if (f.reset) { resetSetUp(owner); console.log("Forgotten: the next step asks again."); }
+      const until = Date.now() + seconds(1800) * 1000;
+      const { devices } = await load();
+      while (!(await setUpStep(bus, me, devices, (s) => console.error(s), true))) {
+        if (me.login?.toLowerCase() !== owner.toLowerCase()) throw new Error(`Only the repository owner's (${owner}) devices can set up the agents' app.`);
+        if (process.env.OPENCOM_APP === "off") throw new Error("OPENCOM_APP=off: the agents' app is turned off here.");
+        if (Date.now() > until) throw new Error("Not set up yet: run it again to keep waiting (--reset sends a new link).");
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+      console.log(`The agents' app ${appOf(owner)!.slug} is in use: this computer's agents have a GitHub quota of their own.`);
+      return;
+    }
     case "mcp": {
       const { serveMcp } = await import("./mcp.ts");
       const version = (() => { try { return JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version; } catch { return "0"; } })();
@@ -614,6 +663,7 @@ async function main(argv: string[]) {
       await serveMcp({
         bus, me, repo: cfg.repo, version, cursor: path.join(CONFIG_DIR, "mcp-head"), readReceipts: cfg.readReceipts !== false,
         load, resolveTarget, label, line, status, setStatus: (text) => writeConfig({ ...readConfig(), status: text || undefined }),
+        setUp: async () => setUpStep(bus, me, (await load()).devices, (s) => console.error(`mcp: ${s}`)),
       });
       return;
     }
