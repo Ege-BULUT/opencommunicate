@@ -518,9 +518,11 @@ if (only === "all" || only === "search") {
   await sleep(200);
   await page.screenshot({ path: path.join(process.env.SHOTS ?? "/tmp", "search-chat.png") }).catch(() => {});
   check("in a chat, the newest match first, outlined", (await count.innerText()) === "1/2" && (await found()) === ids[1], `${await count.innerText()} ${await found()}`);
+  const marked = () => page.evaluate(() => [...(CSS.highlights.get("search") ?? [])].map(String).concat("|", [...(CSS.highlights.get("search-here") ?? [])].map(String)).join(","));
+  check("every match is marked in the bubbles, the current one more strongly", (await marked()) === "Deploy,|,deploy", await marked());
   await bar.locator("input").press("Enter");
   await sleep(200);
-  check("Enter (or ↑) goes to an older one", (await count.innerText()) === "2/2" && (await found()) === ids[0], `${await count.innerText()} ${await found()}`);
+  check("Enter (or ↑) goes to an older one", (await count.innerText()) === "2/2" && (await found()) === ids[0] && (await marked()) === "deploy,|,Deploy", `${await count.innerText()} ${await found()} ${await marked()}`);
   await bar.locator('button[aria-label="Newer match"]').click();
   await sleep(200);
   check("↓ comes back", (await count.innerText()) === "1/2" && (await found()) === ids[1]);
@@ -530,7 +532,7 @@ if (only === "all" || only === "search") {
   check("its Aa too", (await count.innerText()) === "1/1" && (await found()) === ids[0], await count.innerText());
   await bar.locator("input").press("Escape");
   await sleep(300);
-  check("Escape closes it", !(await bar.count()) && !(await page.locator(".item.found").count()));
+  check("Escape closes it, and its marks go", !(await bar.count()) && !(await page.locator(".item.found").count()) && (await marked()) === "|");
 
   const was = await page.evaluate(() => history.state?.ocBack); // the open chat's own (back goes to the list on a phone)
   await page.locator('.chat-head button[aria-label="Chat details"]').click();

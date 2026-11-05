@@ -1310,20 +1310,27 @@ export function snippet(m: Pick<Message, "text" | "files" | "locked"> | undefine
 export type SearchOptions = { caseSensitive?: boolean; regex?: boolean };
 
 /**
- * Where `query` first matches in a text, [start, end), or null: case-insensitive in `locale` unless
- * `caseSensitive` (so Turkish İ/ı match), as plain text unless `regex`. A regex that matches only empty text
- * matches nothing. Throws a SyntaxError for a regex that does not parse.
+ * Every place `query` matches in a text, [start, end): case-insensitive in `locale` unless `caseSensitive` (so
+ * Turkish İ/ı match; the places are then in the lowercased text, which a few letters make longer), as plain text
+ * unless `regex`. Empty matches are left out. Throws a SyntaxError for a regex that does not parse.
  */
-export function searchMatcher(query: string, locale?: string, o: SearchOptions = {}): (text: string) => [number, number] | null {
+export function searchMatches(query: string, locale?: string, o: SearchOptions = {}): (text: string) => [number, number][] {
   if (o.regex) {
-    const re = new RegExp(query, o.caseSensitive ? "u" : "iu");
-    return (text) => { const m = re.exec(text); return m && m[0] ? [m.index, m.index + m[0].length] : null; };
+    const re = new RegExp(query, o.caseSensitive ? "gu" : "giu");
+    return (text) => [...text.matchAll(re)].filter((m) => m[0]).map((m) => [m.index, m.index + m[0].length]);
   }
   const q = o.caseSensitive ? query : query.toLocaleLowerCase(locale);
   return (text) => {
-    const i = (o.caseSensitive ? text : text.toLocaleLowerCase(locale)).indexOf(q);
-    return i < 0 ? null : [i, i + q.length];
+    const t = o.caseSensitive ? text : text.toLocaleLowerCase(locale), out: [number, number][] = [];
+    for (let i = q ? t.indexOf(q) : -1; i >= 0; i = t.indexOf(q, i + q.length)) out.push([i, i + q.length]);
+    return out;
   };
+}
+
+/** Where `query` first matches in a text (see searchMatches), or null. */
+export function searchMatcher(query: string, locale?: string, o: SearchOptions = {}): (text: string) => [number, number] | null {
+  const all = searchMatches(query, locale, o);
+  return (text) => all(text)[0] ?? null;
 }
 
 /**

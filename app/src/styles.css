@@ -405,6 +405,8 @@ i.activity { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
 .chat-search .older-in-chat, .chat-search .error { flex-basis: 100%; text-align: left; }
 .chat-search .older-in-chat { flex: 0 0 auto; }
 .item.found .msg { outline: 2px solid var(--accent); outline-offset: 1px; }
+::highlight(search) { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+::highlight(search-here) { background-color: var(--accent); color: var(--accent-ink); }
 
 /* the chat's media and files, in its details */
 .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 4px; margin: 8px 0; }

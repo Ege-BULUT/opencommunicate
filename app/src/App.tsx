@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import { Bus, ClaimError, HEARTBEAT_MS, type Quota, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMatcher, searchMessages, type SearchOptions, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
+import { Bus, ClaimError, HEARTBEAT_MS, type Quota, DraftQueue, QUOTES_MAX, quotedIds, PALETTES, answerFor, answersTo, REACTIONS, isEditNotice, newerVersion, searchMatcher, searchMatches, searchMessages, type SearchOptions, type Drafts, reactionKey, reactionsOn, type Reaction, type Reactions, chatRepoName, chatReposFirst, looksLikeChat, PASSWORD_MIN, Watcher, addressedTo, artDataUrl, dmChannel, dmPeer, groupAdmins, handle, isDm, msgPath, newestByChannel, pictureOf, verifyPassword, quietFor, recipientsOf, snippet, ticksFor, wantsNotice, type Device, type FileRef, type Group, type GroupChange, type Message, type PasswordRecord, type Presence, type Picture, type Pin, type Upload, type Quiet, type Receipt, type Receipts, type Ticks } from "../../core/src/index.ts";
 import { notifyRecipients } from "../../core/src/notify.ts";
 import { INVITE_BASE, acceptInvitation, canAdmit, createInvite, decodeInvite, encodeInvite, inviteMessage, post, processInvites, read, whatsappLink, type InviteCode } from "../../core/src/invite.ts";
 import { Share } from "@capacitor/share";
@@ -1482,6 +1482,34 @@ function ChatSearch({ list, onOlder, onClose }: { list: Message[]; onOlder: () =
     el.classList.add("found");
     return () => el.classList.remove("found");
   }, [cur?.id]);
+  // every match marked in the bubbles, the current one's more strongly: CSS highlights (ranges over the text as
+  // shown, Markdown included), so the messages themselves are left as they are. A match across two styles (half of
+  // it bold) is not marked; neither is anything where the browser has no highlights (Safari before 17.2).
+  const marks = found.map((m) => m.id).join();
+  useEffect(() => {
+    const reg = (globalThis as { CSS?: { highlights?: Map<string, unknown> } }).CSS?.highlights;
+    if (!reg || !marks || bad) return;
+    let match: (s: string) => [number, number][];
+    try { match = searchMatches(q.trim(), LOCALE, how); } catch { return; }
+    const all = new Highlight(), here = new Highlight();
+    for (const m of found) {
+      const item = document.getElementById(`m-${m.id}`);
+      for (const box of item?.querySelectorAll(".text, .attach, .media-bar") ?? []) {
+        const walk = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          const text = n.textContent ?? "";
+          if (!how.caseSensitive && !how.regex && text.toLocaleLowerCase(LOCALE).length !== text.length) continue; // places would be off
+          for (const [i, j] of match(text)) {
+            const r = new Range(); r.setStart(n, i); r.setEnd(n, j);
+            (m.id === cur?.id ? here : all).add(r);
+          }
+        }
+      }
+    }
+    reg.set("search", all); reg.set("search-here", here);
+    return () => { reg.delete("search"); reg.delete("search-here"); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marks, cur?.id, list, q, how.caseSensitive, how.regex]);
   const step = (d: number) => setAt((i) => Math.max(0, Math.min(found.length - 1, i + d)));
   const older = async () => { setBusy(true); setError(""); try { setLeft(await onOlder()); } catch (e) { setError(S.cantSearch((e as Error).message)); } finally { setBusy(false); } };
   return (

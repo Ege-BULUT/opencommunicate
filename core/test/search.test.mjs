@@ -2,7 +2,7 @@
 // older() pages through what is not loaded yet, newest first.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Bus, msgPath, newerVersion, searchMatcher, searchMessages, snippet } from "../src/index.ts";
+import { Bus, msgPath, newerVersion, searchMatcher, searchMatches, searchMessages, snippet } from "../src/index.ts";
 
 test("newerVersion compares part by part as numbers", () => {
   assert.equal(newerVersion("0.7.10", "0.7.9"), true);
@@ -44,6 +44,8 @@ test("case-sensitive and regex searches, and where a match is", () => {
   assert.deepEqual(searchMatcher("VERCEL", "en")("Deploy to vercel"), [10, 16]);
   assert.deepEqual(searchMatcher("v\\d", "en", { regex: true })("release v1.0"), [8, 10]);
   assert.equal(searchMatcher("İstanbul", "tr-TR", { caseSensitive: true })("istanbul"), null);
+  assert.deepEqual(searchMatches("deploy", "en")("Deploy, then deploy again"), [[0, 6], [13, 19]]);
+  assert.deepEqual(searchMatches("\\d+", "en", { regex: true })("v0.9.10"), [[1, 2], [3, 4], [5, 7]]);
 });
 
 test("older() pages through what is not loaded, newest first", async () => {
