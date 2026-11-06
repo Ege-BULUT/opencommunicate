@@ -52,7 +52,7 @@ async function setup(delay, args = [], routes = async () => false, prepare = asy
     const u = new URL(req.url());
     if (u.hostname === "api.github.com") {
       const r = await gh.handle(req.method(), req.url(), req.headers(), req.postData() ?? "");
-      return route.fulfill({ status: r.status, headers: { ...r.headers, "access-control-allow-origin": "*", "access-control-expose-headers": "etag, x-ratelimit-limit, x-ratelimit-used, x-ratelimit-remaining, x-ratelimit-reset, x-ratelimit-resource" }, body: r.body });
+      return route.fulfill({ status: r.status, headers: { ...r.headers, "access-control-allow-origin": "*", "access-control-expose-headers": "etag, x-ratelimit-limit, x-ratelimit-used, x-ratelimit-remaining, x-ratelimit-reset, x-ratelimit-resource" }, body: r.body }).catch(() => {}); // the page gave up on it
     }
     if (u.hostname === "127.0.0.1") return route.continue();
     if (await routes(route, u)) return;
@@ -611,6 +611,24 @@ if (only === "all" || only === "cache") {
   ring?.();
   await page.locator(".messages").getByText("ring ring").waitFor({ timeout: 6000 }).catch(() => {});
   check("a notification brings its message at once", Date.now() - t1 < 2000, `${Date.now() - t1} ms`);
+  await browser.close();
+}
+
+// 0.9.11: back from a sleep, a read left hanging from before is given up and the chat is read at once
+if (only === "all" || only === "resume") {
+  let hang = false, stuck = 0;
+  const { gh, bus, browser, page } = await setup((method, p) => (hang && method === "GET" && p.endsWith("/git/ref/heads/main") && !stuck++ ? 25_000 : 0));
+  await openDm(page);
+  hang = true; // the app's next look at the branch gets no answer, as on a connection that died while the phone slept
+  for (let i = 0; i < 200 && !stuck; i++) await sleep(50);
+  await bus.send(dm, agent, "sent while asleep", []);
+  const away = (hidden) => page.evaluate((h) => { Object.defineProperty(document, "hidden", { value: h, configurable: true }); document.dispatchEvent(new Event("visibilitychange")); }, hidden);
+  await away(true);
+  await sleep(5500);
+  await away(false);
+  const t0 = Date.now();
+  await page.locator(".messages").getByText("sent while asleep").waitFor({ timeout: 20000 }).catch(() => {});
+  check("back from a sleep, the message is there at once, not after the hanging read", !!stuck && Date.now() - t0 < 3000, `${Date.now() - t0} ms`);
   await browser.close();
 }
 
