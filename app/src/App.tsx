@@ -47,6 +47,22 @@ if (native()) {
   window.addEventListener("pagehide", () => { listener.then((l) => l.remove()); });
 }
 
+/* Reads from GitHub that are still waiting when the app comes back are given up: started before the phone slept,
+   their connection may be gone, and the poll would wait on them (minutes, with no answer) rather than look again
+   at once. No read waits more than 30 s for GitHub to start answering either. Writes (a message on its way) are
+   left alone. */
+let reads = new AbortController();
+const isRead = (url: string, init?: RequestInit) =>
+  (init?.method ?? "GET").toUpperCase() === "GET" || (url.endsWith("/graphql") && String(init?.body ?? "").startsWith('{"query":"query'));
+const readFetch: typeof fetch = (input, init) => {
+  if (!isRead(String(input), init)) return fetch(input, init);
+  const stop = new AbortController(), now = reads.signal, give = () => stop.abort();
+  now.addEventListener("abort", give);
+  const t = setTimeout(give, 30_000);
+  return fetch(input, { ...init, signal: stop.signal }).finally(() => { clearTimeout(t); now.removeEventListener("abort", give); });
+};
+const dropReads = () => { reads.abort(); reads = new AbortController(); };
+
 // A file dropped anywhere but an open chat is ignored: the browser (and Electron) would otherwise open it in place of the app
 for (const t of ["dragover", "drop"]) window.addEventListener(t, (e) => { if (!e.defaultPrevented && (e as DragEvent).dataTransfer?.types.includes("Files")) { e.preventDefault(); (e as DragEvent).dataTransfer!.dropEffect = "none"; } });
 
@@ -178,7 +194,7 @@ function useActivity(chats: Chats | null | undefined): Record<string, boolean> {
       for (const c of list) {
         if (c.repo === chats?.active) continue;
         const id = `${c.repo}/${credKey(c)}`;
-        if (!buses.current.has(id)) buses.current.set(id, new Bus({ repo: c.repo, token: sourceFor(c) }));
+        if (!buses.current.has(id)) buses.current.set(id, new Bus({ repo: c.repo, token: sourceFor(c), fetch: readFetch }));
         try {
           const head = (await buses.current.get(id)!.headIfChanged()) ?? heads.current.get(id);
           if (head) heads.current.set(id, head);
@@ -673,7 +689,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
   // the bus and the watcher follow the chat and the token; a change to this device (picture, notifications) keeps them
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const bus = useMemo(() => {
-    const b = new Bus({ repo: session.repo, token: sourceFor(session) });
+    const b = new Bus({ repo: session.repo, token: sourceFor(session), fetch: readFetch });
     b.keys = keysFor(b, session.repo, session.device); // end-to-end encryption (keys.ts)
     return b;
   }, [session.repo, credKey(session), session.source]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -850,16 +866,28 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
     let wake = () => {};
     wakeRef.current = () => wake();
     const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); wake = () => { clearTimeout(t); r(); }; });
-    const onVisible = () => { if (!document.hidden) wake(); };
+    // back after a while away (the phone slept): what was asked before is given up, and the chat is read at once,
+    // then a few times a second apart while GitHub may still show the branch as it was
+    let away = 0;
+    const back = (here: boolean) => {
+      if (!here) { away ||= Date.now(); return; }
+      if (away && Date.now() - away > 5000) { dropReads(); quick.current = 3; }
+      away = 0;
+      wake();
+    };
+    const onVisible = () => back(!document.hidden);
     document.addEventListener("visibilitychange", onVisible);
+    const state = native() ? NativeApp.addListener("appStateChange", ({ isActive }) => back(isActive)) : null;
     (async () => {
       // a failed start is retried (the phone may be offline or just waking up); an account problem waits for sign-in
       for (let wait = POLL_MS; ; wait = Math.min(wait * 2, 60_000)) {
         if (stop) return;
         try {
-          await bus.gh(`/repos/${session.repo}`); // a repository this account can't see would otherwise look empty
           const last = lastShown(session.repo, session.device.id);
-          await watcher.start(last?.head, last ? keptOf(last) : undefined);
+          const started = watcher.start(last?.head, last ? keptOf(last) : undefined);
+          started.catch(() => {}); // its failure is read below, after the repository's (the clearer one)
+          await bus.gh(`/repos/${session.repo}`); // a repository this account can't see would otherwise look empty
+          await started;
           if (stop) return; // left this chat meanwhile: write nothing back
         setDevices(watcher.devices); setGroups(watcher.groups);
         // the repository's devices/<id>.json is the truth (another client may have changed it)
@@ -943,7 +971,7 @@ function Chat({ session, onSession, onSignOut, chats, activity, onOpen, onAdd }:
         if (full) setRefreshing(false);
       }
     })();
-    return () => { stop = true; wake(); document.removeEventListener("visibilitychange", onVisible); };
+    return () => { stop = true; wake(); document.removeEventListener("visibilitychange", onVisible); state?.then((l) => l.remove()); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watcher]);
 

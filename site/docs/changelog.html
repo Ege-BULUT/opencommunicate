@@ -67,8 +67,19 @@
 <h1>Changelog</h1>
 <p class="lede">What changed in each version. The newest is open; tap a version to see what it brought. From 0.5.0 on, each version links its GitHub release, where its installers stay available (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">all releases</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Expand all</button><button type="button" class="linkish" data-all="close">Collapse all</button></p>
-<details class="rel" id="en-0.9.10" open>
-  <summary><span class="v">0.9.10</span><span class="h">Opens at once, and a light theme <span class="tag">Latest</span></span><time datetime="2026-11-05">5 November 2026</time></summary>
+<details class="rel" id="en-0.9.11" open>
+  <summary><span class="v">0.9.11</span><span class="h">Messages at once after the phone sleeps <span class="tag">Latest</span></span><time datetime="2026-11-06">6 November 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Back from a sleep, the chat is read at once.</b> A look at GitHub started before the phone locked could hang on a connection that died meanwhile, and new messages waited for it, sometimes for minutes. Now, when the app comes back after a while away, it gives up what it asked before, reads the chat straight away and again a few times a second apart.</li>
+  <li><b>No look at GitHub waits more than 30 seconds</b> for an answer to start; the next one tries again.</li>
+  <li><b>Opening is quicker.</b> The first requests go together instead of one after another.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.11">Release and downloads on GitHub ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="en-0.9.10">
+  <summary><span class="v">0.9.10</span><span class="h">Opens at once, and a light theme</span><time datetime="2026-11-05">5 November 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Opens at once.</b> Each device keeps its chats' newest 20 messages, so a chat shows as soon as you open the app, before GitHub answers. The start then reads only what came since you last looked, not the whole chat again, which also spends less of GitHub's hourly quota.</li>
@@ -566,8 +577,19 @@
 <h1>Sürüm notları</h1>
 <p class="lede">Her sürümde neyin değiştiği. En yenisi açık; ne getirdiğini görmek için bir sürüme dokunun. 0.5.0'dan itibaren her sürüm GitHub'daki sürümüne bağlanır; kurulum dosyaları orada kalır (<a href="https://github.com/Ege-BULUT/opencommunicate/releases">tüm sürümler</a>).</p>
 <p class="toc"><button type="button" class="linkish" data-all="open">Hepsini aç</button><button type="button" class="linkish" data-all="close">Hepsini kapat</button></p>
-<details class="rel" id="tr-0.9.10" open>
-  <summary><span class="v">0.9.10</span><span class="h">Anında açılış ve açık tema <span class="tag">Son sürüm</span></span><time datetime="2026-11-05">5 Kasım 2026</time></summary>
+<details class="rel" id="tr-0.9.11" open>
+  <summary><span class="v">0.9.11</span><span class="h">Telefon uyuduktan sonra mesajlar hemen <span class="tag">Son sürüm</span></span><time datetime="2026-11-06">6 Kasım 2026</time></summary>
+  <div class="body">
+<ul>
+  <li><b>Uykudan dönünce sohbet hemen okunur.</b> Telefon kilitlenmeden önce başlamış bir GitHub isteği, bu arada kopan bir bağlantıda asılı kalabiliyordu; yeni mesajlar onu, bazen dakikalarca, bekliyordu. Artık uygulama bir süre uzakta kaldıktan sonra geri gelince önceki istekleri bırakır, sohbeti hemen okur ve birkaç kez bir saniye arayla yeniden bakar.</li>
+  <li><b>GitHub'a hiçbir bakış cevabın başlaması için 30 saniyeden fazla beklemez</b>; bir sonraki yeniden dener.</li>
+  <li><b>Açılış daha hızlı.</b> İlk istekler sırayla değil birlikte gider.</li>
+</ul>
+<p class="rel-link"><a href="https://github.com/Ege-BULUT/opencommunicate/releases/tag/v0.9.11">GitHub'daki sürüm ve indirmeler ↗</a></p>
+  </div>
+</details>
+<details class="rel" id="tr-0.9.10">
+  <summary><span class="v">0.9.10</span><span class="h">Anında açılış ve açık tema</span><time datetime="2026-11-05">5 Kasım 2026</time></summary>
   <div class="body">
 <ul>
   <li><b>Anında açılış.</b> Her cihaz sohbetlerinin son 20 mesajını saklar; uygulamayı açınca sohbet, GitHub cevap vermeden görünür. Açılış ardından tüm sohbeti baştan değil, yalnızca son bakıştan beri geleni okur; bu GitHub'ın saatlik kotasından da daha az harcar.</li>
