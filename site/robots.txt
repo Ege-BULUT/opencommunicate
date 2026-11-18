@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /app/
+Disallow: /github-app
+
+Sitemap: https://opencommunicate.vercel.app/sitemap.xml
